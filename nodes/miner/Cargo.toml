@@ -1,0 +1,17 @@
+[package]
+name = "miner"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
+config = { version = "0.1.0", path = "../../utils/config" }
+env_logger = "0.10.0"
+libp2p = { version = "0.52.3", features = ["tcp", "noise", "kad", "macros", "tokio", "yamux", "identify", "websocket", "gossipsub", "dns"] }
+log = "0.4.20"
+onion = { version = "0.1.0", path = "../../utils/onion" }
+protocols = { version = "0.1.0", path = "../../utils/protocols" }
+smallvec = "1.11.1"
+tokio = { version = "1.32.0", features = ["rt", "macros", "time"] }

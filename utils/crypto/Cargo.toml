@@ -1,0 +1,14 @@
+[package]
+name = "crypto"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+aes-gcm = { version = "0.10.3", features = ["std"] }
+ed25519-dalek = { version = "2.0.0", features = ["rand_core"] }
+pqc_dilithium = { version = "0.2.0", features = ["mode3", "getrandom"] }
+pqc_kyber = { version = "0.7.1", features = ["getrandom", "kyber1024", "std"] }
+thiserror = "1.0.50"
+x25519-dalek = { version = "2.0.0", features = ["static_secrets", "getrandom"] }

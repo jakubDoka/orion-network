@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+	"nodes/*",
+	"utils/*",
+	"tests/*"
+]
+exclude = [
+	"rust-libp2p",
+]
+
+[profile.release]
+panic = "abort"

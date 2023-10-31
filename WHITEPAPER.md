@@ -46,13 +46,15 @@ This is done by the user, now lets look at the `onion packet` structure, for thi
     actual_message = "seret message for C"
     message1       = pk(C) + enc(C, S, actual_message)
     message2       = pk(B) + enc(B, S, message1)
-    onion_packet   = pk(A) + enc(A, S, message2)
+    onion_packet   = pk(S) + enc(A, S, message2)
 ```
+
+Each node then strips the sender public key, decrypts the message and replaces the next nodes public key with senders public key. This operation is denoted by `u(N, P)` where `N` is the miner performing the operation and `P` is the delivered packet.
 
 This packet is then sent like so:
 
 ```
-sender --| onion_packet |--> A --| message2 |--> B --| message1 |--> C (actual_message)
+sender --| onion_packet |--> A --| u(A, onion_packet) |--> B --| u(B, u(A, onion_packet)) |--> C u(C, u(B, u(A, onion_packet))) = actual_message
 ```
 
 Assuming A and B are trustworthy the sender is only revealed to `A` and receiver is only known to `B`.
@@ -61,11 +63,18 @@ The presented formula can be generalized over any number of intermediate nodes b
 
 ## Decentralized Message Buffer
 
-Once we delivered our message to the node before recipient, in this case node `B`, we may extra flexibility by storing it in a distributed message buffer. This means node `C` does no need to be online all the time, rather it can query his messages later and decide to delete them sooner, to keep the amount of data in the network only scale by amount of users, the messages are only kept for limited amount of time and some upload limit should be incurred on users.
+The message buffer is implemented trough DHT (Kademila). Steps to send a message are as follows:
 
-The storage is based on Distributed Hash Table (DHT) with predefined replication factor.
+```rs
+fn send_message(chat: Bytes, content: Bytes) {
+    // this is not including onion routing for simplicity
+    let replicating_nodes = DHT.get_closest_peers_to(chat);
+    let peer = pick_random_from(repkication_nodes);
+    let channel = connect_to(peer);
+    channel.send(Request::SendMessage(chat, content));
+}
+```
 
-### Reputation (Idea)
+Since we have the channel, we can subscribe to the chat so node will forward it when message gets replicated.
 
-Reputation is implemented trough off-chain workers. The worker can choose random node and query for message it knows should exist (it was anonymously sent it to fake address). The nodes that should have had it but does not have twice in a row, will loose the season reward.
-
+The encryption of messages is shifted to clients. We still need some amount of access control (sending messages). Each chat also contains public keys and associated permission level. First user to send a message is assigned permission 0, subsequent users invited can be assigned `inviter.perm..`, root users (perm == 0) can choose at which level the user can do certain things...
