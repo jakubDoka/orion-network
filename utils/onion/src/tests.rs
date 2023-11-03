@@ -4,7 +4,6 @@ use futures::{FutureExt, StreamExt};
 use libp2p_core::{multiaddr::Protocol, upgrade::Version, Transport};
 use libp2p_identity::{Keypair, PeerId};
 use libp2p_swarm::SwarmEvent;
-use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::EncryptedStream;
 
@@ -18,7 +17,7 @@ fn setup_nodes<const COUNT: usize>(
     ports.map(|port| {
         let keypair = Keypair::generate_ed25519();
         let peer_id = keypair.public().to_peer_id();
-        let secret = StaticSecret::random();
+        let secret = crate::KeyPair::default();
         let transport = libp2p::tcp::tokio::Transport::default()
             .upgrade(Version::V1)
             .authenticate(libp2p::noise::Config::new(&keypair).unwrap())
@@ -27,7 +26,7 @@ fn setup_nodes<const COUNT: usize>(
         let mut swarm = libp2p_swarm::Swarm::new(
             transport,
             crate::Behaviour::new(
-                crate::Config::new(secret, peer_id).keep_alive_interval(CONNECTION_TIMEOUT),
+                crate::Config::new(Some(secret), peer_id).keep_alive_interval(CONNECTION_TIMEOUT),
             ),
             peer_id,
             libp2p_swarm::Config::with_tokio_executor()
@@ -84,7 +83,8 @@ async fn open_path(
 
     swarms[0]
         .behaviour_mut()
-        .open_path(path.map(|(k, i)| (PublicKey::from(&k), i)));
+        .open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)))
+        .unwrap();
 
     let mut input = None;
     let mut output = None;
@@ -182,7 +182,8 @@ async fn test_missing_route() {
 
         swarms[0]
             .behaviour_mut()
-            .open_path(path.map(|(k, i)| (PublicKey::from(&k), i)));
+            .open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)))
+            .unwrap();
 
         loop {
             let (e, id, ..) =

@@ -112,8 +112,8 @@ struct Timeout {
 }
 
 impl Timeout {
-    fn new<F: FnMut() + 'static>(dur: i32, mut f: F) -> Self {
-        let closure = Closure::<dyn FnMut()>::new(move || f());
+    fn new<F: FnMut() + 'static>(dur: i32, f: F) -> Self {
+        let closure = Closure::<dyn FnMut()>::new(f);
         let id = window()
             .unwrap()
             .set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -134,12 +134,15 @@ impl Drop for Timeout {
     }
 }
 
+type CloseCallback = Cell<Option<Closure<dyn FnMut(CloseEvent)>>>;
+type ReadCallback = Cell<Option<Closure<dyn FnMut(MessageEvent)>>>;
+
 #[derive(Default)]
 struct ConnectionState {
-    close_closure: Cell<Option<Closure<dyn FnMut(CloseEvent)>>>,
+    close_closure: CloseCallback,
     close_waker: Cell<Option<Waker>>,
 
-    read_closure: Cell<Option<Closure<dyn FnMut(MessageEvent)>>>,
+    read_closure: ReadCallback,
     read_waker: Cell<Option<Waker>>,
     read_buf: Cell<Vec<u8>>,
 

@@ -2,13 +2,13 @@
 #[macro_export]
 macro_rules! gen_config {
     (
-        $(#[$comment:meta] $required_field:ident: $required_ty:ty,)*
+        $($(#[$comment:meta])* $required_field:ident: $required_ty:ty,)*
         ;;
-        $(#[$comment2:meta] $field:ident: $ty:ty = $default:expr,)*
+        $($(#[$comment2:meta])* $field:ident: $ty:ty = $default:expr,)*
     ) => {
         pub struct Config {
             $(
-                #[$comment]
+                $(#[$comment])*
                 pub $required_field: $required_ty,
             )*
             $(
@@ -25,7 +25,7 @@ macro_rules! gen_config {
             }
 
             $(
-                #[$comment2]
+                $(#[$comment2])*
                 #[doc = concat!("Defaults to ", stringify!($default))]
                 pub fn $field(mut self, $field: $ty) -> Self {
                     self.$field = $field;
@@ -42,7 +42,7 @@ pub mod handler;
 pub mod kad;
 pub mod stream;
 
-pub use {codec::*, futures, handler::*, stream::*};
+pub use {arrayvec, codec::*, futures, handler::*, stream::*};
 
 #[cfg(feature = "kad")]
 pub use kad::*;
@@ -82,6 +82,10 @@ impl<K: Eq, V> LinearMap<K, V> {
         self.values.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.values.iter().map(|(k, v)| (k, v))
     }
@@ -109,7 +113,7 @@ impl Rng {
         Self(fnv_hash(seed))
     }
 
-    pub fn next(&mut self) -> u64 {
+    pub fn next_u64(&mut self) -> u64 {
         let Self(seed) = self;
         *seed = fnv_hash(&seed.to_le_bytes());
         *seed

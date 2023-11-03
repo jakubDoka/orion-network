@@ -3,78 +3,102 @@ use std::usize;
 use aes_gcm::{
     aead::{generic_array::GenericArray, OsRng},
     aes::cipher::Unsigned,
-    AeadCore, AeadInPlace, Aes256Gcm, KeyInit, KeySizeUser,
+    AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
 };
+use libp2p_core::multihash::Multihash;
 use libp2p_identity::PeerId;
-use x25519_dalek::{PublicKey, StaticSecret};
 
 pub const OK: u8 = 0;
 pub const MISSING_PEER: u8 = 1;
 pub const OCCUPIED_PEER: u8 = 2;
-pub const ASOC_DATA: &[u8] = b"onion deez nuts";
+pub const ASOC_DATA: &[u8] = concat!(
+    "asoc-",
+    env!("CARGO_PKG_VERSION"),
+    "-",
+    env!("CARGO_PKG_NAME"),
+)
+.as_bytes();
+pub const TAG_SIZE: usize = <Aes256Gcm as AeadCore>::TagSize::USIZE;
+pub const NONCE_SIZE: usize = <Aes256Gcm as AeadCore>::NonceSize::USIZE;
+pub const CONFIRM_PACKET_SIZE: usize = TAG_SIZE + NONCE_SIZE;
 pub const PATH_LEN: usize = 2;
-pub const MAX_INIT_PACKET_SIZE: usize = PATH_LEN
-    * (std::mem::size_of::<PeerId>()
-        + 1
-        + <Aes256Gcm as AeadCore>::TagSize::USIZE
-        + <Aes256Gcm as AeadCore>::NonceSize::USIZE)
-    + <Aes256Gcm as KeySizeUser>::KeySize::USIZE;
-pub const CONFIRM_PACKET_SIZE: usize =
-    <Aes256Gcm as AeadCore>::TagSize::USIZE + <Aes256Gcm as AeadCore>::NonceSize::USIZE;
 
-pub fn wrap_with_key(key: &aes_gcm::Key<aes_gcm::Aes256Gcm>, skip: usize, buffer: &mut Vec<u8>) {
+pub type KeyPair = crypto::enc::KeyPair;
+pub type PublicKey = crypto::enc::PublicKey;
+pub type SharedSecret = crypto::SharedSecret;
+
+pub fn write_confirm(key: &SharedSecret, buffer: &mut [u8]) {
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let cipher = Aes256Gcm::new(key);
+    let cipher = Aes256Gcm::new(&GenericArray::from(*key));
 
     let tag = cipher
-        .encrypt_in_place_detached(&nonce, ASOC_DATA, &mut buffer[skip..])
+        .encrypt_in_place_detached(&nonce, ASOC_DATA, &mut [])
+        .expect("we are certainly not that big");
+
+    buffer[..tag.len()].copy_from_slice(&tag);
+    buffer[tag.len()..].copy_from_slice(&nonce);
+}
+
+pub fn verify_confirm(key: &SharedSecret, buffer: &mut [u8]) -> bool {
+    peel_wih_key(key, buffer).is_some()
+}
+
+pub fn wrap(
+    client_kp: &KeyPair,
+    sender: &PublicKey,
+    buffer: &mut Vec<u8>,
+) -> Result<(), crypto::enc::EncapsulationError> {
+    let (cp, key) = client_kp.encapsulate(sender)?;
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let cipher = Aes256Gcm::new(&GenericArray::from(key));
+
+    let tag = cipher
+        .encrypt_in_place_detached(&nonce, ASOC_DATA, buffer)
         .expect("we are certainly not that big");
 
     buffer.extend_from_slice(&tag);
     buffer.extend_from_slice(&nonce);
-}
+    buffer.extend_from_slice(&cp.into_bytes());
 
-pub fn wrap(persistent: &StaticSecret, sender: &PublicKey, buffer: &mut Vec<u8>) {
-    let key = persistent.diffie_hellman(&sender);
-    let key = GenericArray::from(*key.as_bytes());
-    wrap_with_key(&key, 0, buffer);
+    Ok(())
 }
 
 pub fn new_initial(
+    recipient: &PublicKey,
     path: [(PublicKey, PeerId); PATH_LEN],
-    ephemeral: &StaticSecret,
+    client_kp: &KeyPair,
     buffer: &mut Vec<u8>,
-) {
-    for (pk, id) in path {
-        let id_bytes = id.to_bytes();
-        buffer.extend_from_slice(&id_bytes);
-        buffer.extend_from_slice(&[id_bytes.len() as u8]);
+) -> Result<SharedSecret, crypto::enc::EncapsulationError> {
+    let (cp, key) = client_kp.encapsulate(recipient)?;
+    buffer.extend_from_slice(&cp.into_bytes());
 
-        wrap(ephemeral, &pk, buffer);
+    for (pk, id) in path {
+        let prev_len = buffer.len();
+        let mh = Multihash::from(id);
+        mh.write(&mut *buffer).unwrap();
+        buffer.push((buffer.len() - prev_len) as u8);
+
+        wrap(client_kp, &pk, buffer)?;
     }
 
-    buffer.extend_from_slice(PublicKey::from(ephemeral).as_bytes());
+    buffer.extend_from_slice(&client_kp.public_key().into_bytes());
+
+    Ok(key)
 }
 
-pub fn peel_wih_key(
-    key: &aes_gcm::Key<aes_gcm::Aes256Gcm>,
-    mut buffer: &mut [u8],
-) -> Option<usize> {
-    let tag_size = <Aes256Gcm as AeadCore>::TagSize::to_usize();
-    let nonce_size = <Aes256Gcm as AeadCore>::NonceSize::to_usize();
-
-    if buffer.len() < tag_size + nonce_size {
+pub fn peel_wih_key(key: &SharedSecret, mut buffer: &mut [u8]) -> Option<usize> {
+    if buffer.len() < TAG_SIZE + NONCE_SIZE {
         return None;
     }
 
     let mut tail;
 
-    (buffer, tail) = buffer.split_at_mut(buffer.len() - nonce_size);
+    (buffer, tail) = buffer.split_at_mut(buffer.len() - NONCE_SIZE);
     let nonce = *GenericArray::from_slice(tail);
-    (buffer, tail) = buffer.split_at_mut(buffer.len() - tag_size);
+    (buffer, tail) = buffer.split_at_mut(buffer.len() - TAG_SIZE);
     let tag = *GenericArray::from_slice(tail);
 
-    let cipher = Aes256Gcm::new(&key);
+    let cipher = Aes256Gcm::new(&GenericArray::from(*key));
 
     cipher
         .decrypt_in_place_detached(&nonce, ASOC_DATA, buffer, &tag)
@@ -83,32 +107,29 @@ pub fn peel_wih_key(
     Some(buffer.len())
 }
 
-pub fn peel(persistent: &StaticSecret, sender: &PublicKey, buffer: &mut [u8]) -> Option<usize> {
-    let key = persistent.diffie_hellman(&sender);
-    let key = GenericArray::from(*key.as_bytes());
-
-    peel_wih_key(&key, buffer)
-}
-
 pub fn peel_initial(
-    persistent: &StaticSecret,
+    node_kp: &KeyPair,
     original_buffer: &mut [u8],
-) -> Option<(Option<PeerId>, PublicKey, usize)> {
-    let key_size = <Aes256Gcm as KeySizeUser>::KeySize::USIZE;
-
-    if original_buffer.len() < key_size {
+) -> Option<(Option<PeerId>, SharedSecret, usize)> {
+    if original_buffer.len() < crypto::enc::PUBLIC_KEY_SIZE + crypto::enc::CIPHERTEXT_SIZE {
         return None;
     }
 
-    let (buffer, tail) = original_buffer.split_at_mut(original_buffer.len() - key_size);
-    let sender: [_; 32] = tail.try_into().expect("just checked that");
-    let sender = PublicKey::from(sender);
+    let (buffer, tail) =
+        original_buffer.split_at_mut(original_buffer.len() - crypto::enc::PUBLIC_KEY_SIZE);
+    let sender: crypto::enc::SerializedPublicKey = tail.try_into().expect("just checked that");
+    let sender = crypto::enc::PublicKey::from(sender);
 
-    if buffer.len() == 0 {
-        return Some((None, sender, 0));
+    let (buffer, tail) = buffer.split_at_mut(buffer.len() - crypto::enc::CIPHERTEXT_SIZE);
+    let ciphertext: crypto::enc::SerializedCiphertext = (&*tail).try_into().ok()?;
+    let ciphertext = crypto::enc::Ciphertext::from(ciphertext);
+    let ss = node_kp.decapsulate(ciphertext, &sender).ok()?;
+
+    if buffer.is_empty() {
+        return Some((None, ss, 0));
     }
 
-    let packet_len = peel(persistent, &sender, buffer)?;
+    let packet_len = peel_wih_key(&ss, buffer)?;
 
     let buffer = &mut buffer[..packet_len];
     let (len, buffer) = buffer.split_last_mut()?;
@@ -116,6 +137,6 @@ pub fn peel_initial(
     let id = PeerId::from_bytes(tail).ok()?;
 
     let len = buffer.len();
-    original_buffer[len..len + key_size].copy_from_slice(sender.as_bytes());
-    Some((Some(id), sender, len + key_size))
+    original_buffer[len..len + crypto::enc::PUBLIC_KEY_SIZE].copy_from_slice(&sender.into_bytes());
+    Some((Some(id), ss, len + crypto::enc::PUBLIC_KEY_SIZE))
 }

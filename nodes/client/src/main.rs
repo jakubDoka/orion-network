@@ -6,6 +6,7 @@ use std::task::Poll;
 use std::time::Duration;
 use std::{io, iter, mem};
 
+use chain_api::NodeData;
 use component_utils::futures::stream::SelectAll;
 use component_utils::futures::FutureExt;
 use component_utils::kad::KadPeerSearch;
@@ -17,7 +18,8 @@ use libp2p::core::upgrade::Version;
 use libp2p::core::ConnectedPoint;
 use libp2p::futures::StreamExt;
 use libp2p::kad::store::MemoryStore;
-use libp2p::swarm::{ConnectionHandler, NetworkBehaviour};
+use libp2p::swarm::SwarmEvent;
+use libp2p::PeerId;
 use onion::EncryptedStream;
 use protocols::chat::{ChatName, FetchMessages, FetchedMessages, Message, Request, Response};
 use std::rc::Rc;
@@ -116,7 +118,7 @@ fn Chat(revents: ReadSignal<NodeEvent>, wcommands: WriteSignal<NodeCommand>) -> 
             log::info!("subscribed to {}", chat);
             threads.update(|t| {
                 t.push(Thread {
-                    name: chat.clone(),
+                    name: chat,
                     messages: VecDeque::new(),
                 });
             });
@@ -129,12 +131,10 @@ fn Chat(revents: ReadSignal<NodeEvent>, wcommands: WriteSignal<NodeCommand>) -> 
     let selected_thread =
         move || threads.with(|t| t.iter().find(|t| Some(t.name) == selected_chat()).cloned());
 
-    let thread_buttons =
-        move || threads.with(|t| t.iter().map(|t| t.name.clone()).collect::<Vec<_>>());
+    let thread_buttons = move || threads.with(|t| t.iter().map(|t| t.name).collect::<Vec<_>>());
     let thread_button_view = move |chat: ChatName| {
-        let [schat, ochat] = [chat.clone(), chat.clone()];
-        let selected = move || selected_chat() == Some(schat);
-        let onclick = move |_| selected_chat.set(Some(ochat.clone()));
+        let selected = move || selected_chat() == Some(chat);
+        let onclick = move |_| selected_chat.set(Some(chat));
         view! { <button class:selected=selected on:click=onclick>{chat.as_string()}</button> }
     };
 
@@ -223,12 +223,30 @@ enum NodeCommand {
     None,
 }
 
+fn node_data_to_path_seg(data: NodeData) -> (PeerId, onion::PublicKey) {
+    let key = data.enc;
+    let peer_id = component_utils::libp2p_identity::PublicKey::from(
+        component_utils::libp2p_identity::ed25519::PublicKey::try_from_bytes(
+            &crypto::sign::PublicKey::from(data.sign).ed,
+        )
+        .unwrap(),
+    )
+    .to_peer_id();
+    (peer_id, key.into())
+}
+
 async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeCommand>) {
     use libp2p::core::multiaddr::Protocol;
     use libp2p::*;
 
-    let enough_onion_nodes = 5;
     let bootstrap_node: SocketAddr = (Ipv4Addr::LOCALHOST, 8900).into();
+
+    let nodes = chain_api::nodes("http://localhost:8700")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(node_data_to_path_seg)
+        .collect::<HashMap<_, _>>();
 
     let keys = protocols::chat::UserKeys::new();
     let keypair = identity::Keypair::ed25519_from_bytes(keys.sign.ed).unwrap();
@@ -238,13 +256,11 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
         .multiplex(yamux::Config::default())
         .boxed();
     let peer_id = keypair.public().to_peer_id();
-    let secret = onion::Secret::random();
 
     let behaviour = Behaviour {
         onion: onion::Behaviour::new(
-            onion::Config::new(secret, peer_id).keep_alive_interval(Duration::from_secs(100)),
+            onion::Config::new(None, peer_id).keep_alive_interval(Duration::from_secs(100)),
         ),
-        key_share: onion::get_key::Behaviour::new(),
         kad: kad::Behaviour::with_config(
             peer_id,
             kad::store::MemoryStore::new(peer_id),
@@ -263,6 +279,15 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
 
     swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
 
+    // rely on a fact that hash map has random order of iteration (RandomState)
+    let route: [_; 3] = nodes
+        .iter()
+        .map(|(a, b)| (*b, *a))
+        .take(3)
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+
     let mut commands = commands.to_stream().fuse();
 
     fn dile_addr(addr: SocketAddr) -> Multiaddr {
@@ -278,17 +303,16 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
     swarm.dial(dile_addr(bootstrap_node)).unwrap();
 
     let mut discovery = KadPeerSearch::default();
-    let mut onion_peers = HashMap::new();
     let mut peer_search_route = None::<EncryptedStream>;
-    let mut search_route = None;
+    let mut search_route = swarm.behaviour_mut().onion.open_path(route).unwrap();
     let mut buffer = vec![];
     let mut pending_streams = vec![];
     let mut subscriptions = SelectAll::<Subscription>::new();
     let mut connected = false;
     loop {
-        enum Event {
+        enum Event<A, B> {
             Command(NodeCommand),
-            Event(SwarmEvent),
+            Event(SwarmEvent<A, B>),
             SearchPacket(io::Result<Vec<u8>>),
             SubscriptionPacket(io::Result<Vec<u8>>),
         }
@@ -350,8 +374,8 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                         events(NodeEvent::Subscribed(chn));
                     }
                     Response::SearchResults(_) => log::error!("unepxected response"),
-                    Response::NotFound => log::error!("something was not found"),
-                    Response::Denied(_) => todo!(),
+                    Response::ChatNotFound => log::error!("chat not found"),
+                    Response::FailedMessage(e) => log::error!("failed to put message: {:?}", e),
                 }
             }
             Event::SearchPacket(r) => {
@@ -359,7 +383,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                     Ok(m) => m,
                     Err(e) => {
                         log::error!("search path error: {e}");
-                        let route: [_; 3] = onion_peers
+                        let route: [_; 3] = nodes
                             .iter()
                             .map(|(a, b)| (*b, *a))
                             .take(3)
@@ -367,7 +391,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                             .try_into()
                             .unwrap();
 
-                        search_route = Some(swarm.behaviour_mut().onion.open_path(route));
+                        search_route = swarm.behaviour_mut().onion.open_path(route).unwrap();
                         peer_search_route = None;
                         continue;
                     }
@@ -382,7 +406,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                     .members
                     .into_iter()
                     .skip(*peer_id.to_bytes().last().unwrap() as usize % 2)
-                    .find_map(|p| Some((p, *onion_peers.get(&p)?)))
+                    .find_map(|p| Some((p, *nodes.get(&p)?)))
                 else {
                     log::error!("no member peer found");
                     continue;
@@ -390,7 +414,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
 
                 log::info!("peer picked: {} for chat: {}", peer, res.chat);
 
-                let route: [_; 3] = onion_peers
+                let route: [_; 3] = nodes
                     .iter()
                     .filter(|&(&a, _)| a != peer)
                     .map(|(a, b)| (*b, *a))
@@ -400,7 +424,10 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                     .try_into()
                     .unwrap();
 
-                pending_streams.push((res.chat, swarm.behaviour_mut().onion.open_path(route)));
+                pending_streams.push((
+                    res.chat,
+                    swarm.behaviour_mut().onion.open_path(route).unwrap(),
+                ));
 
                 log::info!("search results");
             }
@@ -467,24 +494,10 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                 })) => {
                     component_utils::handle_conn_request(to, &mut swarm, &mut discovery);
                 }
-                SwarmEvent::Behaviour(BehaviourEvent::KeyShare((key, peer))) => {
-                    log::info!("key share from {}", peer);
-                    onion_peers.insert(peer, key);
-                    if onion_peers.len() == enough_onion_nodes && search_route.is_none() {
-                        let route: [_; 3] = onion_peers
-                            .iter()
-                            .map(|(a, b)| (*b, *a))
-                            .take(3)
-                            .collect::<Vec<_>>()
-                            .try_into()
-                            .unwrap();
-                        search_route = Some(swarm.behaviour_mut().onion.open_path(route));
-                    }
-                }
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
-                ))) if Some(id) == search_route => {
+                ))) if id == search_route => {
                     peer_search_route = Some(stream);
                     events(NodeEvent::Saturated);
                 }
@@ -542,13 +555,7 @@ impl component_utils::futures::Stream for Subscription {
 #[derive(libp2p::swarm::NetworkBehaviour)]
 struct Behaviour {
     onion: onion::Behaviour,
-    key_share: onion::get_key::Behaviour,
     kad: libp2p::kad::Behaviour<MemoryStore>,
 }
 
 component_utils::impl_kad_search!(Behaviour => (onion::Behaviour => onion));
-
-type SwarmEvent = libp2p::swarm::SwarmEvent<
-    BehaviourEvent,
-    <<Behaviour as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::Error,
->;

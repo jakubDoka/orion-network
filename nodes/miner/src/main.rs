@@ -12,6 +12,7 @@ use std::{
     vec,
 };
 
+use chain_api::NodeData;
 use component_utils::{
     codec::Codec,
     kad::KadPeerSearch,
@@ -30,8 +31,8 @@ use libp2p::{
 };
 use onion::EncryptedStream;
 use protocols::chat::{
-    ChatName, FetchedMessages, Member, Message, MessageBlob, PrefixedMessage, PutRecord,
-    ReplicateMessage, Request, Response, SearchResult, CHAT_NAME_CAP,
+    ChatName, FetchedMessages, Member, Message, MessageBlob, MessageContent, PrefixedMessage,
+    PutMessageError, PutRecord, ReplicateMessage, Request, Response, SearchResult, CHAT_NAME_CAP,
 };
 
 #[tokio::main(flavor = "current_thread")]
@@ -40,17 +41,27 @@ async fn main() {
 
     config::env_config! {
         PORT: u16,
-        SECRET: config::Key,
-        ONION_SECRET: config::Key,
+        CHAIN_PORT: u16,
     }
 
-    let local_key = libp2p::identity::Keypair::ed25519_from_bytes(SECRET).unwrap();
+    let enc_keys = crypto::enc::KeyPair::new();
+    let sig_keys = crypto::sign::KeyPair::new();
+    let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sig_keys.ed).unwrap();
     let peer_id = local_key.public().to_peer_id();
-    let onion_secret = onion::Secret::from(ONION_SECRET.to_bytes());
+
+    chain_api::register_node(
+        format_args!("http://{}:{CHAIN_PORT}", Ipv4Addr::LOCALHOST),
+        NodeData {
+            sign: sig_keys.public_key().into(),
+            enc: enc_keys.public_key().into(),
+        },
+    )
+    .await
+    .unwrap();
 
     let behaviour = Behaviour {
         onion: onion::Behaviour::new(
-            onion::Config::new(onion_secret, peer_id)
+            onion::Config::new(enc_keys.into(), peer_id)
                 .max_streams(10)
                 .keep_alive_interval(Duration::from_secs(100)),
         ),
@@ -209,7 +220,7 @@ async fn main() {
                                 messages: &messages,
                             })
                         } else {
-                            Response::NotFound
+                            Response::ChatNotFound
                         };
                         buffer.clear();
                         resp.encode(&mut buffer);
@@ -343,31 +354,31 @@ struct ChatStore {
 }
 
 impl ChatStore {
-    fn put_message(&mut self, chat: ChatName, m: ReplicateMessage) -> Result<(), PutMessageError> {
-        let Some(msg) = PrefixedMessage::decode(&mut &*m.content) else {
+    fn put_message(&mut self, chat: ChatName, rm: ReplicateMessage) -> Result<(), PutMessageError> {
+        let Some(msg) = PrefixedMessage::decode(&mut &*rm.content) else {
             return Err(PutMessageError::InvalidContent);
         };
 
-        let chat = self.chats.entry(chat.into()).or_default();
-        if chat.members.is_empty() {
-            if !m.is_valid() {
-                return Err(PutMessageError::InvalidMessage);
-            }
+        if !rm.is_valid() {
+            return Err(PutMessageError::InvalidMessage);
+        }
 
+        let chat = self.chats.entry(chat).or_default();
+        if chat.members.is_empty() {
             chat.members.push(Member {
                 id: 0,
-                identity: m.sender,
+                identity: rm.sender,
                 perm: 0,
                 last_message_no: 0,
             });
             chat.messages.push(
-                Base128Bytes::new(0).chain(m.content.iter().copied()),
+                Base128Bytes::new(0).chain(rm.content.iter().copied()),
                 protocols::chat::CHAT_CAP,
             );
             return Ok(());
         }
 
-        let Some(member) = chat.members.iter_mut().find(|m| m.identity == m.identity) else {
+        let Some(member) = chat.members.iter_mut().find(|m| m.identity == rm.sender) else {
             return Err(PutMessageError::NotMember);
         };
 
@@ -375,30 +386,53 @@ impl ChatStore {
             return Err(PutMessageError::MessageNumberTooLow);
         }
 
-        if !m.is_valid() {
-            return Err(PutMessageError::InvalidMessage);
-        }
-
         member.last_message_no = msg.no;
-        chat.messages.push(
-            Base128Bytes::new(member.id as _).chain(m.content.iter().copied()),
-            protocols::chat::CHAT_CAP,
-        );
+        let Some(msg) = MessageContent::decode(&mut &*msg.content) else {
+            return Err(PutMessageError::InvalidContent);
+        };
+
+        match msg {
+            MessageContent::Arbitrary(content) => chat.messages.push(
+                Base128Bytes::new(member.id as _).chain(content.iter().copied()),
+                protocols::chat::CHAT_CAP,
+            ),
+            MessageContent::AddMember(am) => {
+                let issuer_perm = member.perm;
+                let Some(member) = chat.members.iter_mut().find(|m| m.identity == am.invited)
+                else {
+                    let id = chat.members.len() as _;
+                    chat.members.push(Member {
+                        id,
+                        identity: am.invited,
+                        perm: issuer_perm + am.perm_offset,
+                        last_message_no: 0,
+                    });
+                    return Ok(());
+                };
+
+                if member.perm <= issuer_perm {
+                    return Err(PutMessageError::NotPermitted);
+                }
+
+                member.perm += issuer_perm + am.perm_offset;
+            }
+            MessageContent::RemoveMember(id) => {
+                let issuer_perm = member.perm;
+                let Ok(index) = chat.members.binary_search_by_key(&id, |m| m.id) else {
+                    return Err(PutMessageError::MemberNotFound);
+                };
+
+                let member = &mut chat.members[index];
+                if issuer_perm >= member.perm {
+                    return Err(PutMessageError::NotPermitted);
+                }
+
+                chat.members.remove(index);
+            }
+        }
 
         Ok(())
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PutMessageError {
-    #[error("cannot parse message content")]
-    InvalidContent,
-    #[error("message signature does not check out")]
-    InvalidMessage,
-    #[error("you are not a member of this chat")]
-    NotMember,
-    #[error("message number is too low")]
-    MessageNumberTooLow,
 }
 
 impl RecordStore for ChatStore {

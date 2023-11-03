@@ -1,5 +1,6 @@
 use std::{io, sync::Arc, u32, usize};
 
+use arrayvec::{ArrayString, ArrayVec};
 use futures::{AsyncRead, AsyncReadExt};
 #[cfg(feature = "kad")]
 use libp2p_core::multihash::Multihash;
@@ -163,14 +164,12 @@ fn base128_encode(mut value: u64, buffer: &mut Vec<u8>) {
 fn base128_decode(buffer: &mut &[u8]) -> Option<u64> {
     let mut value = 0;
     let mut shift = 0;
-    let mut advanced = 0;
     let worst_case_size = 10;
-    for byte in (*buffer).iter().take(worst_case_size).copied() {
+    for (advanced, byte) in (*buffer).iter().take(worst_case_size).copied().enumerate() {
         value |= ((byte & 0b0111_1111) as u64) << shift;
         shift += 7;
-        advanced += 1;
         if byte & 0b1000_0000 == 0 {
-            *buffer = &buffer[advanced..];
+            *buffer = &buffer[advanced + 1..];
             return Some(value);
         }
     }
@@ -211,7 +210,7 @@ impl<'a> Codec<'a> for bool {
 
 impl<'a> Codec<'a> for u8 {
     fn encode(&self, buffer: &mut Vec<u8>) {
-        buffer.push(*self as u8);
+        buffer.push(*self);
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -254,6 +253,39 @@ impl<'a> Codec<'a> for &'a str {
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
         let bytes = <&[u8]>::decode(buffer)?;
         std::str::from_utf8(bytes).ok()
+    }
+}
+
+impl<'a, T: Codec<'a>, const LEN: usize> Codec<'a> for ArrayVec<T, LEN> {
+    fn encode(&self, buffer: &mut Vec<u8>) {
+        self.len().encode(buffer);
+        for i in self {
+            i.encode(buffer);
+        }
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        let len = <usize>::decode(buffer)?;
+        if len > LEN {
+            return None;
+        }
+        let mut s = Self::default();
+        for _ in 0..len {
+            s.push(<T>::decode(buffer)?);
+        }
+        Some(s)
+    }
+}
+
+impl<'a, const LEN: usize> Codec<'a> for ArrayString<LEN> {
+    fn encode(&self, buffer: &mut Vec<u8>) {
+        self.as_bytes().encode(buffer);
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        let bytes = <&[u8]>::decode(buffer)?;
+        let str = std::str::from_utf8(bytes).ok()?;
+        Self::from(str).ok()
     }
 }
 

@@ -56,7 +56,7 @@ impl ChatName {
     }
 
     pub fn as_hex(&self) -> String {
-        hex::encode(&self.repr)
+        hex::encode(self.repr)
     }
 
     pub fn as_string(&self) -> Cow<'_, str> {
@@ -98,6 +98,12 @@ impl UserKeys {
     }
 }
 
+impl Default for UserKeys {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct UserIdentity {
     pub sign: crypto::sign::PublicKey,
     pub enc: crypto::enc::PublicKey,
@@ -106,6 +112,41 @@ pub struct UserIdentity {
 crypto::impl_transmute! {
     UserKeys, USER_KEYS_SIZE, SerializedUserKeys;
     UserIdentity, USER_IDENTITY_SIZE, SerializedUserIdentity;
+}
+
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[repr(u8)]
+pub enum PutMessageError {
+    #[error("cannot parse message content")]
+    InvalidContent,
+    #[error("message signature does not check out")]
+    InvalidMessage,
+    #[error("you are not a member of this chat")]
+    NotMember,
+    #[error("message number is too low")]
+    MessageNumberTooLow,
+    #[error("you are not permitted to do this")]
+    NotPermitted,
+    #[error("member not found")]
+    MemberNotFound,
+}
+
+impl<'a> Codec<'a> for PutMessageError {
+    fn encode(&self, buffer: &mut Vec<u8>) {
+        buffer.push(*self as u8);
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        Some(match u8::decode(buffer)? {
+            0 => Self::InvalidContent,
+            1 => Self::InvalidMessage,
+            2 => Self::NotMember,
+            3 => Self::MessageNumberTooLow,
+            4 => Self::NotPermitted,
+            5 => Self::MemberNotFound,
+            _ => return None,
+        })
+    }
 }
 
 component_utils::protocol! { 'a:
@@ -126,8 +167,9 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     enum MessageContent<'a> {
-        Arbitrary: PrefixedMessage<'a> => 0,
-        Profile: SerializedUserIdentity => 1,
+        Arbitrary: &'a [u8] => 0,
+        AddMember: AddMember => 1,
+        RemoveMember: MemberId => 2,
     }
 
     #[derive(Clone, Copy)]
@@ -146,11 +188,8 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     struct AddMember {
-        chat: ChatName,
         invited: Identity,
-        perm_diff: Permission,
-        invited_sig: crypto::sign::SerializedSignature,
-        sender: Identity,
+        perm_offset: u32,
     }
 
     enum Response<'a> {
@@ -158,8 +197,8 @@ component_utils::protocol! { 'a:
         FetchedMessages: FetchedMessages<'a> => 3,
         SearchResults: SearchResult => 4,
         Subscribed: ChatName => 5,
-        Denied: ChatName => 6,
-        NotFound => 7,
+        FailedMessage: PutMessageError => 6,
+        ChatNotFound => 7,
     }
 
     struct SearchResult {

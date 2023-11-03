@@ -1,44 +1,47 @@
+use std::{io, iter, process};
+
 use clap::Parser;
-use libp2p::identity::ed25519::Keypair;
-use x25519_dalek::StaticSecret;
 
 #[derive(Parser)]
 struct Command {
     #[clap(long, env, default_value = "10")]
     node_count: usize,
+    #[clap(long, env, default_value = "8700")]
+    chain_port: u16,
     #[clap(long, env, default_value = "8800")]
     first_port: u16,
-    #[clap(long, env, default_value = "target/release/miner")]
+    #[clap(long, env, default_value = "./target/release/miner")]
     miner: String,
+    #[clap(long, env, default_value = "./target/release/chain-mock")]
+    chain: String,
 }
 
 fn main() {
     let cmd = Command::parse();
 
-    let onion_secrets = (0..cmd.node_count)
-        .map(|_| StaticSecret::random())
+    let chain = process::Command::new(&cmd.chain)
+        .env("PORT", cmd.chain_port.to_string())
+        .stdout(process::Stdio::inherit())
+        .stderr(process::Stdio::inherit())
+        .spawn()
+        .expect("failed to spawn child");
+
+    let children = (0..cmd.node_count)
+        .map(|i| {
+            process::Command::new(&cmd.miner)
+                .env("PORT", (cmd.first_port + i as u16).to_string())
+                .env("CHAIN_PORT", cmd.chain_port.to_string())
+                .stdout(process::Stdio::inherit())
+                .stderr(process::Stdio::inherit())
+                .spawn()
+                .expect("failed to spawn child")
+        })
+        .chain(iter::once(chain))
         .collect::<Vec<_>>();
-    let secrets = (0..cmd.node_count)
-        .map(|_| Keypair::generate())
-        .collect::<Vec<_>>();
 
-    for (i, (onion_secret, secret)) in onion_secrets.into_iter().zip(secrets).enumerate() {
-        let onion_secret = onion_secret.to_bytes();
-        let secret: [u8; 32] = unsafe { std::mem::transmute(secret.secret()) };
+    io::stdin().read_line(&mut String::new()).unwrap();
 
-        let child = std::process::Command::new(&cmd.miner)
-            .env("PORT", (cmd.first_port + i as u16).to_string())
-            .env("SECRET", hex::encode(secret))
-            .env("ONION_SECRET", hex::encode(onion_secret))
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .spawn()
-            .expect("failed to spawn child");
-
-        std::thread::spawn(move || {
-            child.wait_with_output().unwrap();
-        });
+    for mut child in children {
+        child.kill().unwrap();
     }
-
-    std::io::stdin().read_line(&mut String::new()).unwrap();
 }

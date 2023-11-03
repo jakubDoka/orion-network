@@ -27,6 +27,7 @@ async fn main() {
         .route(chain_api::CREATE_USER, post(create_user))
         .route(chain_api::NODES, get(registered_nodes))
         .route(chain_api::NODES, post(register_node))
+        .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(Db::default());
 
     axum::Server::bind(&(Ipv4Addr::UNSPECIFIED, PORT).into())

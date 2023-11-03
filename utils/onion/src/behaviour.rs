@@ -4,7 +4,10 @@ use std::{
     task::Poll,
 };
 
-use aes_gcm::{aead::OsRng, AeadCore, AeadInPlace, Aes256Gcm, KeyInit};
+use aes_gcm::{
+    aead::{generic_array::GenericArray, OsRng},
+    AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
+};
 use component_utils::{HandlerRef, PacketReader};
 use futures::{
     stream::{FusedStream, FuturesUnordered},
@@ -14,15 +17,15 @@ use instant::{Duration, Instant};
 use libp2p_identity::PeerId;
 use libp2p_swarm::{
     dial_opts::{DialOpts, PeerCondition},
-    ConnectionId, NetworkBehaviour, NotifyHandler,
+    CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
 };
 use thiserror::Error;
-use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::{
     handler::{self, Handler},
     packet::{self, ASOC_DATA, MISSING_PEER},
-    IncomingOrRequest, IncomingOrResponse, IncomingStream, StreamRequest,
+    IncomingOrRequest, IncomingOrResponse, IncomingStream, KeyPair, PublicKey, SharedSecret,
+    StreamRequest,
 };
 
 use libp2p_swarm::ToSwarm as TS;
@@ -64,15 +67,12 @@ impl Behaviour {
     pub fn open_path(
         &mut self,
         [mut path @ .., (mut recipient, to)]: [(PublicKey, PeerId); crate::packet::PATH_LEN + 1],
-    ) -> PathId {
-        assert!(path.array_windows().all(|[a, b]| a != b));
+    ) -> Result<PathId, crypto::enc::EncapsulationError> {
+        assert!(path.array_windows().all(|[a, b]| a.1 != b.1));
 
         path.iter_mut()
             .rev()
             .for_each(|(k, _)| mem::swap(k, &mut recipient));
-
-        let mut to_delegate = vec![];
-        crate::packet::new_initial(path, &self.config.secret, &mut to_delegate);
 
         let path_id = PathId(self.path_counter);
         self.path_counter += 1;
@@ -80,12 +80,11 @@ impl Behaviour {
         self.push_stream_request(StreamRequest {
             to,
             recipient,
-            sender: PublicKey::from(&self.config.secret),
-            buffer: to_delegate,
+            path,
             path_id,
         });
 
-        path_id
+        Ok(path_id)
     }
 
     fn push_stream_request(&mut self, sr: StreamRequest) {
@@ -111,7 +110,7 @@ impl Behaviour {
     }
 
     fn push_incoming_stream(&mut self, is: IncomingStream) {
-        log::debug!("incoming stream from {:?}", is.sender);
+        log::debug!("incoming stream from");
         let valid_stream_count = self
             .router
             .iter_mut()
@@ -126,7 +125,7 @@ impl Behaviour {
 
             let mut stream = is.stream;
             stream.write_error(packet::OCCUPIED_PEER);
-            self.error_streams.push(stream.to_closing_stream());
+            self.error_streams.push(stream.into_closing_stream());
             return;
         }
 
@@ -178,7 +177,7 @@ impl Behaviour {
         for mut p in component_utils::drain_filter(&mut self.pending_connections, |p| p.to != peer)
         {
             p.stream.write_error(MISSING_PEER);
-            self.error_streams.push(p.stream.to_closing_stream());
+            self.error_streams.push(p.stream.into_closing_stream());
         }
 
         for _ in component_utils::drain_filter(&mut self.pending_requests, |p| p.to != peer) {
@@ -250,18 +249,15 @@ impl NetworkBehaviour for Behaviour {
 
     fn on_swarm_event(&mut self, event: libp2p_swarm::FromSwarm<Self::ConnectionHandler>) {
         use libp2p_swarm::FromSwarm as FS;
-        match event {
-            FS::ConnectionClosed(c) => {
-                self.peer_to_connection.remove(&c.peer_id);
-            }
-            _ => {}
+        if let FS::ConnectionClosed(c) = event {
+            self.peer_to_connection.remove(&c.peer_id);
         }
     }
 
     fn on_connection_handler_event(
         &mut self,
-        _peer_id: libp2p_identity::PeerId,
-        _connection_id: ConnectionId,
+        peer_id: libp2p_identity::PeerId,
+        connection_id: ConnectionId,
         event: libp2p_swarm::THandlerOutEvent<Self>,
     ) {
         use crate::handler::ToBehaviour as HTB;
@@ -273,16 +269,7 @@ impl NetworkBehaviour for Behaviour {
             HTB::IncomingStream(IncomingOrResponse::Incoming(s)) => self.push_incoming_stream(s),
             HTB::IncomingStream(IncomingOrResponse::Response(s)) => {
                 self.events
-                    .push_back(TS::GenerateEvent(Event::InboundStream(
-                        EncryptedStream::new(
-                            s.stream,
-                            self.config
-                                .secret
-                                .diffie_hellman(&s.sender)
-                                .to_bytes()
-                                .into(),
-                        ),
-                    )));
+                    .push_back(TS::GenerateEvent(Event::InboundStream(s)));
             }
             HTB::OutboundStream { the, key, id } => {
                 self.events
@@ -290,6 +277,15 @@ impl NetworkBehaviour for Behaviour {
                         EncryptedStream::new(the, key),
                         id,
                     )))
+            }
+            HTB::Error(e) => {
+                self.peer_to_connection.remove(&peer_id);
+                self.events
+                    .push_back(TS::GenerateEvent(Event::Error(Error::Handler(e))));
+                self.events.push_back(TS::CloseConnection {
+                    peer_id,
+                    connection: { CloseConnection::One(connection_id) },
+                })
             }
         }
     }
@@ -305,14 +301,12 @@ impl NetworkBehaviour for Behaviour {
 
         if let Poll::Ready(Some(Err(e))) = self.router.poll_next_unpin(cx) {
             self.events
-                .push_back(TS::GenerateEvent(Event::Error(Error::RoutedStreamError(e))));
+                .push_back(TS::GenerateEvent(Event::Error(Error::RoutedStream(e))));
         }
 
         if let Poll::Ready(Some(Err(e))) = self.error_streams.poll_next_unpin(cx) {
             self.events
-                .push_back(TS::GenerateEvent(Event::Error(Error::ClosingStreamError(
-                    e,
-                ))));
+                .push_back(TS::GenerateEvent(Event::Error(Error::ClosingStream(e))));
         }
 
         if let Some(event) = self.events.pop_front() {
@@ -324,8 +318,9 @@ impl NetworkBehaviour for Behaviour {
 }
 
 component_utils::gen_config! {
-    /// The secret key used as identiry for the node. In case of a client the secret can change over time.
-    secret: StaticSecret,
+    /// The secret key used as identiry for the node. In case you pass None, client mode is
+    /// enabled and new secret created for each connection.
+    secret: Option<KeyPair>,
     /// The peer id of the node.
     current_peer_id: PeerId,
     ;;
@@ -335,16 +330,8 @@ component_utils::gen_config! {
     max_error_streams: usize = 20,
     /// The maximum interval between two packets before the connection is considered dead.
     keep_alive_interval: std::time::Duration = std::time::Duration::from_secs(10),
-    /// The mode of the node.
-    mode: Mode = Mode::Hibrid,
     /// size of the buffer for forwarding packets.
     buffer_cap: usize = 1 << 13,
-}
-
-#[derive(PartialEq, Eq)]
-pub enum Mode {
-    Hibrid,
-    Client,
 }
 
 #[derive(Debug)]
@@ -360,9 +347,11 @@ pub enum Error {
     #[error("missing peer locally")]
     MissingPeerLocally,
     #[error("unexpected error from routed stream: {0}")]
-    RoutedStreamError(io::Error),
+    RoutedStream(io::Error),
     #[error("unexpected error from closing stream: {0}")]
-    ClosingStreamError(io::Error),
+    ClosingStream(io::Error),
+    #[error("unexpected error from handler: {0}")]
+    Handler(#[from] handler::HError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -371,12 +360,12 @@ pub struct PathId(usize);
 #[derive(Debug)]
 pub struct EncryptedStream {
     inner: Option<Stream>,
-    key: aes_gcm::Key<Aes256Gcm>,
+    key: SharedSecret,
     reader: PacketReader,
 }
 
 impl EncryptedStream {
-    fn new(inner: Stream, key: aes_gcm::Key<Aes256Gcm>) -> Self {
+    pub(crate) fn new(inner: Stream, key: SharedSecret) -> Self {
         Self {
             inner: Some(inner),
             key,
@@ -386,7 +375,7 @@ impl EncryptedStream {
 
     pub fn write(&mut self, data: &mut [u8]) -> Option<()> {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        let tag = Aes256Gcm::new(&self.key)
+        let tag = Aes256Gcm::new(&GenericArray::from(self.key))
             .encrypt_in_place_detached(&nonce, ASOC_DATA, data)
             .unwrap();
 
@@ -492,7 +481,7 @@ impl Stream {
         self.writer.write(&[bytes]);
     }
 
-    fn to_closing_stream(self) -> component_utils::ClosingStream<libp2p_swarm::Stream> {
+    fn into_closing_stream(self) -> component_utils::ClosingStream<libp2p_swarm::Stream> {
         component_utils::ClosingStream::new(self.inner, self.writer)
     }
 }

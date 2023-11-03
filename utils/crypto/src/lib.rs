@@ -21,12 +21,20 @@ macro_rules! impl_transmute {
                 unsafe { std::mem::transmute(signature) }
             }
         }
+
+        impl $type {
+            #[allow(dead_code)]
+            pub fn into_bytes(self) -> $serialized_alias {
+                self.into()
+            }
+        }
     )*};
 }
 
 pub mod enc;
 pub mod sign;
 
+#[derive(Debug, Clone, Copy)]
 pub struct FixedAesPayload<const SIZE: usize> {
     data: [u8; SIZE],
     tag: Tag<Aes256Gcm>,

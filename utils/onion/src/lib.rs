@@ -4,7 +4,6 @@
 #![feature(impl_trait_in_assoc_type)]
 
 mod behaviour;
-pub mod get_key;
 mod handler;
 #[cfg(feature = "kad")]
 mod kad_search;
@@ -15,4 +14,4 @@ mod tests;
 
 #[cfg(feature = "kad")]
 pub use libp2p_kad;
-pub use {behaviour::*, handler::*, x25519_dalek::PublicKey, x25519_dalek::StaticSecret as Secret};
+pub use {behaviour::*, handler::*, packet::KeyPair, packet::PublicKey, packet::SharedSecret};

@@ -189,8 +189,7 @@ impl KadProviderSearch {
         let index = self.discovery_queries.iter().position(|(q, ..)| q == id)?;
         let (_, key, mut list) = self.discovery_queries.swap_remove_front(index).unwrap();
         match providers {
-            libp2p_kad::GetProvidersOk::FoundProviders { key, providers } => {
-                debug_assert_eq!(key, key);
+            libp2p_kad::GetProvidersOk::FoundProviders { providers, .. } => {
                 list.extend(providers);
             }
             libp2p_kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {}

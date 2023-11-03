@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 aes-gcm = "0.10.3"
 component-utils = { version = "0.1.0", path = "../component-utils", no-default-features = true }
+crypto = { version = "0.1.0", path = "../crypto" }
 futures = "0.3.28"
 instant = "0.1.12"
 libp2p-core = "0.40.1"
@@ -18,7 +19,6 @@ log = "0.4.20"
 spin = { version = "0.9.8", default-features = false, features = ["mutex", "spin_mutex"] }
 thiserror = "1.0.50"
 void = "1.0.2"
-x25519-dalek = { version = "2.0.0", features = ["static_secrets", "getrandom"] }
 
 [dev-dependencies]
 env_logger = "0.10.0"

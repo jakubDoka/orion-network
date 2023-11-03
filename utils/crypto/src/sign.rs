@@ -39,7 +39,13 @@ impl KeyPair {
         let ed = SigningKey::from(&self.ed)
             .try_sign(data)
             .expect("cannot fail from the implementation");
-        Signature { dili, ed }.into()
+        Signature { dili, ed }
+    }
+}
+
+impl Default for KeyPair {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

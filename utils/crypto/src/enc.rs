@@ -30,10 +30,16 @@ pub struct KeyPair {
     pub x: x25519_dalek::StaticSecret,
 }
 
+impl Default for KeyPair {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyPair {
     pub fn new() -> Self {
         let kyb = pqc_kyber::Keypair::generate(&mut OsRng).expect("might as well");
-        let x = x25519_dalek::StaticSecret::random_from_rng(&mut OsRng);
+        let x = x25519_dalek::StaticSecret::random_from_rng(OsRng);
         Self { kyb, x }
     }
 
@@ -104,6 +110,7 @@ pub enum DecapsulationError {
     Aes(#[from] aes_gcm::Error),
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct PublicKey {
     kyb: pqc_kyber::PublicKey,
     x: x25519_dalek::PublicKey,
