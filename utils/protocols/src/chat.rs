@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, iter, num::NonZeroUsize, usize};
+use std::{borrow::Cow, collections::VecDeque, fmt, iter, num::NonZeroUsize, usize};
 
 use component_utils::{libp2p_identity::PeerId, Codec};
 
@@ -10,35 +10,102 @@ pub const NO_CURSOR: Cursor = Cursor::MAX;
 pub const PROTO_NAME: &str = "orion-chat";
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(3) };
 
-pub type ChatName = [u8; CHAT_NAME_CAP];
 pub type Cursor = u32;
 pub type Permission = u32;
+pub type MemberId = u32;
 pub type Identity = crypto::sign::SerializedPublicKey;
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct ChatName {
+    repr: [u8; CHAT_NAME_CAP],
+}
+
+impl<'a> Codec<'a> for ChatName {
+    fn encode(&self, buffer: &mut Vec<u8>) {
+        buffer.extend(self.repr);
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        Some(Self {
+            repr: <_>::decode(buffer)?,
+        })
+    }
+}
+
+impl From<[u8; CHAT_NAME_CAP]> for ChatName {
+    fn from(repr: [u8; CHAT_NAME_CAP]) -> Self {
+        Self { repr }
+    }
+}
+
+impl ChatName {
+    pub fn new(str: &str) -> Option<Self> {
+        if str.len() > CHAT_NAME_CAP {
+            return None;
+        }
+        let mut repr = [0; CHAT_NAME_CAP];
+        repr[..str.len()].copy_from_slice(str.as_bytes());
+        Some(Self { repr })
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        std::str::from_utf8(
+            &self.repr[..CHAT_NAME_CAP - self.repr.iter().rev().take_while(|&&b| b == 0).count()],
+        )
+        .ok()
+    }
+
+    pub fn as_hex(&self) -> String {
+        hex::encode(&self.repr)
+    }
+
+    pub fn as_string(&self) -> Cow<'_, str> {
+        match self.as_str() {
+            Some(str) => Cow::Borrowed(str),
+            None => Cow::Owned(self.as_hex()),
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.repr.to_vec()
+    }
+}
+
+impl fmt::Display for ChatName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_string().fmt(f)
+    }
+}
+
 pub struct UserKeys {
-    sign: crypto::sign::KeyPair,
-    enc: crypto::enc::KeyPair,
+    pub sign: crypto::sign::KeyPair,
+    pub enc: crypto::enc::KeyPair,
+}
+
+impl UserKeys {
+    pub fn new() -> Self {
+        Self {
+            sign: crypto::sign::KeyPair::new(),
+            enc: crypto::enc::KeyPair::new(),
+        }
+    }
+
+    pub fn identity(&self) -> UserIdentity {
+        UserIdentity {
+            sign: self.sign.public_key(),
+            enc: self.enc.public_key(),
+        }
+    }
+}
+
+pub struct UserIdentity {
+    pub sign: crypto::sign::PublicKey,
+    pub enc: crypto::enc::PublicKey,
 }
 
 crypto::impl_transmute! {
     UserKeys, USER_KEYS_SIZE, SerializedUserKeys;
-}
-
-pub fn string_to_chat_name(str: &str) -> Option<ChatName> {
-    if str.len() > CHAT_NAME_CAP {
-        return None;
-    }
-
-    let mut res = [0; CHAT_NAME_CAP];
-
-    res[..str.len()].copy_from_slice(str.as_bytes());
-
-    Some(res)
-}
-
-pub fn chat_name_to_string(name: &ChatName) -> Option<&str> {
-    let len = CHAT_NAME_CAP - name.iter().rev().take_while(|&&b| b == 0).count();
-    std::str::from_utf8(&name[..len]).ok()
+    UserIdentity, USER_IDENTITY_SIZE, SerializedUserIdentity;
 }
 
 component_utils::protocol! { 'a:
@@ -48,7 +115,19 @@ component_utils::protocol! { 'a:
         Subscribe: ChatName => 1,
         Send: Message<'a> => 2,
         FetchMessages: FetchMessages => 3,
-        KeepAlive: () => 4,
+        KeepAlive => 4,
+    }
+
+    #[derive(Clone, Copy)]
+    struct PrefixedMessage<'a> {
+        no: u32,
+        content: &'a [u8],
+    }
+
+    #[derive(Clone, Copy)]
+    enum MessageContent<'a> {
+        Arbitrary: PrefixedMessage<'a> => 0,
+        Profile: SerializedUserIdentity => 1,
     }
 
     #[derive(Clone, Copy)]
@@ -79,7 +158,8 @@ component_utils::protocol! { 'a:
         FetchedMessages: FetchedMessages<'a> => 3,
         SearchResults: SearchResult => 4,
         Subscribed: ChatName => 5,
-        NotFound: () => 6,
+        Denied: ChatName => 6,
+        NotFound => 7,
     }
 
     struct SearchResult {
@@ -96,13 +176,13 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     enum PutRecord<'a> {
-        Message: &'a [u8] => 1,
+        Message: ReplicateMessage<'a> => 1,
         ChatHistory: ChatHistory<'a> => 2,
     }
 
     #[derive(Clone, Copy)]
     struct ReplicateMessage<'a> {
-        message: &'a [u8],
+        content: &'a [u8],
         content_sig: crypto::sign::SerializedSignature,
         sender: Identity,
     }
@@ -112,6 +192,22 @@ component_utils::protocol! { 'a:
         offset: Cursor,
         first: &'a [u8],
         last: &'a [u8],
+    }
+
+    #[derive(Clone, Copy)]
+    struct Member {
+        id: MemberId,
+        identity: Identity,
+        perm: Permission,
+        last_message_no: u32,
+    }
+}
+
+impl<'a> ReplicateMessage<'a> {
+    pub fn is_valid(&self) -> bool {
+        crypto::sign::PublicKey::from(self.sender)
+            .verify(self.content, &self.content_sig.into())
+            .is_ok()
     }
 }
 
@@ -150,16 +246,35 @@ pub struct MessageBlob {
 }
 
 impl MessageBlob {
-    pub fn push(&mut self, bytes: &[u8], chat_cap: usize) {
-        if self.data.len() + bytes.len() > chat_cap {
-            self.pop();
+    pub fn push<I: IntoIterator<Item = u8>>(&mut self, bytes: I, chat_cap: usize) {
+        let prev_len = self.data.len();
+        let mut iter = 0u16
+            .to_be_bytes()
+            .into_iter()
+            .chain(bytes)
+            .chain(0u16.to_be_bytes());
+
+        let mut remining = chat_cap - self.data.len();
+        while let Some(byte) = iter.next() {
+            if remining == 0 {
+                self.pop();
+                remining = chat_cap - self.data.len() - 1;
+            }
+            self.data.push_back(byte);
+            self.data.extend(iter.by_ref().take(remining));
         }
 
-        let len = bytes.len() as u16;
-        self.offset += len as Cursor + 4;
-        self.data.extend(len.to_be_bytes());
-        self.data.extend(bytes);
-        self.data.extend(len.to_be_bytes());
+        let len = self.data.len() - prev_len - 4;
+        self.data
+            .iter_mut()
+            .skip(prev_len)
+            .zip(len.to_be_bytes())
+            .for_each(|(a, b)| *a = b);
+        self.data
+            .iter_mut()
+            .rev()
+            .zip(len.to_le_bytes())
+            .for_each(|(a, b)| *a = b);
     }
 
     pub fn as_vec(&self) -> Vec<u8> {
@@ -244,8 +359,8 @@ mod test {
     fn test_push() {
         let mut blob = super::MessageBlob::default();
 
-        blob.push(b"hello", CHAT_CAP);
-        blob.push(b"world", CHAT_CAP);
+        blob.push(b"hello".iter().cloned(), CHAT_CAP);
+        blob.push(b"world".iter().cloned(), CHAT_CAP);
 
         assert_eq!(
             blob.data,
@@ -264,7 +379,7 @@ mod test {
         let mut blob = super::MessageBlob::default();
 
         for i in 0..10 {
-            blob.push(&[i, i + 1], CHAT_CAP);
+            blob.push([i, i + 1], CHAT_CAP);
         }
 
         let mut buffer = Vec::new();

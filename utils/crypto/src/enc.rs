@@ -26,8 +26,8 @@ struct ChoosenPayload {
 
 #[derive(Clone)]
 pub struct KeyPair {
-    kyb: pqc_kyber::Keypair,
-    x: x25519_dalek::StaticSecret,
+    pub kyb: pqc_kyber::Keypair,
+    pub x: x25519_dalek::StaticSecret,
 }
 
 impl KeyPair {

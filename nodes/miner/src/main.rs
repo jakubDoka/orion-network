@@ -19,6 +19,7 @@ use component_utils::{
         store::{MemoryStore, RecordStore},
         InboundRequest, QueryId, Quorum, StoreInserts,
     },
+    Base128Bytes,
 };
 use libp2p::{
     core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
@@ -29,8 +30,8 @@ use libp2p::{
 };
 use onion::EncryptedStream;
 use protocols::chat::{
-    ChatName, FetchedMessages, Message, MessageBlob, PutRecord, Request, Response, SearchResult,
-    CHAT_NAME_CAP,
+    ChatName, FetchedMessages, Member, Message, MessageBlob, PrefixedMessage, PutRecord,
+    ReplicateMessage, Request, Response, SearchResult, CHAT_NAME_CAP,
 };
 
 #[tokio::main(flavor = "current_thread")]
@@ -172,7 +173,12 @@ async fn main() {
                             .put_record(
                                 kad::Record {
                                     key: m.chat.to_vec().into(),
-                                    value: PutRecord::Message(m.content).to_bytes(),
+                                    value: PutRecord::Message(ReplicateMessage {
+                                        content: m.content,
+                                        content_sig: m.content_sig,
+                                        sender: m.sender,
+                                    })
+                                    .to_bytes(),
                                     publisher: None,
                                     expires: None,
                                 },
@@ -191,7 +197,7 @@ async fn main() {
                         let resp = if let Some(chat) =
                             swarm.behaviour_mut().kad.store_mut().chats.get(&fm.chat)
                         {
-                            let cursor = chat.fetch(
+                            let cursor = chat.messages.fetch(
                                 fm.cursor,
                                 10,
                                 protocols::chat::MAX_MESSAGE_SIZE,
@@ -203,13 +209,13 @@ async fn main() {
                                 messages: &messages,
                             })
                         } else {
-                            Response::NotFound(())
+                            Response::NotFound
                         };
                         buffer.clear();
                         resp.encode(&mut buffer);
                         stream.inner.write(&mut buffer);
                     }
-                    Request::KeepAlive(()) => {}
+                    Request::KeepAlive => {}
                     Request::SearchFor(chat) => {
                         // you should qid
                         log::debug!("searching for {chat:?}");
@@ -294,12 +300,14 @@ async fn main() {
 
                 for client in clients
                     .iter_mut()
-                    .filter(|c| c.subscribed.contains(&chat_name))
+                    .filter(|c| c.subscribed.contains(&chat_name.into()))
                 {
                     buffer.clear();
                     Response::Message(Message {
-                        chat: chat_name,
-                        content: msg,
+                        chat: chat_name.into(),
+                        content: msg.content,
+                        content_sig: msg.content_sig,
+                        sender: msg.sender,
                     })
                     .encode(&mut buffer);
                     client.inner.write(&mut buffer);
@@ -323,14 +331,79 @@ struct Behaviour {
 
 component_utils::impl_kad_search!(Behaviour => (ChatStore, onion::Behaviour => onion, kad));
 
+#[derive(Default)]
+struct ChatState {
+    messages: MessageBlob,
+    members: Vec<Member>,
+}
+
 struct ChatStore {
-    chats: HashMap<ChatName, MessageBlob>,
+    chats: HashMap<ChatName, ChatState>,
     mem: MemoryStore,
 }
 
+impl ChatStore {
+    fn put_message(&mut self, chat: ChatName, m: ReplicateMessage) -> Result<(), PutMessageError> {
+        let Some(msg) = PrefixedMessage::decode(&mut &*m.content) else {
+            return Err(PutMessageError::InvalidContent);
+        };
+
+        let chat = self.chats.entry(chat.into()).or_default();
+        if chat.members.is_empty() {
+            if !m.is_valid() {
+                return Err(PutMessageError::InvalidMessage);
+            }
+
+            chat.members.push(Member {
+                id: 0,
+                identity: m.sender,
+                perm: 0,
+                last_message_no: 0,
+            });
+            chat.messages.push(
+                Base128Bytes::new(0).chain(m.content.iter().copied()),
+                protocols::chat::CHAT_CAP,
+            );
+            return Ok(());
+        }
+
+        let Some(member) = chat.members.iter_mut().find(|m| m.identity == m.identity) else {
+            return Err(PutMessageError::NotMember);
+        };
+
+        if member.last_message_no >= msg.no {
+            return Err(PutMessageError::MessageNumberTooLow);
+        }
+
+        if !m.is_valid() {
+            return Err(PutMessageError::InvalidMessage);
+        }
+
+        member.last_message_no = msg.no;
+        chat.messages.push(
+            Base128Bytes::new(member.id as _).chain(m.content.iter().copied()),
+            protocols::chat::CHAT_CAP,
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PutMessageError {
+    #[error("cannot parse message content")]
+    InvalidContent,
+    #[error("message signature does not check out")]
+    InvalidMessage,
+    #[error("you are not a member of this chat")]
+    NotMember,
+    #[error("message number is too low")]
+    MessageNumberTooLow,
+}
+
 impl RecordStore for ChatStore {
-    type RecordsIter<'a> = std::iter::Map<std::collections::hash_map::Iter<'a, ChatName, MessageBlob>,
-        fn((&ChatName, &MessageBlob)) -> Cow<'a, kad::Record>> where Self: 'a;
+    type RecordsIter<'a> = std::iter::Map<std::collections::hash_map::Iter<'a, ChatName, ChatState>,
+        fn((&ChatName, &ChatState)) -> Cow<'a, kad::Record>> where Self: 'a;
     type ProvidedIter<'a> = <MemoryStore as RecordStore>::ProvidedIter<'a> where Self: 'a;
 
     fn get(&self, _: &kad::RecordKey) -> Option<std::borrow::Cow<'_, kad::Record>> {
@@ -344,18 +417,14 @@ impl RecordStore for ChatStore {
             .try_into()
             .map_err(|_| kad::store::Error::ValueTooLarge)?;
         let payload =
-            PutRecord::decode(&mut r.value.as_slice()).ok_or(kad::store::Error::MaxProvidedKeys)?;
+            PutRecord::decode(&mut r.value.as_slice()).ok_or(kad::store::Error::ValueTooLarge)?;
         match payload {
             PutRecord::Message(m) => {
-                self.chats
-                    .entry(chat_name)
-                    .or_default()
-                    .push(m, protocols::chat::CHAT_CAP);
+                self.put_message(chat_name.into(), m)
+                    .map_err(|_| kad::store::Error::ValueTooLarge)?;
             }
-            PutRecord::ChatHistory(c) => {
-                self.chats
-                    .try_insert(chat_name, c.to_blob())
-                    .map_err(|_| kad::store::Error::MaxRecords)?;
+            PutRecord::ChatHistory(_) => {
+                todo!();
             }
         }
         Ok(())
@@ -368,7 +437,7 @@ impl RecordStore for ChatStore {
         self.chats.iter().map(|(k, v)| {
             Cow::Owned(kad::Record {
                 key: k.to_vec().into(),
-                value: v.as_vec(),
+                value: v.messages.as_vec(),
                 publisher: None,
                 expires: None,
             })
@@ -408,28 +477,5 @@ impl futures::Stream for Stream {
         Pin::new(&mut self.inner)
             .poll_next(cx)
             .map(|p| p.map(|p| (self.id, p)))
-    }
-}
-
-pub fn hex_encode(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let h = b >> 4;
-        let l = b & 0xf;
-        s.push(char::from(if h < 10 { b'0' + h } else { b'a' + h - 10 }));
-        s.push(char::from(if l < 10 { b'0' + l } else { b'a' + l - 10 }));
-    }
-    s
-}
-
-fn _hex_decode(s: &str) -> Option<Vec<u8>> {
-    let mut bytes = Vec::with_capacity(s.len() / 2);
-    let mut iter = s.bytes();
-    loop {
-        let h = iter.next()?;
-        let l = iter.next()?;
-        let h = if h >= b'a' { h - b'a' + 10 } else { h - b'0' };
-        let l = if l >= b'a' { l - b'a' + 10 } else { l - b'0' };
-        bytes.push(h << 4 | l);
     }
 }

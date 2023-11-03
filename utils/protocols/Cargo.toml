@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 component-utils = { version = "0.1.0", path = "../component-utils" }
 crypto = { version = "0.1.0", path = "../crypto" }
+hex = "0.4.3"

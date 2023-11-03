@@ -1,0 +1,15 @@
+[package]
+name = "chain-api"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+component-utils = { version = "0.1.0", path = "../component-utils", default-features = false }
+crypto = { version = "0.1.0", path = "../crypto" }
+hex = "0.4.3"
+reqwest = { version = "0.11.22", features = ["json"] }
+serde = { version = "1.0.190", features = ["derive"] }
+serde_json = "1.0.108"
+thiserror = "1.0.50"

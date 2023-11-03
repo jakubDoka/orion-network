@@ -1,7 +1,9 @@
 use std::{io, sync::Arc, u32, usize};
 
 use futures::{AsyncRead, AsyncReadExt};
+#[cfg(feature = "kad")]
 use libp2p_core::multihash::Multihash;
+#[cfg(feature = "kad")]
 use libp2p_identity::PeerId;
 
 pub fn encode_len(len: usize) -> [u8; 4] {
@@ -15,19 +17,19 @@ pub fn decode_len(bytes: [u8; 4]) -> usize {
 #[macro_export]
 macro_rules! protocol {
     (@low $(#[$meta:meta])* enum $lt:lifetime $name:ident$(<$lt2:lifetime>)? {$(
-        $variant:ident: $value:ty => $id:literal,
+        $variant:ident $(: $value:ty)? => $id:literal,
     )*}) => {
        $(#[$meta])*
         pub enum $name$(<$lt2>)? {
-            $($variant($value),)*
+            $($variant$(($value))?,)*
         }
 
         impl<$lt> $crate::codec::Codec<$lt> for $name$(<$lt2>)? {
             fn encode(&self, buffer: &mut Vec<u8>) {
                 match self {
-                    $(Self::$variant(value) => {
+                    $($crate::protocol!(@pattern $variant value $($value)?) => {
                         ($id as u8).encode(buffer);
-                        <$value as $crate::codec::Codec<$lt>>::encode(value, buffer);
+                        $(<$value as $crate::codec::Codec<$lt>>::encode(value, buffer);)?
                     })*
                 }
             }
@@ -36,14 +38,16 @@ macro_rules! protocol {
                 let value = <u8>::decode(buffer)?;
                 match value {
                     $( $id => {
-                        let value = <$value as $crate::codec::Codec<$lt>>::decode(buffer)?;
-                        Some(Self::$variant(value))
+                        Some(Self::$variant$((<$value as $crate::codec::Codec<$lt>>::decode(buffer)?))?)
                     })*
                     _ => None,
                 }
             }
         }
     };
+
+    (@pattern $variant:ident $var:ident) => {Self::$variant};
+    (@pattern $variant:ident $var:ident $value:ty) => {Self::$variant($var)};
 
     (@low $(#[$meta:meta])* struct $lt:lifetime $name:ident$(<$lt2:lifetime>)? {$(
         $field:ident: $ty:ty,
@@ -67,10 +71,10 @@ macro_rules! protocol {
     };
 
     ($lt:lifetime: $($(#[$meta:meta])* $keyword:ident $name:ident$(<$lt2:lifetime>)? {$(
-        $field:ident: $ty:ty $(=> $id:literal)?,
+        $field:ident$(: $ty:ty)? $(=> $id:literal)?,
     )*})*) => {
         $($crate::protocol!(@low $(#[$meta])* $keyword $lt $name$(<$lt2>)? {$(
-            $field: $ty $(=> $id)?,
+            $field $(: $ty)? $(=> $id)?,
         )*});)*
     };
 }
@@ -114,6 +118,31 @@ impl Codec<'_> for () {
 
     fn decode(_buffer: &mut &[u8]) -> Option<Self> {
         Some(())
+    }
+}
+
+pub struct Base128Bytes(u64, bool);
+
+impl Base128Bytes {
+    pub fn new(value: u64) -> Self {
+        Self(value, true)
+    }
+}
+
+impl Iterator for Base128Bytes {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0 == 0 && !std::mem::take(&mut self.1) {
+            return None;
+        }
+
+        let byte = (self.0 & 0b0111_1111) as u8;
+        self.0 >>= 7;
+        if self.0 != 0 {
+            self.0 |= 0b1000_0000;
+        }
+        Some(byte)
     }
 }
 
@@ -293,6 +322,7 @@ impl<'a, T: Codec<'a>, const SIZE: usize> Codec<'a> for [T; SIZE] {
     }
 }
 
+#[cfg(feature = "kad")]
 impl<'a> Codec<'a> for PeerId {
     fn encode(&self, buffer: &mut Vec<u8>) {
         let mh = Multihash::from(*self);

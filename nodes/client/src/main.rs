@@ -19,12 +19,9 @@ use libp2p::futures::StreamExt;
 use libp2p::kad::store::MemoryStore;
 use libp2p::swarm::{ConnectionHandler, NetworkBehaviour};
 use onion::EncryptedStream;
-use protocols::chat::{
-    chat_name_to_string, string_to_chat_name, FetchMessages, Message, Request, Response,
-};
+use protocols::chat::{ChatName, FetchMessages, FetchedMessages, Message, Request, Response};
 use std::rc::Rc;
 
-pub type ChatName = Rc<str>;
 pub type Sender = Rc<str>;
 pub type Content = Rc<str>;
 
@@ -81,7 +78,7 @@ fn Chat(revents: ReadSignal<NodeEvent>, wcommands: WriteSignal<NodeCommand>) -> 
         messages: VecDeque<ThreadMessage>,
     }
 
-    let selected_chat = create_rw_signal(ChatName::from(""));
+    let selected_chat = create_rw_signal(None::<ChatName>);
     let threads = create_rw_signal(Vec::<Thread>::new());
     create_effect(move |_| match revents() {
         NodeEvent::NewMessage {
@@ -130,20 +127,21 @@ fn Chat(revents: ReadSignal<NodeEvent>, wcommands: WriteSignal<NodeCommand>) -> 
     });
 
     let selected_thread =
-        move || threads.with(|t| t.iter().find(|t| t.name == selected_chat()).cloned());
+        move || threads.with(|t| t.iter().find(|t| Some(t.name) == selected_chat()).cloned());
 
     let thread_buttons =
         move || threads.with(|t| t.iter().map(|t| t.name.clone()).collect::<Vec<_>>());
     let thread_button_view = move |chat: ChatName| {
         let [schat, ochat] = [chat.clone(), chat.clone()];
-        let selected = move || selected_chat() == schat;
-        let onclick = move |_| selected_chat.set(ochat.clone());
-        view! { <button class:selected=selected on:click=onclick>{chat.to_string()}</button> }
+        let selected = move || selected_chat() == Some(schat);
+        let onclick = move |_| selected_chat.set(Some(ochat.clone()));
+        view! { <button class:selected=selected on:click=onclick>{chat.as_string()}</button> }
     };
 
     let create_chat = create_node_ref::<Input>();
     let on_create = move |_| {
         let chat = create_chat.get().unwrap().value();
+        let chat = ChatName::new(chat.as_str()).unwrap();
         wcommands(NodeCommand::Subscrbe { chat });
     };
 
@@ -166,7 +164,10 @@ fn Chat(revents: ReadSignal<NodeEvent>, wcommands: WriteSignal<NodeCommand>) -> 
     let on_send = move |_| {
         let name = "anon";
         let content = message_input.get().unwrap().value();
-        let chat = selected_chat();
+        let Some(chat) = selected_chat() else {
+            log::error!("no chat selected");
+            return;
+        };
         wcommands(NodeCommand::SendMessage {
             chat,
             name: name.into(),
@@ -210,7 +211,7 @@ enum NodeEvent {
 #[derive(Clone)]
 enum NodeCommand {
     Subscrbe {
-        chat: String,
+        chat: ChatName,
     },
     SendMessage {
         chat: ChatName,
@@ -229,7 +230,8 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
     let enough_onion_nodes = 5;
     let bootstrap_node: SocketAddr = (Ipv4Addr::LOCALHOST, 8900).into();
 
-    let keypair = identity::Keypair::generate_ed25519();
+    let keys = protocols::chat::UserKeys::new();
+    let keypair = identity::Keypair::ed25519_from_bytes(keys.sign.ed).unwrap();
     let transport = websocket_websys::Transport::new(100)
         .upgrade(Version::V1Lazy)
         .authenticate(noise::Config::new(&keypair).unwrap())
@@ -319,17 +321,15 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
 
                 match pckt {
                     Response::Message(msg) => {
-                        let chat = chat_name_to_string(&msg.chat).unwrap().into();
                         let raw_msg = RawMessage::decode(&mut &*msg.content).unwrap();
                         events(NodeEvent::NewMessage {
-                            chat,
+                            chat: msg.chat,
                             name: raw_msg.sender.to_owned(),
                             content: raw_msg.content.to_owned(),
                         });
                         log::info!("new message");
                     }
-                    Response::FetchedMessages(fmsg) => {
-                        let chat = chat_name_to_string(&fmsg.chat).unwrap().into();
+                    Response::FetchedMessages(fmsg @ FetchedMessages { chat, cursor, .. }) => {
                         let messages = fmsg
                             .messages()
                             .map(|r| RawMessage::decode(&mut &*r).unwrap())
@@ -343,16 +343,15 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                             .iter_mut()
                             .find(|s| s.chat == chat)
                             .unwrap()
-                            .cursor = fmsg.cursor;
+                            .cursor = cursor;
                         events(NodeEvent::FetchedMessages { chat, messages });
                     }
                     Response::Subscribed(chn) => {
-                        events(NodeEvent::Subscribed(
-                            chat_name_to_string(&chn).unwrap().into(),
-                        ));
+                        events(NodeEvent::Subscribed(chn));
                     }
                     Response::SearchResults(_) => log::error!("unepxected response"),
-                    Response::NotFound(()) => log::error!("something was not found"),
+                    Response::NotFound => log::error!("something was not found"),
+                    Response::Denied(_) => todo!(),
                 }
             }
             Event::SearchPacket(r) => {
@@ -389,11 +388,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                     continue;
                 };
 
-                log::info!(
-                    "peer picked: {} for chat: {}",
-                    peer,
-                    chat_name_to_string(&res.chat).unwrap()
-                );
+                log::info!("peer picked: {} for chat: {}", peer, res.chat);
 
                 let route: [_; 3] = onion_peers
                     .iter()
@@ -405,10 +400,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                     .try_into()
                     .unwrap();
 
-                pending_streams.push((
-                    ChatName::from(chat_name_to_string(&res.chat).unwrap()),
-                    swarm.behaviour_mut().onion.open_path(route),
-                ));
+                pending_streams.push((res.chat, swarm.behaviour_mut().onion.open_path(route)));
 
                 log::info!("search results");
             }
@@ -416,10 +408,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                 _ if peer_search_route.is_none() => log::error!("sarch route not present"),
                 NodeCommand::Subscrbe { chat } => {
                     buffer.clear();
-                    protocols::chat::Request::SearchFor(
-                        protocols::chat::string_to_chat_name(&chat).unwrap(),
-                    )
-                    .encode(&mut buffer);
+                    protocols::chat::Request::SearchFor(chat).encode(&mut buffer);
                     peer_search_route.as_mut().unwrap().write(&mut buffer);
                 }
                 NodeCommand::SendMessage {
@@ -427,12 +416,10 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                     name,
                     content,
                 } => {
-                    let Some(chat) = subscriptions.iter_mut().find(|s| s.chat == chat) else {
+                    let Some(sub) = subscriptions.iter_mut().find(|s| s.chat == chat) else {
                         log::error!("chat not found");
                         continue;
                     };
-
-                    let chat_name = string_to_chat_name(&chat.chat).unwrap();
 
                     let raw = RawMessage {
                         sender: name.as_str(),
@@ -442,24 +429,25 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
 
                     buffer.clear();
                     Request::Send(Message {
-                        chat: chat_name,
+                        chat,
                         content: &raw,
+                        content_sig: keys.sign.sign(&raw).into(),
+                        sender: keys.identity().sign.into(),
                     })
                     .encode(&mut buffer);
-                    chat.stream.write(&mut buffer);
+                    sub.stream.write(&mut buffer);
                     log::info!("sent message");
                 }
                 NodeCommand::FetchMessages(chat) => {
-                    let chat_name = string_to_chat_name(&chat).unwrap();
-                    let chat = subscriptions.iter_mut().find(|s| s.chat == chat).unwrap();
+                    let sub = subscriptions.iter_mut().find(|s| s.chat == chat).unwrap();
 
                     buffer.clear();
                     Request::FetchMessages(FetchMessages {
-                        chat: chat_name,
-                        cursor: chat.cursor,
+                        chat,
+                        cursor: sub.cursor,
                     })
                     .encode(&mut buffer);
-                    chat.stream.write(&mut buffer);
+                    sub.stream.write(&mut buffer);
                 }
                 NodeCommand::None => {}
             },
@@ -510,8 +498,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                         .unwrap();
                     let (chat, _) = pending_streams.swap_remove(index);
                     buffer.clear();
-                    Request::Subscribe(protocols::chat::string_to_chat_name(&chat).unwrap())
-                        .encode(&mut buffer);
+                    Request::Subscribe(chat).encode(&mut buffer);
                     log::debug!("subscribing to {}", chat);
                     stream.write(&mut buffer);
                     subscriptions.push(Subscription {

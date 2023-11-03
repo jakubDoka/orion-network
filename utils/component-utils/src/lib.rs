@@ -1,3 +1,4 @@
+#![feature(array_chunks)]
 #[macro_export]
 macro_rules! gen_config {
     (
@@ -41,7 +42,10 @@ pub mod handler;
 pub mod kad;
 pub mod stream;
 
-pub use {codec::*, futures, handler::*, kad::*, stream::*};
+pub use {codec::*, futures, handler::*, stream::*};
+
+#[cfg(feature = "kad")]
+pub use kad::*;
 
 #[cfg(feature = "kad")]
 pub use libp2p_kad;

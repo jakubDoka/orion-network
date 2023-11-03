@@ -16,8 +16,8 @@ pub struct Signature {
 
 #[derive(Clone, Copy)]
 pub struct KeyPair {
-    dili: pqc_dilithium::Keypair,
-    ed: ed25519_dalek::SecretKey,
+    pub dili: pqc_dilithium::Keypair,
+    pub ed: ed25519_dalek::SecretKey,
 }
 
 impl KeyPair {
@@ -45,8 +45,8 @@ impl KeyPair {
 
 #[derive(Clone, Copy)]
 pub struct PublicKey {
-    dili: [u8; pqc_dilithium::PUBLICKEYBYTES],
-    ed: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
+    pub dili: [u8; pqc_dilithium::PUBLICKEYBYTES],
+    pub ed: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
 }
 
 impl PublicKey {

@@ -9,6 +9,7 @@ edition = "2021"
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 console_error_panic_hook = "0.1.7"
 console_log = { version = "1.0.0", features = ["wasm-bindgen"] }
+crypto = { version = "0.1.0", path = "../../utils/crypto" }
 hex = "0.4.3"
 leptos = { version = "0.5.1", default-features = false, features = ["nightly", "csr"] }
 libp2p = { version = "0.52.3", features = ["kad", "macros", "wasm-bindgen", "yamux", "noise"] }
