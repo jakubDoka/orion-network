@@ -21,7 +21,9 @@ use libp2p::kad::store::MemoryStore;
 use libp2p::swarm::SwarmEvent;
 use libp2p::PeerId;
 use onion::EncryptedStream;
-use protocols::chat::{ChatName, FetchMessages, FetchedMessages, Message, Request, Response};
+use protocols::chat::{
+    ChatName, FetchMessages, FetchedMessages, Message, Request, Response, SearchResult, UserOrChat,
+};
 use std::rc::Rc;
 
 pub type Sender = Rc<str>;
@@ -135,13 +137,13 @@ fn Chat(revents: ReadSignal<NodeEvent>, wcommands: WriteSignal<NodeCommand>) -> 
     let thread_button_view = move |chat: ChatName| {
         let selected = move || selected_chat() == Some(chat);
         let onclick = move |_| selected_chat.set(Some(chat));
-        view! { <button class:selected=selected on:click=onclick>{chat.as_string()}</button> }
+        view! { <button class:selected=selected on:click=onclick>{chat.to_string()}</button> }
     };
 
     let create_chat = create_node_ref::<Input>();
     let on_create = move |_| {
         let chat = create_chat.get().unwrap().value();
-        let chat = ChatName::new(chat.as_str()).unwrap();
+        let chat = ChatName::from(chat.as_str()).unwrap();
         wcommands(NodeCommand::Subscrbe { chat });
     };
 
@@ -376,6 +378,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                     Response::SearchResults(_) => log::error!("unepxected response"),
                     Response::ChatNotFound => log::error!("chat not found"),
                     Response::FailedMessage(e) => log::error!("failed to put message: {:?}", e),
+                    Response::DataRed(_) => todo!(),
                 }
             }
             Event::SearchPacket(r) => {
@@ -397,7 +400,8 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                     }
                 };
 
-                let Some(Response::SearchResults(res)) = Response::decode(&mut &*msg) else {
+                let Some(Response::SearchResults(SearchResult {})) = Response::decode(&mut &*msg)
+                else {
                     log::error!("search packet is malformed");
                     continue;
                 };
@@ -435,7 +439,7 @@ async fn boot_node(events: WriteSignal<NodeEvent>, commands: ReadSignal<NodeComm
                 _ if peer_search_route.is_none() => log::error!("sarch route not present"),
                 NodeCommand::Subscrbe { chat } => {
                     buffer.clear();
-                    protocols::chat::Request::SearchFor(chat).encode(&mut buffer);
+                    protocols::chat::Request::SearchFor(UserOrChat::Chat(chat)).encode(&mut buffer);
                     peer_search_route.as_mut().unwrap().write(&mut buffer);
                 }
                 NodeCommand::SendMessage {

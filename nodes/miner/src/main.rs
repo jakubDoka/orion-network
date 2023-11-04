@@ -9,7 +9,7 @@ use std::{
     net::Ipv4Addr,
     pin::Pin,
     time::Duration,
-    vec,
+    u32, usize, vec,
 };
 
 use chain_api::NodeData;
@@ -30,10 +30,7 @@ use libp2p::{
     Multiaddr, PeerId, Transport,
 };
 use onion::EncryptedStream;
-use protocols::chat::{
-    ChatName, FetchedMessages, Member, Message, MessageBlob, MessageContent, PrefixedMessage,
-    PutMessageError, PutRecord, ReplicateMessage, Request, Response, SearchResult, CHAT_NAME_CAP,
-};
+use protocols::chat::*;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -69,6 +66,7 @@ async fn main() {
             peer_id,
             ChatStore {
                 chats: Default::default(),
+                mail_boxes: Default::default(),
                 mem: MemoryStore::new(peer_id),
             },
             mem::take(kad::Config::default().set_record_filtering(StoreInserts::FilterBoth)),
@@ -139,7 +137,7 @@ async fn main() {
     let mut client_ids = 0;
     let mut peer_discovery = KadPeerSearch::default();
     let mut clients = futures::stream::SelectAll::<Stream>::new();
-    let mut search_queries = VecDeque::<(usize, ChatName, Vec<PeerId>, QueryId)>::new();
+    let mut search_queries = VecDeque::<(usize, UserOrChat, Vec<PeerId>, QueryId)>::new();
     let mut buffer = Vec::<u8>::new();
     loop {
         let e = futures::select! {
@@ -168,39 +166,46 @@ async fn main() {
                     continue;
                 };
 
-                match msg {
+                let record = match msg {
                     Request::Subscribe(to) => {
                         log::debug!("subscription from {i} to {to:?}");
                         stream.subscribed.insert(to);
                         buffer.clear();
                         Response::Subscribed(to).encode(&mut buffer);
                         stream.inner.write(&mut buffer);
+                        continue;
                     }
                     Request::Send(m) => {
                         log::debug!("message from {i} to {:?}", m.chat);
-                        swarm
+                        let msg = ReplicateMessage {
+                            content: m.content,
+                            content_sig: m.content_sig,
+                            sender: m.sender,
+                        };
+
+                        if let Err(e) = swarm
                             .behaviour_mut()
                             .kad
-                            .put_record(
-                                kad::Record {
-                                    key: m.chat.to_vec().into(),
-                                    value: PutRecord::Message(ReplicateMessage {
-                                        content: m.content,
-                                        content_sig: m.content_sig,
-                                        sender: m.sender,
-                                    })
-                                    .to_bytes(),
-                                    publisher: None,
-                                    expires: None,
-                                },
-                                Quorum::N(protocols::chat::REPLICATION_FACTOR),
-                            )
-                            .unwrap();
+                            .store_mut()
+                            .put_message(m.chat, msg)
+                        {
+                            log::info!("failed to put message: {e:?}");
+                            stream.inner.write(&mut [e as u8]);
+                            continue;
+                        }
+
                         let chat = m.chat;
                         for client in clients.iter_mut().filter(|c| c.subscribed.contains(&chat)) {
                             buffer.clear();
                             <Response as Codec>::encode(&Response::Message(m), &mut buffer);
                             client.inner.write(&mut buffer);
+                        }
+
+                        kad::Record {
+                            key: m.chat.to_bytes().into(),
+                            value: PutRecord::Message(msg).to_bytes(),
+                            publisher: None,
+                            expires: None,
                         }
                     }
                     Request::FetchMessages(fm) => {
@@ -208,12 +213,7 @@ async fn main() {
                         let resp = if let Some(chat) =
                             swarm.behaviour_mut().kad.store_mut().chats.get(&fm.chat)
                         {
-                            let cursor = chat.messages.fetch(
-                                fm.cursor,
-                                10,
-                                protocols::chat::MAX_MESSAGE_SIZE,
-                                &mut messages,
-                            );
+                            let cursor = chat.messages.fetch(fm.cursor, usize::MAX, &mut messages);
                             Response::FetchedMessages(FetchedMessages {
                                 chat: fm.chat,
                                 cursor,
@@ -225,15 +225,53 @@ async fn main() {
                         buffer.clear();
                         resp.encode(&mut buffer);
                         stream.inner.write(&mut buffer);
+                        continue;
                     }
-                    Request::KeepAlive => {}
-                    Request::SearchFor(chat) => {
-                        // you should qid
-                        log::debug!("searching for {chat:?}");
-                        let qid = swarm.behaviour_mut().kad.get_closest_peers(chat.to_vec());
-                        search_queries.push_back((i, chat, vec![], qid));
+                    Request::KeepAlive => continue,
+                    Request::SearchFor(key) => {
+                        let qid = swarm
+                            .behaviour_mut()
+                            .kad
+                            .get_closest_peers(key.as_slice().to_vec());
+                        search_queries.push_back((i, key, vec![], qid));
+                        continue;
                     }
-                }
+                    Request::ReadMail(_) => todo!(),
+                    Request::WriteData(_) => todo!(),
+                    Request::ReadData(req) => {
+                        let data = swarm.behaviour_mut().kad.store_mut().read_data(req);
+                        buffer.clear();
+                        Response::DataRed(data).encode(&mut buffer);
+                        stream.inner.write(&mut buffer);
+                        continue;
+                    }
+                    Request::WriteMail(req) => {
+                        let err = swarm
+                            .behaviour_mut()
+                            .kad
+                            .store_mut()
+                            .put_mail(req.id, req.data);
+                        buffer.clear();
+                        match err {
+                            Ok(()) => Response::MailWritten.encode(&mut buffer),
+                            Err(e) => Response::MailWriteFailed(e).encode(&mut buffer),
+                        };
+                        stream.inner.write(&mut buffer);
+                        kad::Record {
+                            key: req.id.to_vec().into(),
+                            value: PutRecord::Mail(req.data).to_bytes(),
+                            publisher: None,
+                            expires: None,
+                        }
+                    }
+                };
+
+                // the put method on the store is no op
+                swarm
+                    .behaviour_mut()
+                    .kad
+                    .put_record(record, Quorum::N(protocols::chat::REPLICATION_FACTOR))
+                    .unwrap();
                 continue;
             }
         };
@@ -295,36 +333,58 @@ async fn main() {
                         ..
                     },
             })) => {
-                let Ok(chat_name): Result<[u8; CHAT_NAME_CAP], _> = record.key.as_ref().try_into()
-                else {
-                    continue;
-                };
-
                 let Some(msg) = PutRecord::decode(&mut record.value.as_slice()) else {
                     continue;
                 };
 
-                let msg = match msg {
-                    PutRecord::Message(m) => m,
+                match msg {
+                    PutRecord::Message(msg) => {
+                        let Some(chat_name) = std::str::from_utf8(record.key.as_ref())
+                            .ok()
+                            .map(ChatName::try_from)
+                            .and_then(Result::ok)
+                        else {
+                            continue;
+                        };
+
+                        if let Err(e) = swarm
+                            .behaviour_mut()
+                            .kad
+                            .store_mut()
+                            .put_message(chat_name, msg)
+                        {
+                            log::error!("failed to put message: {e:?}");
+                            continue;
+                        }
+
+                        for client in clients
+                            .iter_mut()
+                            .filter(|c| c.subscribed.contains(&chat_name))
+                        {
+                            buffer.clear();
+                            Response::Message(Message {
+                                chat: chat_name,
+                                content: msg.content,
+                                content_sig: msg.content_sig,
+                                sender: msg.sender,
+                            })
+                            .encode(&mut buffer);
+                            client.inner.write(&mut buffer);
+                        }
+                    }
+                    PutRecord::Mail(msg) => {
+                        let Ok(mail_id) = UserMailId::try_from(record.key.as_ref()) else {
+                            continue;
+                        };
+
+                        if let Err(e) = swarm.behaviour_mut().kad.store_mut().put_mail(mail_id, msg)
+                        {
+                            log::error!("failed to put notification: {e:?}");
+                            continue;
+                        }
+                    }
                     PutRecord::ChatHistory(_) => todo!(),
                 };
-
-                for client in clients
-                    .iter_mut()
-                    .filter(|c| c.subscribed.contains(&chat_name.into()))
-                {
-                    buffer.clear();
-                    Response::Message(Message {
-                        chat: chat_name.into(),
-                        content: msg.content,
-                        content_sig: msg.content_sig,
-                        sender: msg.sender,
-                    })
-                    .encode(&mut buffer);
-                    client.inner.write(&mut buffer);
-                }
-
-                swarm.behaviour_mut().kad.store_mut().put(record).unwrap();
             }
             e => {
                 log::debug!("{e:?}");
@@ -348,12 +408,70 @@ struct ChatState {
     members: Vec<Member>,
 }
 
+#[derive(Default)]
+struct Profie {
+    messages: MailBlob,
+    last_action_no: u32,
+    data: Vec<u8>,
+}
+
 struct ChatStore {
     chats: HashMap<ChatName, ChatState>,
+    mail_boxes: HashMap<UserMailId, Profie>,
     mem: MemoryStore,
 }
 
 impl ChatStore {
+    fn put_mail(&mut self, id: UserMailId, msg: &[u8]) -> Result<(), PutMailError> {
+        if msg.len() > protocols::chat::MAX_MAIL_SIZE {
+            return Err(PutMailError::MailTooBig);
+        }
+
+        let mail = self.mail_boxes.entry(id).or_default();
+
+        if !mail.messages.push(msg.iter().copied()) {
+            return Err(PutMailError::MailboxFull);
+        }
+
+        Ok(())
+    }
+
+    fn read_mail(&mut self, req: MailActionProof) -> Result<&mut [u8], ReadMailError> {
+        let mail = self.mail_boxes.entry(req.pk).or_default();
+
+        if !req.is_valid() {
+            return Err(ReadMailError::InvalidProof);
+        }
+
+        if mail.last_action_no >= req.no {
+            return Err(ReadMailError::NotPermitted);
+        }
+
+        mail.last_action_no = req.no;
+        Ok(mail.messages.read())
+    }
+
+    fn read_data(&mut self, id: UserMailId) -> &[u8] {
+        self.mail_boxes.get(&id).map_or(&[], |pr| &pr.data)
+    }
+
+    fn write_data(&mut self, req: WriteData) -> Result<(), WriteDataError> {
+        let mail = self.mail_boxes.entry(req.proof.pk).or_default();
+
+        if !req.proof.is_valid() {
+            return Err(WriteDataError::InvalidProof);
+        }
+
+        if mail.last_action_no >= req.proof.no {
+            return Err(WriteDataError::NotPermitted);
+        }
+
+        mail.data.clear();
+        mail.data.extend(req.data);
+
+        Ok(())
+    }
+
     fn put_message(&mut self, chat: ChatName, rm: ReplicateMessage) -> Result<(), PutMessageError> {
         let Some(msg) = PrefixedMessage::decode(&mut &*rm.content) else {
             return Err(PutMessageError::InvalidContent);
@@ -371,10 +489,8 @@ impl ChatStore {
                 perm: 0,
                 last_message_no: 0,
             });
-            chat.messages.push(
-                Base128Bytes::new(0).chain(rm.content.iter().copied()),
-                protocols::chat::CHAT_CAP,
-            );
+            chat.messages
+                .push(Base128Bytes::new(0).chain(rm.content.iter().copied()));
             return Ok(());
         }
 
@@ -392,10 +508,14 @@ impl ChatStore {
         };
 
         match msg {
-            MessageContent::Arbitrary(content) => chat.messages.push(
-                Base128Bytes::new(member.id as _).chain(content.iter().copied()),
-                protocols::chat::CHAT_CAP,
-            ),
+            MessageContent::Arbitrary(content)
+                if content.len() > protocols::chat::MAX_MESSAGE_SIZE =>
+            {
+                return Err(PutMessageError::MessageTooBig);
+            }
+            MessageContent::Arbitrary(content) => chat
+                .messages
+                .push(Base128Bytes::new(member.id as _).chain(content.iter().copied())),
             MessageContent::AddMember(am) => {
                 let issuer_perm = member.perm;
                 let Some(member) = chat.members.iter_mut().find(|m| m.identity == am.invited)
@@ -444,23 +564,7 @@ impl RecordStore for ChatStore {
         None
     }
 
-    fn put(&mut self, r: kad::Record) -> kad::store::Result<()> {
-        let chat_name: [u8; CHAT_NAME_CAP] = r
-            .key
-            .as_ref()
-            .try_into()
-            .map_err(|_| kad::store::Error::ValueTooLarge)?;
-        let payload =
-            PutRecord::decode(&mut r.value.as_slice()).ok_or(kad::store::Error::ValueTooLarge)?;
-        match payload {
-            PutRecord::Message(m) => {
-                self.put_message(chat_name.into(), m)
-                    .map_err(|_| kad::store::Error::ValueTooLarge)?;
-            }
-            PutRecord::ChatHistory(_) => {
-                todo!();
-            }
-        }
+    fn put(&mut self, _: kad::Record) -> kad::store::Result<()> {
         Ok(())
     }
 
@@ -470,7 +574,7 @@ impl RecordStore for ChatStore {
         // TODO: replicate only keys and make nodes fetch the data from the sender if they dont have it
         self.chats.iter().map(|(k, v)| {
             Cow::Owned(kad::Record {
-                key: k.to_vec().into(),
+                key: k.to_bytes().into(),
                 value: v.messages.as_vec(),
                 publisher: None,
                 expires: None,

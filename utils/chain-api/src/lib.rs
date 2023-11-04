@@ -1,11 +1,12 @@
 use component_utils::Codec;
+use protocols::chat::UserName;
 use reqwest::Client;
 use std::fmt;
 use std::sync::OnceLock;
 
 component_utils::protocol! { 'a:
     struct UserData {
-        name: String,
+        name: UserName,
         sign: crypto::sign::SerializedPublicKey,
         enc: crypto::enc::SerializedPublicKey,
     }

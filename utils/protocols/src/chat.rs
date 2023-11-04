@@ -1,81 +1,27 @@
-use std::{borrow::Cow, collections::VecDeque, fmt, iter, num::NonZeroUsize, usize};
+use std::{collections::VecDeque, iter, num::NonZeroUsize, usize};
+use std::{mem, u16, u32};
 
+use component_utils::arrayvec::ArrayString;
 use component_utils::{libp2p_identity::PeerId, Codec};
 
 pub const CHAT_NAME_CAP: usize = 32;
-pub const IDENTITY_CAP: usize = 32;
+pub const USER_NAME_CAP: usize = 32;
 pub const CHAT_CAP: usize = 1024 * 1024;
-pub const MAX_MESSAGE_SIZE: u16 = 1024;
+pub const MAIL_CAP: usize = 1024 * 1024;
+pub const USER_DATA_CAP: usize = 1024 * 1024;
+pub const MAX_MESSAGE_SIZE: usize = 1024;
+pub const MAX_MAIL_SIZE: usize = 512;
+pub const MESSAGE_FETCH_LIMIT: usize = 20;
 pub const NO_CURSOR: Cursor = Cursor::MAX;
-pub const PROTO_NAME: &str = "orion-chat";
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(3) };
 
 pub type Cursor = u32;
 pub type Permission = u32;
 pub type MemberId = u32;
 pub type Identity = crypto::sign::SerializedPublicKey;
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct ChatName {
-    repr: [u8; CHAT_NAME_CAP],
-}
-
-impl<'a> Codec<'a> for ChatName {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        buffer.extend(self.repr);
-    }
-
-    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-        Some(Self {
-            repr: <_>::decode(buffer)?,
-        })
-    }
-}
-
-impl From<[u8; CHAT_NAME_CAP]> for ChatName {
-    fn from(repr: [u8; CHAT_NAME_CAP]) -> Self {
-        Self { repr }
-    }
-}
-
-impl ChatName {
-    pub fn new(str: &str) -> Option<Self> {
-        if str.len() > CHAT_NAME_CAP {
-            return None;
-        }
-        let mut repr = [0; CHAT_NAME_CAP];
-        repr[..str.len()].copy_from_slice(str.as_bytes());
-        Some(Self { repr })
-    }
-
-    pub fn as_str(&self) -> Option<&str> {
-        std::str::from_utf8(
-            &self.repr[..CHAT_NAME_CAP - self.repr.iter().rev().take_while(|&&b| b == 0).count()],
-        )
-        .ok()
-    }
-
-    pub fn as_hex(&self) -> String {
-        hex::encode(self.repr)
-    }
-
-    pub fn as_string(&self) -> Cow<'_, str> {
-        match self.as_str() {
-            Some(str) => Cow::Borrowed(str),
-            None => Cow::Owned(self.as_hex()),
-        }
-    }
-
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.repr.to_vec()
-    }
-}
-
-impl fmt::Display for ChatName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.as_string().fmt(f)
-    }
-}
+pub type ChatName = ArrayString<CHAT_NAME_CAP>;
+pub type UserName = ArrayString<USER_NAME_CAP>;
+pub type UserMailId = crypto::sign::SerializedPublicKey;
 
 pub struct UserKeys {
     pub sign: crypto::sign::KeyPair,
@@ -114,49 +60,124 @@ crypto::impl_transmute! {
     UserIdentity, USER_IDENTITY_SIZE, SerializedUserIdentity;
 }
 
-#[derive(Debug, Clone, Copy, thiserror::Error)]
-#[repr(u8)]
-pub enum PutMessageError {
-    #[error("cannot parse message content")]
-    InvalidContent,
-    #[error("message signature does not check out")]
-    InvalidMessage,
-    #[error("you are not a member of this chat")]
-    NotMember,
-    #[error("message number is too low")]
-    MessageNumberTooLow,
-    #[error("you are not permitted to do this")]
-    NotPermitted,
-    #[error("member not found")]
-    MemberNotFound,
+macro_rules! gen_simple_error {
+    ($(
+        error $name:ident {$(
+            $variant:ident => $message:literal,
+        )*}
+    )*) => {$(
+        #[derive(Debug, Clone, Copy, thiserror::Error)]
+        #[repr(u8)]
+        pub enum $name {$(
+            #[error($message)]
+            $variant,
+        )*}
+
+
+        impl<'a> Codec<'a> for $name {
+            fn encode(&self, buffer: &mut Vec<u8>) {
+                buffer.push(*self as u8);
+            }
+
+            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+                let max_var = [$(Self::$variant),*].len();
+                let b = u8::decode(buffer)?;
+                if b >= max_var as u8 {
+                    return None;
+                }
+                Some(unsafe { std::mem::transmute(b) })
+            }
+        }
+    )*};
 }
 
-impl<'a> Codec<'a> for PutMessageError {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        buffer.push(*self as u8);
+gen_simple_error! {
+    error PutMessageError {
+        InvalidContent => "cannot parse message content",
+        InvalidMessage => "message signature does not check out",
+        NotMember => "you are not a member of this chat",
+        MessageNumberTooLow => "message number is too low",
+        NotPermitted => "you are not permitted to do this",
+        MemberNotFound => "member not found",
+        MessageTooBig => "message is too big",
     }
 
-    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-        Some(match u8::decode(buffer)? {
-            0 => Self::InvalidContent,
-            1 => Self::InvalidMessage,
-            2 => Self::NotMember,
-            3 => Self::MessageNumberTooLow,
-            4 => Self::NotPermitted,
-            5 => Self::MemberNotFound,
-            _ => return None,
-        })
+    error PutMailError {
+        MailboxFull => "user's mail box is full (they don't care about you)",
+        MailTooBig => "one mail has limmited size ({MAX_MAIL_SIZE}), you excided it",
+    }
+
+    error ReadMailError {
+        NotPermitted => "you are not permitted to do this",
+        InvalidProof => "your proof is weak, no",
+    }
+
+    error WriteDataError {
+        NotPermitted => "not gonna happen (permission denaid)",
+        InvalidProof => "send me a proof, not random bytes (invalid proof)",
+    }
+}
+
+impl MailActionProof {
+    pub fn is_valid(self) -> bool {
+        let Self { pk, no, sig } = self;
+        const ID: &[u8] = b"mail-action";
+        let mut msg = [0; ID.len() + 4];
+        msg[..ID.len()].copy_from_slice(ID);
+        msg[ID.len()..].copy_from_slice(&no.to_le_bytes());
+
+        crypto::sign::PublicKey::from(pk)
+            .verify(&msg, &sig.into())
+            .is_ok()
+    }
+}
+
+impl UserOrChat {
+    pub fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::User(pk) => pk.as_ref(),
+            Self::Chat(name) => name.as_bytes(),
+        }
     }
 }
 
 component_utils::protocol! { 'a:
     #[derive(Clone, Copy)]
     enum Request<'a> {
-        SearchFor: ChatName => 0,
+        SearchFor: UserOrChat => 0,
         Subscribe: ChatName => 1,
         Send: Message<'a> => 2,
         FetchMessages: FetchMessages => 3,
         KeepAlive => 4,
+        ReadMail: MailActionProof => 5,
+        WriteData: WriteData<'a> => 6,
+        ReadData: UserMailId => 7,
+        WriteMail: WriteMail<'a> => 8,
+    }
+
+    #[derive(Clone, Copy)]
+    enum UserOrChat {
+        User: UserMailId => 0,
+        Chat: ChatName => 1,
+    }
+
+    #[derive(Clone, Copy)]
+    struct MailActionProof {
+        pk: UserMailId,
+        no: u32,
+        sig: crypto::sign::SerializedSignature,
+    }
+
+    #[derive(Clone, Copy)]
+    struct WriteData<'a> {
+        data: &'a [u8],
+        proof: MailActionProof,
+    }
+
+    #[derive(Clone, Copy)]
+    struct WriteMail<'a> {
+        data: &'a [u8],
+        id: UserMailId,
     }
 
     #[derive(Clone, Copy)]
@@ -199,11 +220,14 @@ component_utils::protocol! { 'a:
         Subscribed: ChatName => 5,
         FailedMessage: PutMessageError => 6,
         ChatNotFound => 7,
+        DataRed: &'a [u8] => 8,
+        MailWritten => 9,
+        MailWriteFailed: PutMailError => 10,
     }
 
     struct SearchResult {
         members: Vec<PeerId>,
-        chat: ChatName,
+        chat: UserOrChat,
     }
 
     #[derive(Clone, Copy)]
@@ -216,7 +240,19 @@ component_utils::protocol! { 'a:
     #[derive(Clone, Copy)]
     enum PutRecord<'a> {
         Message: ReplicateMessage<'a> => 1,
+        Mail: &'a [u8] => 2,
         ChatHistory: ChatHistory<'a> => 2,
+    }
+
+    #[derive(Clone, Copy)]
+    enum Mail {
+        ChatInvite: ChatName => 0,
+    }
+
+    #[derive(Clone, Copy)]
+    struct ChatInvite {
+        chat: ChatName,
+        member_id: MemberId,
     }
 
     #[derive(Clone, Copy)]
@@ -279,31 +315,68 @@ impl<'a> ChatHistory<'a> {
 }
 
 #[derive(Default)]
+pub struct MailBlob {
+    data: Vec<u8>,
+}
+
+impl MailBlob {
+    pub fn push<I: IntoIterator<Item = u8>>(&mut self, bytes: I) -> bool {
+        let prev_len = self.data.len();
+        let mut iter = 0u16.to_be_bytes().into_iter().chain(bytes);
+
+        self.data
+            .extend(iter.by_ref().take(MAIL_CAP - self.data.len()));
+
+        let suc = iter.next().is_none();
+        if !suc {
+            self.data.truncate(prev_len);
+        } else {
+            let len = (self.data.len() - prev_len - 2) as u16;
+            self.data
+                .iter_mut()
+                .skip(prev_len)
+                .zip(len.to_be_bytes())
+                .for_each(|(a, b)| *a = b);
+        }
+        suc
+    }
+
+    pub fn read(&mut self) -> &mut [u8] {
+        // SAFETY: the truncation serves as cleanup mechanism
+        let slice = unsafe { mem::transmute(self.data.as_mut_slice()) };
+        unsafe { self.data.set_len(0) }
+        slice
+    }
+}
+
+#[derive(Default)]
 pub struct MessageBlob {
     data: VecDeque<u8>,
     offset: Cursor,
 }
 
 impl MessageBlob {
-    pub fn push<I: IntoIterator<Item = u8>>(&mut self, bytes: I, chat_cap: usize) {
+    pub fn push<I: IntoIterator<Item = u8>>(&mut self, bytes: I) {
         let prev_len = self.data.len();
         let mut iter = 0u16
             .to_be_bytes()
             .into_iter()
             .chain(bytes)
-            .chain(0u16.to_be_bytes());
+            .chain(0u16.to_be_bytes())
+            .peekable();
 
-        let mut remining = chat_cap - self.data.len();
-        while let Some(byte) = iter.next() {
+        let mut remining = CHAT_CAP - self.data.len();
+        while iter.peek().is_some() {
             if remining == 0 {
                 self.pop();
-                remining = chat_cap - self.data.len() - 1;
+                remining = CHAT_CAP - self.data.len();
             }
-            self.data.push_back(byte);
-            self.data.extend(iter.by_ref().take(remining));
+
+            self.data
+                .extend(iter.by_ref().take(remining).inspect(|_| remining -= 1));
         }
 
-        let len = self.data.len() - prev_len - 4;
+        let len = (self.data.len() - prev_len - 4) as u16;
         self.data
             .iter_mut()
             .skip(prev_len)
@@ -314,6 +387,8 @@ impl MessageBlob {
             .rev()
             .zip(len.to_le_bytes())
             .for_each(|(a, b)| *a = b);
+
+        self.offset += len as u32 + 4;
     }
 
     pub fn as_vec(&self) -> Vec<u8> {
@@ -340,13 +415,7 @@ impl MessageBlob {
         self.data.drain(..header as usize + 4);
     }
 
-    pub fn fetch(
-        &self,
-        mut cursor: Cursor,
-        limit: usize,
-        message_limit: u16,
-        buffer: &mut Vec<u8>,
-    ) -> Cursor {
+    pub fn fetch(&self, mut cursor: Cursor, limit: usize, buffer: &mut Vec<u8>) -> Cursor {
         // cursor can be invalid so code does not assume anithing
         // complexity should only decrease if cursor is invalid
         cursor = cursor.min(self.offset);
@@ -357,14 +426,14 @@ impl MessageBlob {
             return cursor;
         }
 
-        for _ in 0..limit {
+        for _ in 0..MESSAGE_FETCH_LIMIT.min(limit) {
             // we use le since we are reversed
             let Ok(header) = iter.by_ref().copied().next_chunk().map(u16::from_le_bytes) else {
                 cursor = NO_CURSOR;
                 break;
             };
 
-            if header > message_limit {
+            if header > MAX_MESSAGE_SIZE as u16 {
                 cursor = NO_CURSOR;
                 break;
             }
@@ -392,14 +461,14 @@ impl MessageBlob {
 
 #[cfg(test)]
 mod test {
-    use crate::chat::CHAT_CAP;
+    use super::MailBlob;
 
     #[test]
     fn test_push() {
         let mut blob = super::MessageBlob::default();
 
-        blob.push(b"hello".iter().cloned(), CHAT_CAP);
-        blob.push(b"world".iter().cloned(), CHAT_CAP);
+        blob.push(b"hello".iter().cloned());
+        blob.push(b"world".iter().cloned());
 
         assert_eq!(
             blob.data,
@@ -418,21 +487,31 @@ mod test {
         let mut blob = super::MessageBlob::default();
 
         for i in 0..10 {
-            blob.push([i, i + 1], CHAT_CAP);
+            blob.push([i, i + 1]);
         }
 
         let mut buffer = Vec::new();
         let mut cursor = super::NO_CURSOR;
 
-        cursor = blob.fetch(cursor, 2, 2, &mut buffer);
+        cursor = blob.fetch(cursor, 2, &mut buffer);
 
         assert_eq!(buffer, vec![0, 2, 9, 10, 0, 2, 8, 9]);
         assert_eq!(cursor, 48);
 
         buffer.clear();
-        cursor = blob.fetch(cursor, 2, 2, &mut buffer);
+        cursor = blob.fetch(cursor, 2, &mut buffer);
 
         assert_eq!(buffer, vec![0, 2, 7, 8, 0, 2, 6, 7]);
         assert_eq!(cursor, 36);
+    }
+
+    #[test]
+    fn test_read_messages_is_sound() {
+        let mut mb = MailBlob::default();
+        mb.push([42; 3]);
+        let slice = mb.read();
+        assert_eq!(&slice[2..], &[42; 3]);
+        let slice = mb.read();
+        assert_eq!(slice, &[]);
     }
 }

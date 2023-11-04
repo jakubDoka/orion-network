@@ -12,5 +12,6 @@ component-utils = { version = "0.1.0", path = "../../utils/component-utils", def
 config = { version = "0.1.0", path = "../../utils/config" }
 crypto = { version = "0.1.0", path = "../../utils/crypto" }
 hex = "0.4.3"
+protocols = { version = "0.1.0", path = "../../utils/protocols" }
 tokio = { version = "1.33.0", features = ["rt", "macros"] }
 tower-http = { version = "0.4.4", features = ["cors"] }

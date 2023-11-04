@@ -1,4 +1,5 @@
 use component_utils::codec::Codec;
+use protocols::chat::UserName;
 use std::{
     net::Ipv4Addr,
     sync::{Arc, Mutex},
@@ -69,7 +70,10 @@ async fn create_user(State(db): State<Db>, bytes: Bytes) -> Result<(), StatusCod
     Ok(())
 }
 
-async fn user_by_name(Path(name): Path<String>, State(db): State<Db>) -> Result<Bytes, StatusCode> {
+async fn user_by_name(
+    Path(name): Path<UserName>,
+    State(db): State<Db>,
+) -> Result<Bytes, StatusCode> {
     let db = db.lock().unwrap();
     let user = db
         .users
