@@ -28,6 +28,7 @@ use std::{
     net::Ipv4Addr,
     pin::Pin,
     time::Duration,
+    usize,
 };
 
 struct Miner {
@@ -82,12 +83,12 @@ impl Miner {
         let transport = libp2p::websocket::WsConfig::new(libp2p::tcp::tokio::Transport::new(
             libp2p::tcp::Config::default(),
         ))
-        .upgrade(Version::V1Lazy)
+        .upgrade(Version::V1)
         .authenticate(libp2p::noise::Config::new(&local_key).unwrap())
         .multiplex(libp2p::yamux::Config::default())
         .or_transport(
             libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
-                .upgrade(Version::V1Lazy)
+                .upgrade(Version::V1)
                 .authenticate(libp2p::noise::Config::new(&local_key).unwrap())
                 .multiplex(libp2p::yamux::Config::default()),
         )
@@ -285,11 +286,12 @@ impl Miner {
                 step,
                 ..
             })) if self.try_handle_search_query(id, &peers, step.last) => {}
-            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::InboundStream(s))) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::InboundStream(inner))) => {
+                log::warn!("inbound stream");
                 self.clients.push(Stream {
                     id: self.client_counter,
                     state: StreamState::Undecided,
-                    inner: s,
+                    inner,
                 });
                 self.client_counter += 1;
             }
@@ -304,11 +306,13 @@ impl Miner {
         }
     }
 
-    fn handle_profile_client_message(&mut self, stream: &mut Stream, req: Vec<u8>, id: &Identity) {
+    fn handle_profile_client_message(&mut self, id: usize, req: Vec<u8>, ident: Identity) {
         let Some(req) = ProfileRequest::decode(&mut req.as_slice()) else {
             log::error!("failed to decode request");
             return;
         };
+
+        let stream = self.clients.iter_mut().find(|s| s.id == id).unwrap();
 
         match req {
             ProfileRequest::Search(chat) => {
@@ -349,7 +353,7 @@ impl Miner {
                     .unwrap();
             }
             ProfileRequest::Subscribe(req) => {
-                if id != &req.pk {
+                if ident != req.pk {
                     log::warn!("client tried to subscribe to a different profile");
                     return;
                 }
@@ -364,11 +368,13 @@ impl Miner {
         }
     }
 
-    fn handle_undecided_client_message(&mut self, stream: &mut Stream, req: Vec<u8>) {
+    fn handle_undecided_client_message(&mut self, id: usize, req: Vec<u8>) {
         let Some(req) = InitRequest::decode(&mut req.as_slice()) else {
             log::error!("failed to decode request");
             return;
         };
+
+        let stream = self.clients.iter_mut().find(|s| s.id == id).unwrap();
 
         let store = self.swarm.behaviour_mut().kad.store_mut();
         match req {
@@ -417,44 +423,17 @@ impl Miner {
         }
     }
 
-    fn handle_client_message(
-        &mut self,
-        (id, req): <Stream as component_utils::futures::Stream>::Item,
-    ) {
-        let Ok(req) = req.map_err(|e| log::error!("stream errored with {e:?}")) else {
-            return;
-        };
-
-        let mut clients = mem::take(&mut self.clients);
-        let Some(stream) = clients.iter_mut().find(|s| s.id == id) else {
-            log::error!("client no longer exists, what?");
-            return;
-        };
-
-        let mut state = mem::replace(&mut stream.state, StreamState::Undecided);
-        match &mut state {
-            StreamState::Profile(identity) => {
-                self.handle_profile_client_message(stream, req, identity);
-                stream.state = state;
-                return;
-            }
-            StreamState::Chats(..) => {}
-            StreamState::Undecided => {
-                self.handle_undecided_client_message(stream, req);
-                return;
-            }
-        }
-
+    fn handle_chat_request(&mut self, id: usize, req: Vec<u8>) {
         let Some(req) = ChatRequest::decode(&mut req.as_slice()) else {
             log::error!("failed to decode request");
             return;
         };
 
+        let stream = self.clients.iter_mut().find(|s| s.id == id).unwrap();
+
         let store = self.swarm.behaviour_mut().kad.store_mut();
         match req {
             ChatRequest::Send(m) => {
-                self.clients = clients;
-
                 if !self.publish_message(m) {
                     return;
                 }
@@ -488,6 +467,26 @@ impl Miner {
                 send_response(resp, &mut stream.inner, &mut self.buffer);
             }
             ChatRequest::KeepAlive => {}
+        }
+    }
+
+    fn handle_client_message(
+        &mut self,
+        (id, req): <Stream as component_utils::futures::Stream>::Item,
+    ) {
+        let Ok(req) = req.map_err(|e| log::error!("stream errored with {e:?}")) else {
+            return;
+        };
+
+        let Some(stream) = self.clients.iter_mut().find(|s| s.id == id) else {
+            log::error!("client no longer exists, what?");
+            return;
+        };
+
+        match stream.state {
+            StreamState::Profile(identity) => self.handle_profile_client_message(id, req, identity),
+            StreamState::Chats(..) => self.handle_chat_request(id, req),
+            StreamState::Undecided => self.handle_undecided_client_message(id, req),
         }
     }
 

@@ -160,7 +160,7 @@ impl Node {
 
         let keypair = identity::Keypair::ed25519_from_bytes(keys.sign.ed).unwrap();
         let transport = websocket_websys::Transport::new(100)
-            .upgrade(Version::V1Lazy)
+            .upgrade(Version::V1)
             .authenticate(noise::Config::new(&keypair).unwrap())
             .multiplex(yamux::Config::default())
             .boxed();
@@ -184,7 +184,7 @@ impl Node {
             transport,
             behaviour,
             peer_id,
-            libp2p::swarm::Config::with_wasm_executor(),
+            libp2p::swarm::Config::with_wasm_executor().with_idle_connection_timeout(Duration::MAX), // TODO: please, dont
         );
 
         use libp2p::core::multiaddr::Protocol;
@@ -193,7 +193,7 @@ impl Node {
             .dial(
                 Multiaddr::empty()
                     .with(Protocol::Ip4(enter_node.ip.into()))
-                    .with(Protocol::Tcp(enter_node.port))
+                    .with(Protocol::Tcp(enter_node.port + 100)) // uh TODO
                     .with(Protocol::Ws("/".into())),
             )
             .unwrap();
@@ -222,6 +222,7 @@ impl Node {
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest {
                     to,
                 })) => {
+                    log::error!("{to}");
                     component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
                 }
                 SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
@@ -229,12 +230,15 @@ impl Node {
                         &e,
                         &mut swarm,
                         &mut peer_search,
-                    ) => {}
+                    ) =>
+                {
+                    log::error!("{e:?}");
+                }
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
                 ))) if id == pid => break stream,
-                _ => {}
+                e => log::debug!("{:?}", e),
             }
         };
 
@@ -246,6 +250,7 @@ impl Node {
             &mut buffer,
         );
 
+        log::debug!("foo");
         let resp = init_stream.next().await.unwrap().unwrap();
         let Some(InitSearchResult { members, key }) = <_>::decode(&mut resp.as_slice()) else {
             todo!("error handling");
@@ -311,8 +316,12 @@ impl Node {
         );
 
         let mut resp = profile_stream.next().await.unwrap().unwrap();
-        let resp = decrypt(&mut resp, keys.vault).unwrap();
-        let mut vault = Vault::decode(&mut &*resp).unwrap();
+        let mut vault = if resp.is_empty() {
+            Vault::default()
+        } else {
+            let foo = decrypt(&mut resp, keys.vault).unwrap();
+            Vault::decode(&mut &*foo).unwrap()
+        };
 
         send_request(
             ProfileRequest::Subscribe(ActionProof::for_profile(&mut vault.action_no, &keys.sign)),
@@ -510,7 +519,7 @@ impl Node {
         };
 
         match resp {
-            ProfileResponse::Mail(_) => todo!(),
+            ProfileResponse::Mail(_) => {}
             ProfileResponse::DataWritten => log::debug!("vault written"),
             ProfileResponse::DataWriteFailed(e) => log::error!("vault write failed: {e}"),
             ProfileResponse::Search(_) => todo!(),
@@ -650,6 +659,10 @@ impl Node {
 
     pub fn username(&self) -> UserName {
         self.username
+    }
+
+    pub fn chats(&self) -> impl Iterator<Item = ChatName> + '_ {
+        self.vault.chats.iter().map(|c| c.name)
     }
 }
 

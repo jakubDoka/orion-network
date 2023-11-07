@@ -99,7 +99,7 @@ pub async fn user_by_sign(
     sign: crypto::sign::PublicKey,
 ) -> Result<UserData, GetUserError> {
     let hex_sign = hex::encode(sign.ed);
-    let url = format!("{addr}{}", USER_BY_NAME.replace(":id", &hex_sign));
+    let url = format!("{addr}{}", USER_BY_SIGN.replace(":id", &hex_sign));
     get_user(url).await
 }
 

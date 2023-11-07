@@ -1,14 +1,39 @@
+use std::convert::identity;
+use std::mem;
+
+use leptos::html::Input;
 use leptos::*;
 use leptos_router::Redirect;
+use protocols::chat::ChatName;
 
 #[leptos::component]
 pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     let crate::LoggedState {
-        rkeys, rusername, ..
+        rchats,
+        rkeys,
+        rusername,
+        wcommands,
+        ..
     } = state;
 
     let Some(_keys) = rkeys.get_untracked() else {
-        return view! { <Redirect path="/login"/> };
+        return view! { <Redirect path="/login"/> }.into_view();
+    };
+
+    let side_chat = move |chat: ChatName| {
+        view! {
+            <div class="sb hov tac bp toe">
+                {chat.to_string()}
+            </div>
+        }
+    };
+
+    let message_input = create_node_ref::<Input>();
+    let on_message = move |_| {
+        let message = message_input.get().unwrap().value();
+        let name = rusername.get_untracked();
+
+        log::info!("message");
     };
 
     view! {
@@ -19,9 +44,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                     <div class="bp lsp sc sb tac">
                         rooms
                     </div>
-                    <div class="sb hov tac bp toe">
-                        some room
-                    </div>
+                    <For each=rchats key=mem::copy children=side_chat />
 
                     <div class="bp toe lsp sc sb tac">
                         dms
@@ -54,12 +77,12 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
 
                 </div>
                 <div class="fg0 flx bm bp pc">
-                    <input class="fg1 rsb sc hov" type="text" placeholder="mesg..." />
-                    <svg class="sc lsb hov" xmlns="http://www.w3.org/2000/svg" height="31" viewBox="0 -960 960 960" width="30">
+                    <input class="fg1 rsb sc hov" type="text" placeholder="mesg..." node_ref=message_input />
+                    <svg class="sc lsb hov" on:click=on_message xmlns="http://www.w3.org/2000/svg" height="31" viewBox="0 -960 960 960" width="30">
                         <path d="M120-160v-640l760 320-760 320Zm80-120 474-200-474-200v140l240 60-240 60v140Zm0 0v-400 400Z" />
                     </svg>
                 </div>
             </div>
         </main>
-    }.into()
+    }.into_view()
 }

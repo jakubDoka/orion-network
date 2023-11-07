@@ -3,7 +3,7 @@ use leptos::html::Input;
 use leptos::*;
 use leptos_router::A;
 use protocols::chat::{SerializedUserKeys, UserKeys, UserName, USER_KEYS_SIZE};
-use web_sys::js_sys::Uint8Array;
+use web_sys::js_sys::{Array, Uint8Array};
 
 use crate::CHAIN_BOOTSTRAP_NODE;
 
@@ -88,7 +88,7 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
             let key_bytes = SerializedUserKeys::from(key);
             let url = web_sys::Url::create_object_url_with_blob(
                 &web_sys::Blob::new_with_u8_array_sequence_and_options(
-                    &Uint8Array::from(key_bytes.as_slice()),
+                    &Array::from_iter(vec![Uint8Array::from(key_bytes.as_slice())]),
                     web_sys::BlobPropertyBag::new().type_("application/octet-stream"),
                 )
                 .unwrap(),
@@ -114,7 +114,7 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
     view! {
         <Nav/>
         <form class="flx fdc">
-            <input class="pc hov bp tbm" type="text" placeholder="new username" maxlength="32" required on:change=on_change />
+            <input class="pc hov bp tbm" type="text" placeholder="new username" maxlength="32" node_ref=username required on:change=on_change />
             <input class="pc hov bp tbm" type="button" value="register" on:click=on_register />
             <a hidden=true class="pc hov bp tbm bf tac" node_ref=download_link>/download-again</a>
         </form>

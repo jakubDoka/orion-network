@@ -11,7 +11,7 @@ use leptos::html::Input;
 use leptos::signal_prelude::*;
 use leptos::*;
 use leptos_router::*;
-use protocols::chat::{UserKeys, UserName};
+use protocols::chat::{ChatName, UserKeys, UserName};
 use std::future::Future;
 
 mod chat;
@@ -21,7 +21,7 @@ mod profile;
 
 pub fn main() {
     console_error_panic_hook::set_once();
-    _ = console_log::init_with_level(log::Level::Info);
+    _ = console_log::init_with_level(log::Level::Debug);
     mount_to_body(App)
 }
 
@@ -30,7 +30,8 @@ const CHAIN_BOOTSTRAP_NODE: &str = "http://localhost:8700";
 #[derive(Clone, Copy)]
 struct LoggedState {
     _revents: ReadSignal<node::Event>,
-    _wcommands: WriteSignal<node::Command>,
+    wcommands: WriteSignal<node::Command>,
+    rchats: ReadSignal<Vec<ChatName>>,
     rkeys: ReadSignal<Option<UserKeys>>,
     rusername: ReadSignal<UserName>,
 }
@@ -40,6 +41,8 @@ fn App() -> impl IntoView {
     let (rcommands, wcommands) = create_signal(node::Command::None);
     let (rkeys, wkeys) = create_signal(None::<UserKeys>);
     let (rusername, wusername) = create_signal(UserName::from("username").unwrap());
+    let (rchats, wchats) = create_signal(Vec::new());
+    let (rcurrent_chat, wcurrent_chat) = create_signal(None::<ChatName>);
 
     create_effect(move |_| {
         let Some(keys) = rkeys() else {
@@ -56,6 +59,8 @@ fn App() -> impl IntoView {
             };
 
             wusername(n.username());
+            wchats(n.chats().collect());
+
             leptos_router::use_navigate()("/chat", Default::default());
             n.run().await;
         });
@@ -63,7 +68,8 @@ fn App() -> impl IntoView {
 
     let state = LoggedState {
         _revents: revents,
-        _wcommands: wcommands,
+        wcommands,
+        rchats,
         rkeys,
         rusername,
     };
@@ -74,12 +80,15 @@ fn App() -> impl IntoView {
     let register = move || view! { <Register wkeys/> };
 
     view! {
+        <Router>
         <Routes>
-            <Route path="/chat" view=chat></Route>
+            <Route path="/chat/:id?" view=chat></Route>
             <Route path="/profile" view=profile></Route>
             <Route path="/login" view=login></Route>
             <Route path="/register" view=register></Route>
+            <Route path="/" view=chat></Route>
         </Routes>
+        </Router>
     }
 }
 
