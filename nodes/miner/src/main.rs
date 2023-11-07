@@ -169,50 +169,50 @@ impl Miner {
         members.dedup();
 
         let (_, key, members, _) = self.search_queries.swap_remove(index);
-
         match key {
             UserOrChat::User(key) => {
-                let req = InitSearchResponse { members, key };
+                let req = InitSearchResult { members, key };
                 send_response(req, &mut client.inner, &mut self.buffer);
             }
-            UserOrChat::Chat(key) => todo!(),
+            UserOrChat::Chat(key) => {
+                let req = ProfileResponse::Search(ChatSearchResult { members, key });
+                send_response(req, &mut client.inner, &mut self.buffer);
+            }
         }
 
         true
     }
 
-    fn handle_put_record_message(&mut self, key: &[u8], msg: Replicate) {
-        let Some(chat_name) = ChatName::decode(&mut &*key) else {
+    fn handle_put_record_message(&mut self, key: &[u8], msg: ReplicateMessage) {
+        let Some(chat) = ChatName::decode(&mut &*key) else {
             log::warn!("failed to decode chat name for message replication");
             return;
         };
 
+        self.publish_message(msg.to_message(chat));
+    }
+
+    fn publish_message(&mut self, msg: Message) -> bool {
         if let Err(e) = self
             .swarm
             .behaviour_mut()
             .kad
             .store_mut()
-            .put_message(chat_name, msg)
+            .put_message(msg.chat, msg.to_replicate())
         {
             log::error!("failed to put message: {e:?}");
-            return;
+            return false;
         }
 
         for client in self
             .clients
             .iter_mut()
-            .filter(|c| c.subscribed.contains(&chat_name))
+            .filter(|c| c.state.is_this_chat(&msg.chat))
         {
-            send_response(
-                Response::Message(Message {
-                    chat: chat_name,
-                    content: msg.content,
-                    proof: msg.proof,
-                }),
-                &mut client.inner,
-                &mut self.buffer,
-            );
+            send_response(ChatResponse::New(msg), &mut client.inner, &mut self.buffer);
         }
+
+        true
     }
 
     fn handle_put_record(&mut self, record: kad::Record) {
@@ -242,9 +242,18 @@ impl Miner {
                 if let Some(stream) = self
                     .clients
                     .iter_mut()
-                    .find(|c| c.identity == Some(mail_id))
+                    .find(|c| c.state.is_this_profile(&mail_id))
                 {
-                    send_response(Response::Mail(msg), &mut stream.inner, &mut self.buffer);
+                    send_response(
+                        ProfileResponse::Mail(msg),
+                        &mut stream.inner,
+                        &mut self.buffer,
+                    );
+                }
+            }
+            PutRecord::WriteData(wd) => {
+                if let Err(e) = self.swarm.behaviour_mut().kad.store_mut().write_data(wd) {
+                    log::error!("failed to write data: {e:?}");
                 }
             }
             PutRecord::ChatHistory(_) => todo!(),
@@ -279,8 +288,7 @@ impl Miner {
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::InboundStream(s))) => {
                 self.clients.push(Stream {
                     id: self.client_counter,
-                    identity: None,
-                    subscribed: Default::default(),
+                    state: StreamState::Undecided,
                     inner: s,
                 });
                 self.client_counter += 1;
@@ -296,147 +304,191 @@ impl Miner {
         }
     }
 
-    fn handle_client_message(
-        &mut self,
-        (id, req): <Stream as component_utils::futures::Stream>::Item,
-    ) {
-        log::debug!("received client message");
-
-        let Ok(req) = req.map_err(|e| log::error!("stream errored with {e:?}")) else {
-            return;
-        };
-
-        let Some(req) = Request::decode(&mut req.as_slice()) else {
+    fn handle_profile_client_message(&mut self, stream: &mut Stream, req: Vec<u8>, id: &Identity) {
+        let Some(req) = ProfileRequest::decode(&mut req.as_slice()) else {
             log::error!("failed to decode request");
             return;
         };
 
-        let Some(stream) = self.clients.iter_mut().find(|s| s.id == id) else {
-            log::error!("client no longer exists, what?");
+        match req {
+            ProfileRequest::Search(chat) => {
+                let qid = self
+                    .swarm
+                    .behaviour_mut()
+                    .kad
+                    .get_closest_peers(chat.as_bytes().to_vec());
+                self.search_queries
+                    .push((stream.id, UserOrChat::Chat(chat), vec![], qid));
+            }
+            ProfileRequest::WriteData(wd) => {
+                let res = self.swarm.behaviour_mut().kad.store_mut().write_data(wd);
+                let soccess = res.is_ok();
+                let resp = match res {
+                    Ok(()) => ProfileResponse::DataWritten,
+                    Err(e) => ProfileResponse::DataWriteFailed(e),
+                };
+                send_response(resp, &mut stream.inner, &mut self.buffer);
+
+                if !soccess {
+                    return;
+                }
+
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .put_record(
+                        // todo we send identity twice
+                        kad::Record {
+                            key: wd.proof.pk.to_vec().into(),
+                            value: PutRecord::WriteData(wd).to_bytes(),
+                            publisher: None,
+                            expires: None,
+                        },
+                        Quorum::N(protocols::chat::REPLICATION_FACTOR),
+                    )
+                    .unwrap();
+            }
+            ProfileRequest::Subscribe(req) => {
+                if id != &req.pk {
+                    log::warn!("client tried to subscribe to a different profile");
+                    return;
+                }
+                let res = self.swarm.behaviour_mut().kad.store_mut().read_mail(req);
+                let req = match res {
+                    Ok(bytes) => ProfileSubscribeResponse::Success(bytes),
+                    Err(e) => ProfileSubscribeResponse::Failure(e),
+                };
+                send_response(req, &mut stream.inner, &mut self.buffer);
+            }
+            ProfileRequest::KeepAlive => todo!(),
+        }
+    }
+
+    fn handle_undecided_client_message(&mut self, stream: &mut Stream, req: Vec<u8>) {
+        let Some(req) = InitRequest::decode(&mut req.as_slice()) else {
+            log::error!("failed to decode request");
             return;
         };
 
         let store = self.swarm.behaviour_mut().kad.store_mut();
-        let record = match req {
-            Request::Subscribe(UserOrChat::Chat(to)) => {
-                stream.subscribed.insert(to);
-                send_response(
-                    Response::Subscribed(to),
-                    &mut stream.inner,
-                    &mut self.buffer,
-                );
-                return;
+        match req {
+            InitRequest::Search(profile) => {
+                let qid = self
+                    .swarm
+                    .behaviour_mut()
+                    .kad
+                    .get_closest_peers(profile.to_vec());
+                self.search_queries
+                    .push((stream.id, UserOrChat::User(profile), vec![], qid));
             }
-            Request::Subscribe(UserOrChat::User(id)) => {
-                stream.identity = Some(id);
-                return;
-            }
-            Request::Send(m) => {
-                let msg = Replicate {
-                    content: m.content,
-                    proof: m.proof,
-                };
+            InitRequest::ReadData(identity) => {
+                let resp = store.read_data(&identity);
 
-                if let Err(e) = store.put_message(m.chat, msg) {
-                    log::info!("failed to put message: {e:?}");
-                    stream.inner.write(&mut [e as u8]);
+                self.buffer.clear();
+                self.buffer.extend_from_slice(resp);
+                stream.inner.write(&mut self.buffer);
+                stream.state = StreamState::Profile(identity);
+            }
+            InitRequest::Subscribe(chats) => {
+                if chats.is_empty() {
+                    log::warn!("client tried to subscribe to no chats");
+                    return;
+                }
+                let mut messages = vec![];
+                for &chat in chats.iter() {
+                    let resp = if let Some(chat_state) = store.chats.get(&chat) {
+                        let cursor =
+                            chat_state
+                                .messages
+                                .fetch(NO_CURSOR, usize::MAX, &mut messages);
+                        ChatResponse::Fetched(FetchedMessages {
+                            chat,
+                            cursor,
+                            messages: &messages,
+                        })
+                    } else {
+                        ChatResponse::NotFound
+                    };
+                    send_response(resp, &mut stream.inner, &mut self.buffer);
+                    messages.clear();
+                }
+                stream.state = StreamState::Chats(chats.into_iter().collect());
+            }
+        }
+    }
+
+    fn handle_client_message(
+        &mut self,
+        (id, req): <Stream as component_utils::futures::Stream>::Item,
+    ) {
+        let Ok(req) = req.map_err(|e| log::error!("stream errored with {e:?}")) else {
+            return;
+        };
+
+        let mut clients = mem::take(&mut self.clients);
+        let Some(stream) = clients.iter_mut().find(|s| s.id == id) else {
+            log::error!("client no longer exists, what?");
+            return;
+        };
+
+        let mut state = mem::replace(&mut stream.state, StreamState::Undecided);
+        match &mut state {
+            StreamState::Profile(identity) => {
+                self.handle_profile_client_message(stream, req, identity);
+                stream.state = state;
+                return;
+            }
+            StreamState::Chats(..) => {}
+            StreamState::Undecided => {
+                self.handle_undecided_client_message(stream, req);
+                return;
+            }
+        }
+
+        let Some(req) = ChatRequest::decode(&mut req.as_slice()) else {
+            log::error!("failed to decode request");
+            return;
+        };
+
+        let store = self.swarm.behaviour_mut().kad.store_mut();
+        match req {
+            ChatRequest::Send(m) => {
+                self.clients = clients;
+
+                if !self.publish_message(m) {
                     return;
                 }
 
-                let chat = m.chat;
-                for client in self
-                    .clients
-                    .iter_mut()
-                    .filter(|c| c.subscribed.contains(&chat))
-                {
-                    send_response(Response::Message(m), &mut client.inner, &mut self.buffer);
-                }
-
-                kad::Record {
-                    key: m.chat.to_bytes().into(),
-                    value: PutRecord::Message(msg).to_bytes(),
-                    publisher: None,
-                    expires: None,
-                }
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .put_record(
+                        kad::Record {
+                            key: m.chat.to_bytes().into(),
+                            value: PutRecord::Message(m.to_replicate()).to_bytes(),
+                            publisher: None,
+                            expires: None,
+                        },
+                        Quorum::N(protocols::chat::REPLICATION_FACTOR),
+                    )
+                    .unwrap();
             }
-            Request::FetchMessages(fm) => {
+            ChatRequest::Fetch(fm) => {
                 let mut messages = vec![];
                 let resp = if let Some(chat) = store.chats.get(&fm.chat) {
                     let cursor = chat.messages.fetch(fm.cursor, usize::MAX, &mut messages);
-                    Response::FetchedMessages(FetchedMessages {
+                    ChatResponse::Fetched(FetchedMessages {
                         chat: fm.chat,
                         cursor,
                         messages: &messages,
                     })
                 } else {
-                    Response::ChatNotFound
+                    ChatResponse::NotFound
                 };
                 send_response(resp, &mut stream.inner, &mut self.buffer);
-                return;
             }
-            Request::KeepAlive => return,
-            Request::SearchFor(key) => {
-                let qid = self
-                    .swarm
-                    .behaviour_mut()
-                    .kad
-                    .get_closest_peers(key.as_slice().to_vec());
-                self.search_queries.push((id, key, vec![], qid));
-                return;
-            }
-            Request::ReadMail(rm) => {
-                let err = store.read_mail(rm);
-                let resp = match err {
-                    Ok(data) => Response::MailRed(&*data),
-                    Err(e) => Response::MailRedFailed(e),
-                };
-                send_response(resp, &mut stream.inner, &mut self.buffer);
-                return;
-            }
-            Request::WriteData(wd) => {
-                let err = store.write_data(wd);
-                let resp = match err {
-                    Ok(()) => Response::DataWritten,
-                    Err(e) => Response::DataWriteFailed(e),
-                };
-                send_response(resp, &mut stream.inner, &mut self.buffer);
-                return;
-            }
-            Request::ReadData(req) => {
-                let data = store.read_data(req);
-                send_response(Response::DataRed(data), &mut stream.inner, &mut self.buffer);
-                return;
-            }
-            Request::WriteMail(req) => {
-                let err = store.put_mail(req.id, req.data);
-                let resp = match err {
-                    Ok(()) => Response::MailWritten,
-                    Err(e) => Response::MailWriteFailed(e),
-                };
-                send_response(resp, &mut stream.inner, &mut self.buffer);
-
-                if let Some(stream) = self.clients.iter_mut().find(|c| c.identity == Some(req.id)) {
-                    send_response(
-                        Response::Mail(req.data),
-                        &mut stream.inner,
-                        &mut self.buffer,
-                    );
-                }
-
-                kad::Record {
-                    key: req.id.to_vec().into(),
-                    value: PutRecord::Mail(req.data).to_bytes(),
-                    publisher: None,
-                    expires: None,
-                }
-            }
-        };
-
-        self.swarm
-            .behaviour_mut()
-            .kad
-            .put_record(record, Quorum::N(protocols::chat::REPLICATION_FACTOR))
-            .unwrap();
+            ChatRequest::KeepAlive => {}
+        }
     }
 
     async fn run(mut self) {
@@ -521,22 +573,25 @@ impl ChatStore {
     }
 
     fn read_mail(&mut self, req: ActionProof) -> Result<&mut [u8], ReadMailError> {
-        let mail = self.mail_boxes.entry(req.pk).or_default();
-
         if !req.is_profile_valid() {
             return Err(ReadMailError::InvalidProof);
         }
 
-        if mail.action_no >= req.no {
-            return Err(ReadMailError::NotPermitted);
-        }
+        let mail = self.mail_boxes.entry(req.pk).or_default();
 
-        mail.action_no = req.no;
-        Ok(mail.messages.read())
+        if mail.action_no >= req.no {
+            Err(ReadMailError::NotPermitted)
+        } else {
+            mail.action_no = req.no;
+            Ok(mail.messages.read())
+        }
     }
 
-    fn read_data(&mut self, id: Identity) -> &[u8] {
-        self.mail_boxes.get(&id).map_or(&[], |pr| &pr.data)
+    fn read_data(&mut self, identity: &Identity) -> &[u8] {
+        self.mail_boxes
+            .get(identity)
+            .map(|m| m.data.as_slice())
+            .unwrap_or_default()
     }
 
     fn write_data(&mut self, req: WriteData) -> Result<(), WriteDataError> {
@@ -556,11 +611,7 @@ impl ChatStore {
         Ok(())
     }
 
-    fn put_message(&mut self, chat: ChatName, rm: Replicate) -> Result<(), PutMessageError> {
-        let Some(msg) = PrefixedMessage::decode(&mut &*rm.content) else {
-            return Err(PutMessageError::InvalidContent);
-        };
-
+    fn put_message(&mut self, chat: ChatName, rm: ReplicateMessage) -> Result<(), PutMessageError> {
         if !rm.proof.is_chat_valid(chat) {
             return Err(PutMessageError::InvalidMessage);
         }
@@ -582,12 +633,12 @@ impl ChatStore {
             return Err(PutMessageError::NotMember);
         };
 
-        if member.action_no >= msg.no {
+        if member.action_no >= rm.proof.no {
             return Err(PutMessageError::MessageNumberTooLow);
         }
 
-        member.action_no = msg.no;
-        let Some(msg) = MessagePayload::decode(&mut &*msg.content) else {
+        member.action_no = rm.proof.no;
+        let Some(msg) = MessagePayload::decode(&mut &*rm.content) else {
             return Err(PutMessageError::InvalidContent);
         };
 
@@ -685,9 +736,25 @@ impl RecordStore for ChatStore {
 
 struct Stream {
     id: usize,
-    identity: Option<Identity>,
-    subscribed: HashSet<ChatName>,
+    state: StreamState,
     inner: EncryptedStream,
+}
+
+#[allow(clippy::large_enum_variant)]
+enum StreamState {
+    Profile(Identity),
+    Chats(HashSet<ChatName>),
+    Undecided,
+}
+
+impl StreamState {
+    fn is_this_profile(&self, id: &Identity) -> bool {
+        matches!(self, Self::Profile(other) if other == id)
+    }
+
+    fn is_this_chat(&self, chats: &ChatName) -> bool {
+        matches!(self, Self::Chats(other) if other.contains(chats))
+    }
 }
 
 impl futures::Stream for Stream {

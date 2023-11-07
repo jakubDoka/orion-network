@@ -175,6 +175,25 @@ impl UserOrChat {
     }
 }
 
+impl<'a> Message<'a> {
+    pub fn to_replicate(self) -> ReplicateMessage<'a> {
+        ReplicateMessage {
+            content: self.content,
+            proof: self.proof,
+        }
+    }
+}
+
+impl<'a> ReplicateMessage<'a> {
+    pub fn to_message(self, chat: ChatName) -> Message<'a> {
+        Message {
+            chat,
+            content: self.content,
+            proof: self.proof,
+        }
+    }
+}
+
 component_utils::protocol! { 'a:
     #[derive(Clone, Copy)]
     enum ChatRequest<'a> {
@@ -210,22 +229,18 @@ component_utils::protocol! { 'a:
         perm_offset: Permission,
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone)]
     enum InitRequest {
         Search: Identity => 0,
-        Subscribe: InitSubscribe => 1,
-    }
-
-    #[derive(Clone, Copy)]
-    struct InitSubscribe {
-        id: Identity,
-        proof: ActionProof,
+        ReadData: Identity => 1,
+        Subscribe: Vec<ChatName> => 2,
     }
 
     #[derive(Clone, Copy)]
     enum ProfileRequest<'a> {
         Search: ChatName => 0,
         WriteData: WriteData<'a> => 0,
+        Subscribe: ActionProof => 1,
         KeepAlive => 30,
     }
 
@@ -258,21 +273,22 @@ component_utils::protocol! { 'a:
         New: Message<'a> => 0,
         Failed: PutMessageError => 1,
         Fetched: FetchedMessages<'a> => 2,
+        NotFound => 3,
     }
 
     enum ProfileResponse<'a> {
         Mail: &'a [u8] => 0,
         DataWritten => 1,
         DataWriteFailed: WriteDataError => 2,
-        Search: ChatSearchResult => 3,
+        Search: ChatSearchResult => 4,
     }
 
-    struct InitProfileResponse<'a> {
-        data: &'a [u8],
-        mail: &'a [u8],
+    enum ProfileSubscribeResponse<'a> {
+        Success: &'a [u8] => 0,
+        Failure: ReadMailError => 1,
     }
 
-    struct InitSearchResponse {
+    struct InitSearchResult {
         members: Vec<PeerId>,
         key: Identity,
     }
@@ -294,6 +310,7 @@ component_utils::protocol! { 'a:
         Message: ReplicateMessage<'a> => 1,
         Mail: &'a [u8] => 2,
         ChatHistory: ChatHistory<'a> => 2,
+        WriteData: WriteData<'a> => 3,
     }
 
     #[derive(Clone, Copy)]
