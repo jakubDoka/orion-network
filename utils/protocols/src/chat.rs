@@ -14,18 +14,23 @@ pub const MAX_MAIL_SIZE: usize = 512;
 pub const MESSAGE_FETCH_LIMIT: usize = 20;
 pub const NO_CURSOR: Cursor = Cursor::MAX;
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(3) };
+pub const SALT_SIZE: usize = 32;
+pub const NO_SIZE: usize = 4;
 
 pub type Cursor = u32;
 pub type Permission = u32;
 pub type MemberId = u32;
+pub type ActionNo = u32;
 pub type Identity = crypto::sign::SerializedPublicKey;
 pub type ChatName = ArrayString<CHAT_NAME_CAP>;
 pub type UserName = ArrayString<USER_NAME_CAP>;
 pub type UserMailId = crypto::sign::SerializedPublicKey;
 
+#[derive(Clone, PartialEq, Eq)]
 pub struct UserKeys {
     pub sign: crypto::sign::KeyPair,
     pub enc: crypto::enc::KeyPair,
+    pub vault: crypto::SharedSecret,
 }
 
 impl UserKeys {
@@ -33,6 +38,7 @@ impl UserKeys {
         Self {
             sign: crypto::sign::KeyPair::new(),
             enc: crypto::enc::KeyPair::new(),
+            vault: crypto::new_secret(),
         }
     }
 
@@ -118,17 +124,51 @@ gen_simple_error! {
     }
 }
 
-impl MailActionProof {
-    pub fn is_valid(self) -> bool {
-        let Self { pk, no, sig } = self;
-        const ID: &[u8] = b"mail-action";
-        let mut msg = [0; ID.len() + 4];
-        msg[..ID.len()].copy_from_slice(ID);
-        msg[ID.len()..].copy_from_slice(&no.to_le_bytes());
+impl ActionProof {
+    fn new(
+        pk: UserMailId,
+        no: ActionNo,
+        sk: &crypto::sign::KeyPair,
+        salt: [u8; SALT_SIZE],
+    ) -> Self {
+        let sig = sk.sign(&Self::build_salt(salt, no)).into();
+        Self { pk, no, sig }
+    }
 
+    pub fn for_profile(pk: UserMailId, no: ActionNo, sk: &crypto::sign::KeyPair) -> Self {
+        Self::new(pk, no, sk, [0xff; SALT_SIZE])
+    }
+
+    pub fn for_chat(
+        pk: UserMailId,
+        no: ActionNo,
+        sk: &crypto::sign::KeyPair,
+        salt: ChatName,
+    ) -> Self {
+        let mut plane = [0; SALT_SIZE];
+        plane[..salt.len()].copy_from_slice(salt.as_bytes());
+        Self::new(pk, no, sk, plane)
+    }
+
+    fn is_valid(self, salt: [u8; SALT_SIZE]) -> bool {
+        let Self { pk, no, sig } = self;
         crypto::sign::PublicKey::from(pk)
-            .verify(&msg, &sig.into())
+            .verify(&Self::build_salt(salt, no), &sig.into())
             .is_ok()
+    }
+
+    pub fn is_profile_valid(self) -> bool {
+        self.is_valid([0xff; SALT_SIZE])
+    }
+
+    pub fn is_chat_valid(self, salt: ChatName) -> bool {
+        let mut plane = [0; SALT_SIZE];
+        plane[..salt.len()].copy_from_slice(salt.as_bytes());
+        self.is_valid(plane)
+    }
+
+    fn build_salt(salt: [u8; SALT_SIZE], no: ActionNo) -> [u8; SALT_SIZE + NO_SIZE] {
+        unsafe { std::mem::transmute((salt, no.to_le_bytes())) }
     }
 }
 
@@ -149,7 +189,7 @@ component_utils::protocol! { 'a:
         Send: Message<'a> => 2,
         FetchMessages: FetchMessages => 3,
         KeepAlive => 4,
-        ReadMail: MailActionProof => 5,
+        ReadMail: ActionProof => 5,
         WriteData: WriteData<'a> => 6,
         ReadData: UserMailId => 7,
         WriteMail: WriteMail<'a> => 8,
@@ -162,16 +202,16 @@ component_utils::protocol! { 'a:
     }
 
     #[derive(Clone, Copy)]
-    struct MailActionProof {
+    struct ActionProof {
         pk: UserMailId,
-        no: u32,
+        no: ActionNo,
         sig: crypto::sign::SerializedSignature,
     }
 
     #[derive(Clone, Copy)]
     struct WriteData<'a> {
         data: &'a [u8],
-        proof: MailActionProof,
+        proof: ActionProof,
     }
 
     #[derive(Clone, Copy)]
@@ -182,12 +222,12 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     struct PrefixedMessage<'a> {
-        no: u32,
+        no: ActionNo,
         content: &'a [u8],
     }
 
     #[derive(Clone, Copy)]
-    enum MessageContent<'a> {
+    enum MessagePayload<'a> {
         Arbitrary: &'a [u8] => 0,
         AddMember: AddMember => 1,
         RemoveMember: MemberId => 2,
@@ -197,8 +237,7 @@ component_utils::protocol! { 'a:
     struct Message<'a> {
         chat: ChatName,
         content: &'a [u8],
-        content_sig: crypto::sign::SerializedSignature,
-        sender: Identity,
+        proof: ActionProof,
     }
 
     #[derive(Clone, Copy)]
@@ -210,7 +249,7 @@ component_utils::protocol! { 'a:
     #[derive(Clone, Copy)]
     struct AddMember {
         invited: Identity,
-        perm_offset: u32,
+        perm_offset: Permission,
     }
 
     enum Response<'a> {
@@ -223,11 +262,15 @@ component_utils::protocol! { 'a:
         DataRed: &'a [u8] => 8,
         MailWritten => 9,
         MailWriteFailed: PutMailError => 10,
+        DataWritten => 11,
+        DataWriteFailed: WriteDataError => 12,
+        MailRed: &'a [u8] => 13,
+        MailRedFailed: ReadMailError => 14,
     }
 
     struct SearchResult {
         members: Vec<PeerId>,
-        chat: UserOrChat,
+        key: UserOrChat,
     }
 
     #[derive(Clone, Copy)]
@@ -246,20 +289,20 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     enum Mail {
-        ChatInvite: ChatName => 0,
+        ChatInvite: ChatInvite => 0,
     }
 
     #[derive(Clone, Copy)]
     struct ChatInvite {
         chat: ChatName,
         member_id: MemberId,
+        secret: crypto::enc::SerializedCiphertext,
     }
 
     #[derive(Clone, Copy)]
     struct ReplicateMessage<'a> {
         content: &'a [u8],
-        content_sig: crypto::sign::SerializedSignature,
-        sender: Identity,
+        proof: ActionProof,
     }
 
     #[derive(Clone, Copy)]
@@ -274,15 +317,7 @@ component_utils::protocol! { 'a:
         id: MemberId,
         identity: Identity,
         perm: Permission,
-        last_message_no: u32,
-    }
-}
-
-impl<'a> ReplicateMessage<'a> {
-    pub fn is_valid(&self) -> bool {
-        crypto::sign::PublicKey::from(self.sender)
-            .verify(self.content, &self.content_sig.into())
-            .is_ok()
+        action_no: ActionNo,
     }
 }
 

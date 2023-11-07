@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta name="viewport" content="minimum-scale=0.5, initial-scale=1">
+	<link data-trunk rel="rust" data-wasm-opt="z" />
+	<link data-trunk rel="stylesheet" href="/assets/style.css" />
+</head>
+
+<body class="pc flx bp fdc">
+	<nav class="sc flx jcsb fg0">
+		<div class="flx">
+			<a class="bf hov bp rsb" href="/index.html">/rooms</a>
+			<a class="bf hov bp sb" href="/assets/profile.html">/profile</a>
+			<a class="bf hov bp sb" href="/assets/login.html">/logout</a>
+		</div>
+		<div class="bp bf hc lsb">
+			username
+		</div>
+	</nav>
+	<main class="tbm fg1 sc bp">
+		<div class="flx">
+			<form id="theme-form" class="flx fg0 fdc bp pc">
+				<span class="lbp">theme</span>
+				[[colors]]
+				<input class="sc hov bp sf tbm" type="button" value="save" />
+			</form>
+		</div>
+	</main>
+
+	<script>
+		// TODO: add transparency
+		const themeKeys = ['primary', 'secondary', 'highlight', 'font', 'error'];
+		const themeForm = document.getElementById('theme-form');
+		setTimeout(initThemeForm, 0); // javascript for you
+
+		function updateTheme() {
+			const theme = (new FormData(document.getElementById('theme-form'))).entries();
+			for (const [key, value] of theme) {
+				document.documentElement.style.setProperty(`--${key}-color`, value);
+			}
+		}
+
+		function initThemeForm() {
+			let form = [];
+			for (const key of themeKeys) {
+				const value = getComputedStyle(document.documentElement).getPropertyValue(`--${key}-color`);
+				form.push(`<div class="flx tbm">
+					<input type="color" name="${key}" value="${value}" oninput="updateTheme()" />
+					<span class="lbp">${key}</span>
+				</div>`);
+			}
+			themeForm.innerHTML = themeForm.innerHTML.replace("[[colors]]", form.join(''));
+		}
+	</script>
+</body>
+
+</html>

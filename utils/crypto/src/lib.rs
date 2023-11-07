@@ -3,6 +3,9 @@ use aes_gcm::{
     aes::cipher::Unsigned,
     AeadCore, AeadInPlace, Aes256Gcm, KeyInit, KeySizeUser, Nonce,
 };
+use pqc_kyber::RngCore;
+
+use self::enc::ASOC_DATA;
 
 #[macro_export]
 macro_rules! impl_transmute {
@@ -33,6 +36,41 @@ macro_rules! impl_transmute {
 
 pub mod enc;
 pub mod sign;
+
+pub fn new_secret() -> SharedSecret {
+    let mut secret = [0; SHARED_SECRET_SIZE];
+    OsRng.fill_bytes(&mut secret);
+    secret
+}
+
+pub fn decrypt(data: &mut [u8], secret: SharedSecret) -> Option<&mut [u8]> {
+    if data.len() < NONCE_SIZE + TAG_SIZE {
+        return None;
+    }
+
+    let (data, prefix) = data.split_at_mut(data.len() - NONCE_SIZE + TAG_SIZE);
+    let nonce = <Nonce<<Aes256Gcm as AeadCore>::NonceSize>>::from_slice(&prefix[..TAG_SIZE]);
+    let tag = <Tag<Aes256Gcm>>::from_slice(&prefix[TAG_SIZE..]);
+    let cipher = Aes256Gcm::new(&GenericArray::from(secret));
+    cipher
+        .decrypt_in_place_detached(nonce, ASOC_DATA, data, tag)
+        .ok()
+        .map(|()| data)
+}
+
+pub fn encrypt(data: &mut Vec<u8>, secret: SharedSecret) {
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let cipher = Aes256Gcm::new(&GenericArray::from(secret));
+    let tag = cipher
+        .encrypt_in_place_detached(&nonce, ASOC_DATA, data)
+        .unwrap();
+
+    data.extend_from_slice(tag.as_slice());
+    data.extend_from_slice(nonce.as_slice());
+}
+
+const NONCE_SIZE: usize = <<Aes256Gcm as AeadCore>::NonceSize as Unsigned>::USIZE;
+const TAG_SIZE: usize = <<Aes256Gcm as AeadCore>::TagSize as Unsigned>::USIZE;
 
 #[derive(Debug, Clone, Copy)]
 pub struct FixedAesPayload<const SIZE: usize> {

@@ -30,6 +30,14 @@ pub struct KeyPair {
     pub x: x25519_dalek::StaticSecret,
 }
 
+impl PartialEq for KeyPair {
+    fn eq(&self, other: &Self) -> bool {
+        self.kyb.public == other.kyb.public && self.x.to_bytes() == other.x.to_bytes()
+    }
+}
+
+impl Eq for KeyPair {}
+
 impl Default for KeyPair {
     fn default() -> Self {
         Self::new()

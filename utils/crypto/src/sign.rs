@@ -14,7 +14,7 @@ pub struct Signature {
     ed: ed25519_dalek::Signature,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct KeyPair {
     pub dili: pqc_dilithium::Keypair,
     pub ed: ed25519_dalek::SecretKey,

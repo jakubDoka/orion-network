@@ -13,8 +13,23 @@ console_log = { version = "1.0.0", features = ["wasm-bindgen"] }
 crypto = { version = "0.1.0", path = "../../utils/crypto" }
 hex = "0.4.3"
 leptos = { version = "0.5.1", default-features = false, features = ["nightly", "csr"] }
+leptos_router = { version = "0.5.2", features = ["nightly"] }
 libp2p = { version = "0.52.3", features = ["kad", "macros", "wasm-bindgen", "yamux", "noise"] }
 log = "0.4.20"
 onion = { version = "0.1.0", path = "../../utils/onion", features = ["wasm"] }
 protocols = { version = "0.1.0", path = "../../utils/protocols" }
+thiserror = "1.0.50"
 websocket-websys = { version = "0.1.0", path = "../../utils/websocket-websys" }
+
+[dependencies.web-sys]
+version = "0.3.65"
+features = [
+  'Document',
+  'Window',
+  'console',
+  'Event',
+  'FileReader',
+  'File',
+  'FileList',
+  'HtmlInputElement',
+  'BlobPropertyBag',]
