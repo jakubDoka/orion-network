@@ -1,34 +1,31 @@
-use core::fmt;
-use std::{
-    collections::VecDeque, convert::Infallible, fmt::Octal, io, mem, ops::DerefMut, pin::Pin,
-    process::Output, sync::Arc, task::Poll,
-};
-
-use aes_gcm::{
-    aead::{generic_array::GenericArray, OsRng},
-    AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
-};
-use component_utils::{HandlerRef, PacketReader};
-use futures::{
-    stream::{FusedStream, FuturesUnordered},
-    AsyncRead, Future, StreamExt,
-};
-use instant::{Duration, Instant};
-use libp2p_identity::PeerId;
-use libp2p_swarm::{
-    dial_opts::{DialOpts, PeerCondition},
-    CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
-};
-use thiserror::Error;
-
 use crate::{
     handler::{self, Handler},
     packet::{self, ASOC_DATA, MISSING_PEER},
     IncomingOrRequest, IncomingOrResponse, IncomingStream, KeyPair, PublicKey, SharedSecret,
     StreamRequest,
 };
-
+use aes_gcm::{
+    aead::{generic_array::GenericArray, OsRng},
+    AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
+};
+use component_utils::{HandlerRef, PacketReader};
+use core::fmt;
+use futures::{
+    stream::{FusedStream, FuturesUnordered},
+    AsyncRead, StreamExt,
+};
+use instant::{Duration, Instant};
+use libp2p_identity::PeerId;
 use libp2p_swarm::ToSwarm as TS;
+use libp2p_swarm::{
+    dial_opts::{DialOpts, PeerCondition},
+    CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
+};
+use std::{
+    collections::VecDeque, convert::Infallible, io, mem, ops::DerefMut, pin::Pin, sync::Arc,
+    task::Poll,
+};
+use thiserror::Error;
 
 pub struct Behaviour {
     config: Config,

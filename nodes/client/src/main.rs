@@ -1,3 +1,4 @@
+#![feature(iter_collect_into)]
 #![allow(non_snake_case)]
 #![feature(mem_copy_fn)]
 
@@ -28,8 +29,8 @@ const CHAIN_BOOTSTRAP_NODE: &str = "http://localhost:8700";
 
 #[derive(Clone, Copy)]
 struct LoggedState {
-    revents: ReadSignal<node::Event>,
-    wcommands: WriteSignal<node::Command>,
+    _revents: ReadSignal<node::Event>,
+    _wcommands: WriteSignal<node::Command>,
     rkeys: ReadSignal<Option<UserKeys>>,
     rusername: ReadSignal<UserName>,
 }
@@ -61,8 +62,8 @@ fn App() -> impl IntoView {
     });
 
     let state = LoggedState {
-        revents,
-        wcommands,
+        _revents: revents,
+        _wcommands: wcommands,
         rkeys,
         rusername,
     };

@@ -4,10 +4,7 @@ use leptos_router::Redirect;
 #[component]
 pub fn Profile(state: crate::LoggedState) -> impl IntoView {
     let crate::LoggedState {
-        revents,
-        wcommands,
-        rkeys,
-        rusername,
+        rkeys, rusername, ..
     } = state;
 
     let Some(_keys) = rkeys.get_untracked() else {

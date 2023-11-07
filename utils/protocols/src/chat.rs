@@ -24,7 +24,6 @@ pub type ActionNo = u32;
 pub type Identity = crypto::sign::SerializedPublicKey;
 pub type ChatName = ArrayString<CHAT_NAME_CAP>;
 pub type UserName = ArrayString<USER_NAME_CAP>;
-pub type UserMailId = crypto::sign::SerializedPublicKey;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct UserKeys {
@@ -125,29 +124,24 @@ gen_simple_error! {
 }
 
 impl ActionProof {
-    fn new(
-        pk: UserMailId,
-        no: ActionNo,
-        sk: &crypto::sign::KeyPair,
-        salt: [u8; SALT_SIZE],
-    ) -> Self {
-        let sig = sk.sign(&Self::build_salt(salt, no)).into();
-        Self { pk, no, sig }
+    fn new(no: &mut ActionNo, sk: &crypto::sign::KeyPair, salt: [u8; SALT_SIZE]) -> Self {
+        *no += 1;
+        let sig = sk.sign(&Self::build_salt(salt, *no)).into();
+        Self {
+            pk: sk.public_key().into(),
+            no: *no,
+            sig,
+        }
     }
 
-    pub fn for_profile(pk: UserMailId, no: ActionNo, sk: &crypto::sign::KeyPair) -> Self {
-        Self::new(pk, no, sk, [0xff; SALT_SIZE])
+    pub fn for_profile(no: &mut ActionNo, sk: &crypto::sign::KeyPair) -> Self {
+        Self::new(no, sk, [0xff; SALT_SIZE])
     }
 
-    pub fn for_chat(
-        pk: UserMailId,
-        no: ActionNo,
-        sk: &crypto::sign::KeyPair,
-        salt: ChatName,
-    ) -> Self {
+    pub fn for_chat(no: &mut ActionNo, sk: &crypto::sign::KeyPair, salt: ChatName) -> Self {
         let mut plane = [0; SALT_SIZE];
         plane[..salt.len()].copy_from_slice(salt.as_bytes());
-        Self::new(pk, no, sk, plane)
+        Self::new(no, sk, plane)
     }
 
     fn is_valid(self, salt: [u8; SALT_SIZE]) -> bool {
@@ -183,54 +177,10 @@ impl UserOrChat {
 
 component_utils::protocol! { 'a:
     #[derive(Clone, Copy)]
-    enum Request<'a> {
-        SearchFor: UserOrChat => 0,
-        Subscribe: ChatName => 1,
-        Send: Message<'a> => 2,
-        FetchMessages: FetchMessages => 3,
-        KeepAlive => 4,
-        ReadMail: ActionProof => 5,
-        WriteData: WriteData<'a> => 6,
-        ReadData: UserMailId => 7,
-        WriteMail: WriteMail<'a> => 8,
-    }
-
-    #[derive(Clone, Copy)]
-    enum UserOrChat {
-        User: UserMailId => 0,
-        Chat: ChatName => 1,
-    }
-
-    #[derive(Clone, Copy)]
-    struct ActionProof {
-        pk: UserMailId,
-        no: ActionNo,
-        sig: crypto::sign::SerializedSignature,
-    }
-
-    #[derive(Clone, Copy)]
-    struct WriteData<'a> {
-        data: &'a [u8],
-        proof: ActionProof,
-    }
-
-    #[derive(Clone, Copy)]
-    struct WriteMail<'a> {
-        data: &'a [u8],
-        id: UserMailId,
-    }
-
-    #[derive(Clone, Copy)]
-    struct PrefixedMessage<'a> {
-        no: ActionNo,
-        content: &'a [u8],
-    }
-
-    #[derive(Clone, Copy)]
-    enum MessagePayload<'a> {
-        Arbitrary: &'a [u8] => 0,
-        AddMember: AddMember => 1,
-        RemoveMember: MemberId => 2,
+    enum ChatRequest<'a> {
+        Send: Message<'a> => 0,
+        Fetch: FetchMessages => 1,
+        KeepAlive => 30,
     }
 
     #[derive(Clone, Copy)]
@@ -238,6 +188,14 @@ component_utils::protocol! { 'a:
         chat: ChatName,
         content: &'a [u8],
         proof: ActionProof,
+    }
+
+
+    #[derive(Clone, Copy)]
+    enum MessagePayload<'a> {
+        Arbitrary: &'a [u8] => 0,
+        AddMember: AddMember => 1,
+        RemoveMember: MemberId => 2,
     }
 
     #[derive(Clone, Copy)]
@@ -252,25 +210,76 @@ component_utils::protocol! { 'a:
         perm_offset: Permission,
     }
 
-    enum Response<'a> {
-        Message: Message<'a> => 1,
-        FetchedMessages: FetchedMessages<'a> => 3,
-        SearchResults: SearchResult => 4,
-        Subscribed: ChatName => 5,
-        FailedMessage: PutMessageError => 6,
-        ChatNotFound => 7,
-        DataRed: &'a [u8] => 8,
-        MailWritten => 9,
-        MailWriteFailed: PutMailError => 10,
-        DataWritten => 11,
-        DataWriteFailed: WriteDataError => 12,
-        MailRed: &'a [u8] => 13,
-        MailRedFailed: ReadMailError => 14,
+    #[derive(Clone, Copy)]
+    enum InitRequest {
+        Search: Identity => 0,
+        Subscribe: InitSubscribe => 1,
     }
 
-    struct SearchResult {
+    #[derive(Clone, Copy)]
+    struct InitSubscribe {
+        id: Identity,
+        proof: ActionProof,
+    }
+
+    #[derive(Clone, Copy)]
+    enum ProfileRequest<'a> {
+        Search: ChatName => 0,
+        WriteData: WriteData<'a> => 0,
+        KeepAlive => 30,
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    enum UserOrChat {
+        User: Identity => 0,
+        Chat: ChatName => 1,
+    }
+
+    #[derive(Clone, Copy)]
+    struct ActionProof {
+        pk: Identity,
+        no: ActionNo,
+        sig: crypto::sign::SerializedSignature,
+    }
+
+    #[derive(Clone, Copy)]
+    struct WriteData<'a> {
+        data: &'a [u8],
+        proof: ActionProof,
+    }
+
+    #[derive(Clone, Copy)]
+    struct WriteMail<'a> {
+        id: Identity,
+        data: &'a [u8],
+    }
+
+    enum ChatResponse<'a> {
+        New: Message<'a> => 0,
+        Failed: PutMessageError => 1,
+        Fetched: FetchedMessages<'a> => 2,
+    }
+
+    enum ProfileResponse<'a> {
+        Mail: &'a [u8] => 0,
+        DataWritten => 1,
+        DataWriteFailed: WriteDataError => 2,
+        Search: ChatSearchResult => 3,
+    }
+
+    struct InitProfileResponse<'a> {
+        data: &'a [u8],
+        mail: &'a [u8],
+    }
+
+    struct InitSearchResponse {
         members: Vec<PeerId>,
-        key: UserOrChat,
+        key: Identity,
+    }
+
+    struct ChatSearchResult {
+        members: Vec<PeerId>,
+        key: ChatName,
     }
 
     #[derive(Clone, Copy)]

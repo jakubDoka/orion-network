@@ -170,13 +170,18 @@ impl Miner {
 
         let (_, key, members, _) = self.search_queries.swap_remove(index);
 
-        let req = Response::SearchResults(SearchResult { members, key });
-        send_response(req, &mut client.inner, &mut self.buffer);
+        match key {
+            UserOrChat::User(key) => {
+                let req = InitSearchResponse { members, key };
+                send_response(req, &mut client.inner, &mut self.buffer);
+            }
+            UserOrChat::Chat(key) => todo!(),
+        }
 
         true
     }
 
-    fn handle_put_record_message(&mut self, key: &[u8], msg: ReplicateMessage) {
+    fn handle_put_record_message(&mut self, key: &[u8], msg: Replicate) {
         let Some(chat_name) = ChatName::decode(&mut &*key) else {
             log::warn!("failed to decode chat name for message replication");
             return;
@@ -219,7 +224,7 @@ impl Miner {
         match pr {
             PutRecord::Message(msg) => self.handle_put_record_message(record.key.as_ref(), msg),
             PutRecord::Mail(msg) => {
-                let Ok(mail_id) = UserMailId::try_from(record.key.as_ref()) else {
+                let Ok(mail_id) = Identity::try_from(record.key.as_ref()) else {
                     return;
                 };
 
@@ -231,6 +236,15 @@ impl Miner {
                     .put_mail(mail_id, msg)
                 {
                     log::error!("failed to put notification: {e:?}");
+                    return;
+                }
+
+                if let Some(stream) = self
+                    .clients
+                    .iter_mut()
+                    .find(|c| c.identity == Some(mail_id))
+                {
+                    send_response(Response::Mail(msg), &mut stream.inner, &mut self.buffer);
                 }
             }
             PutRecord::ChatHistory(_) => todo!(),
@@ -265,6 +279,7 @@ impl Miner {
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::InboundStream(s))) => {
                 self.clients.push(Stream {
                     id: self.client_counter,
+                    identity: None,
                     subscribed: Default::default(),
                     inner: s,
                 });
@@ -303,7 +318,7 @@ impl Miner {
 
         let store = self.swarm.behaviour_mut().kad.store_mut();
         let record = match req {
-            Request::Subscribe(to) => {
+            Request::Subscribe(UserOrChat::Chat(to)) => {
                 stream.subscribed.insert(to);
                 send_response(
                     Response::Subscribed(to),
@@ -312,8 +327,12 @@ impl Miner {
                 );
                 return;
             }
+            Request::Subscribe(UserOrChat::User(id)) => {
+                stream.identity = Some(id);
+                return;
+            }
             Request::Send(m) => {
-                let msg = ReplicateMessage {
+                let msg = Replicate {
                     content: m.content,
                     proof: m.proof,
                 };
@@ -395,6 +414,15 @@ impl Miner {
                     Err(e) => Response::MailWriteFailed(e),
                 };
                 send_response(resp, &mut stream.inner, &mut self.buffer);
+
+                if let Some(stream) = self.clients.iter_mut().find(|c| c.identity == Some(req.id)) {
+                    send_response(
+                        Response::Mail(req.data),
+                        &mut stream.inner,
+                        &mut self.buffer,
+                    );
+                }
+
                 kad::Record {
                     key: req.id.to_vec().into(),
                     value: PutRecord::Mail(req.data).to_bytes(),
@@ -473,12 +501,12 @@ struct Profie {
 
 struct ChatStore {
     chats: HashMap<ChatName, ChatState>,
-    mail_boxes: HashMap<UserMailId, Profie>,
+    mail_boxes: HashMap<Identity, Profie>,
     mem: MemoryStore,
 }
 
 impl ChatStore {
-    fn put_mail(&mut self, id: UserMailId, msg: &[u8]) -> Result<(), PutMailError> {
+    fn put_mail(&mut self, id: Identity, msg: &[u8]) -> Result<(), PutMailError> {
         if msg.len() > protocols::chat::MAX_MAIL_SIZE {
             return Err(PutMailError::MailTooBig);
         }
@@ -507,7 +535,7 @@ impl ChatStore {
         Ok(mail.messages.read())
     }
 
-    fn read_data(&mut self, id: UserMailId) -> &[u8] {
+    fn read_data(&mut self, id: Identity) -> &[u8] {
         self.mail_boxes.get(&id).map_or(&[], |pr| &pr.data)
     }
 
@@ -528,7 +556,7 @@ impl ChatStore {
         Ok(())
     }
 
-    fn put_message(&mut self, chat: ChatName, rm: ReplicateMessage) -> Result<(), PutMessageError> {
+    fn put_message(&mut self, chat: ChatName, rm: Replicate) -> Result<(), PutMessageError> {
         let Some(msg) = PrefixedMessage::decode(&mut &*rm.content) else {
             return Err(PutMessageError::InvalidContent);
         };
@@ -657,6 +685,7 @@ impl RecordStore for ChatStore {
 
 struct Stream {
     id: usize,
+    identity: Option<Identity>,
     subscribed: HashSet<ChatName>,
     inner: EncryptedStream,
 }

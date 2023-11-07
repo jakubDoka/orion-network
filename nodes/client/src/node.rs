@@ -1,8 +1,9 @@
-use chain_api::{NodeData, UserData};
+use chain_api::NodeData;
 use component_utils::futures::stream::Fuse;
 use component_utils::futures::{self, FutureExt};
 use component_utils::kad::KadPeerSearch;
 use component_utils::Codec;
+use crypto::SharedSecret;
 use leptos::signal_prelude::*;
 use libp2p::core::upgrade::Version;
 use libp2p::core::ConnectedPoint;
@@ -12,14 +13,16 @@ use libp2p::swarm::{ConnectionHandler, NetworkBehaviour, SwarmEvent};
 use libp2p::*;
 use libp2p::{PeerId, Swarm};
 use onion::{EncryptedStream, PathId};
-use protocols::chat::{
-    ActionNo, ChatName, FetchedMessages, MessagePayload, Permission, PrefixedMessage, Request,
-    Response, SearchResult, UserKeys, UserName, UserOrChat,
-};
+use protocols::chat::*;
+use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
+use std::convert::identity;
+use std::hash::BuildHasher;
 use std::task::Poll;
 use std::time::Duration;
 use std::{future, io, mem, pin::Pin, usize};
+use std::{iter, u8};
+use web_sys::RequestInit;
 
 pub type MessageContent = std::rc::Rc<str>;
 
@@ -76,18 +79,13 @@ pub enum Event {
         chat: ChatName,
         messages: Vec<u8>,
     },
-    Subscribed(ChatName),
     None,
 }
 
 #[derive(Clone)]
 pub enum Command {
-    Subscrbe {
-        chat: ChatName,
-    },
     SendMessage {
         chat: ChatName,
-        name: String,
         content: String,
     },
     #[allow(dead_code)]
@@ -97,7 +95,7 @@ pub enum Command {
 
 enum SearchRouteState {
     Established(EncryptedStream),
-    Reestablishing(PathId, ()),
+    Reestablishing(PathId),
 }
 
 impl SearchRouteState {
@@ -118,15 +116,15 @@ impl SearchRouteState {
 pub struct Node {
     events: WriteSignal<Event>,
     commands: Fuse<Pin<Box<dyn futures::Stream<Item = Command>>>>,
-    nodes: HashMap<PeerId, NodeData>,
     username: UserName,
     keys: UserKeys,
     swarm: Swarm<Behaviour>,
     peer_search: KadPeerSearch,
-    search_route: SearchRouteState,
-    pending_streams: Vec<(UserOrChat, PathId)>,
+    profile_path: SearchRouteState,
     subscriptions: futures::stream::SelectAll<Subscription>,
-    temp_buffer: Vec<u8>,
+    nodes: HashMap<PeerId, NodeData>,
+    buffer: Vec<u8>,
+    buffer2: Vec<u8>,
     vault: Vault,
 }
 
@@ -154,19 +152,10 @@ impl Node {
             return Err(BootError::NotEnoughNodes(nodes.len()));
         }
 
-        // rely on a fact that hash map has random order of iteration (RandomState)
         let route @ [(enter_node, ..), ..]: [_; 3] = nodes
             .iter()
             .map(|(a, b)| (*b, *a))
             .take(3)
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        let profile_nodes: [_; 2] = nodes
-            .iter()
-            .map(|(a, b)| (*b, *a))
-            .skip(3)
-            .take(2)
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
@@ -228,12 +217,8 @@ impl Node {
         async fn open_path(
             swarm: &mut Swarm<Behaviour>,
             peer_search: &mut KadPeerSearch,
-            route: [(NodeData, PeerId); 3],
-        ) -> Result<EncryptedStream, BootError> {
-            let search_route = swarm
-                .behaviour_mut()
-                .onion
-                .open_path(route.map(|(ud, p)| (ud.enc.into(), p)))?;
+            awaiting: &mut Vec<(PathId, HashSet<ChatName>)>,
+        ) -> Result<(EncryptedStream, HashSet<ChatName>, PathId), BootError> {
             loop {
                 match swarm.select_next_some().await {
                     SwarmEvent::Behaviour(BehaviourEvent::Onion(
@@ -246,67 +231,100 @@ impl Node {
                     SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                         stream,
                         id,
-                    ))) if id == search_route => {
-                        break Ok(stream);
+                    ))) => {
+                        if let Some(index) = awaiting.iter().position(|&(pid, ..)| pid == id) {
+                            let (.., set) = awaiting.swap_remove(index);
+                            return Ok((stream, set, id));
+                        } else {
+                            log::warn!("unexpected stream");
+                        }
                     }
                     _ => {}
                 }
             }
         }
 
-        let mut search_stream = open_path(&mut swarm, &mut peer_search, route).await?;
-        let mut temp_buffer = vec![];
+        let mut awaiting = vec![(
+            swarm
+                .behaviour_mut()
+                .onion
+                .open_path(route.map(|(u, p)| (u.enc.into(), p)))
+                .unwrap(),
+            HashSet::new(),
+        )];
+        let (mut init_stream, ..) = open_path(&mut swarm, &mut peer_search, &mut awaiting).await?;
+        let mut buffer = vec![];
 
-        Request::SearchFor(UserOrChat::User(profile.sign)).encode(&mut temp_buffer);
-        search_stream.write(&mut temp_buffer);
+        send_request(
+            InitRequest::Search(profile.sign),
+            &mut init_stream,
+            &mut buffer,
+        );
 
-        let resp = search_stream
-            .next()
-            .await
-            .expect("always reture one element")
-            .map_err(BootError::ProfileSearch)?;
+        async fn form_path(
+            expected: UserOrChat,
+            nodes: &HashMap<PeerId, NodeData>,
+            swarm: &mut Swarm<Behaviour>,
+            stream: &mut EncryptedStream,
+        ) -> Result<PathId, FormPathError> {
+            let resp = stream.next().await.expect("to always return one element")?;
+            let Some(Response::SearchResults(SearchResult { members, key })) =
+                <_>::decode(&mut &*resp)
+            else {
+                return Err(FormPathError::Decoding);
+            };
 
-        let Some(Response::SearchResults(SearchResult {
-            members,
-            key: UserOrChat::User(key),
-        })) = <_>::decode(&mut resp.as_slice())
-        else {
-            return Err(BootError::ProfileSearch(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unexpected response",
-            )));
-        };
+            if key != expected {
+                return Err(FormPathError::KeyMismatch);
+            }
 
-        if key != profile.sign {
-            return Err(BootError::ProfileSearch(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "profile key mismatch",
-            )));
+            let Some(pick) = members
+                .into_iter()
+                .collect::<HashSet<_>>() // kind of a suffle
+                .into_iter()
+                .find_map(|m| Some((*nodes.get(&m)?, m)))
+            else {
+                return Err(FormPathError::NodeFind);
+            };
+
+            let hash = RandomState::new().hash_one(expected) as usize;
+
+            let route: [_; 3] = nodes
+                .iter()
+                .map(|(a, b)| (*b, *a))
+                .cycle()
+                .skip(hash % nodes.len())
+                .take(2)
+                .chain(iter::once(pick))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+
+            Ok(swarm
+                .behaviour_mut()
+                .onion
+                .open_path(route.map(|(ud, p)| (ud.enc.into(), p)))
+                .unwrap())
         }
 
-        let Some(pick) = members
-            .into_iter()
-            .collect::<HashSet<_>>() // kind of a suffle
-            .into_iter()
-            .find_map(|m| Some((*nodes.get(&m)?, m)))
-        else {
-            return Err(BootError::ProfileSearch(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "no node found",
-            )));
-        };
+        awaiting.push((
+            form_path(
+                UserOrChat::User(profile.sign),
+                &nodes,
+                &mut swarm,
+                &mut identity(init_stream),
+            )
+            .await
+            .map_err(BootError::Profile)?,
+            HashSet::new(),
+        ));
+        let (mut profile_path, ..) = open_path(&mut swarm, &mut peer_search, &mut awaiting).await?;
 
-        let mut profile_path = open_path(
-            &mut swarm,
-            &mut peer_search,
-            [profile_nodes[0], profile_nodes[1], pick],
-        )
-        .await?;
-
-        temp_buffer.clear();
-        Request::ReadData(profile.sign).encode(&mut temp_buffer);
-        profile_path.write(&mut temp_buffer);
-
+        send_request(
+            Request::ReadData(profile.sign),
+            &mut profile_path,
+            &mut buffer,
+        );
         let resp = profile_path
             .next()
             .await
@@ -314,26 +332,123 @@ impl Node {
             .map_err(BootError::VauldFetch)?;
 
         let Some(Response::DataRed(data)) = <_>::decode(&mut resp.as_slice()) else {
-            return Err(BootError::VauldFetch(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unexpected response",
-            )));
+            return Err(BootError::VaultDecoding);
         };
 
         let mut data = data.to_vec();
         let Some(data) = crypto::decrypt(&mut data, keys.vault) else {
-            return Err(BootError::VauldFetch(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "failed to decode vault",
-            )));
+            return Err(BootError::VaultDecrypting);
         };
 
         let Some(vault) = Vault::decode(&mut &*data) else {
-            return Err(BootError::VauldFetch(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "failed to decode vault",
-            )));
+            return Err(BootError::VaultFinalDecoding);
         };
+
+        for chat in vault.chats.iter() {
+            send_request(
+                Request::SearchFor(UserOrChat::Chat(chat.name)),
+                &mut profile_path,
+                &mut buffer,
+            );
+        }
+
+        let mut topology = HashMap::<PeerId, HashSet<ChatName>>::new();
+        let mut discovered = 0;
+        for _ in 0..vault.chats.len() {
+            let resp = match profile_path.next().await.unwrap() {
+                Ok(resp) => resp,
+                Err(e) => return Err(BootError::ChatSearch(e)),
+            };
+
+            let Some(Response::SearchResults(SearchResult {
+                members,
+                key: UserOrChat::Chat(key),
+            })) = <_>::decode(&mut &*resp)
+            else {
+                continue;
+            };
+
+            if vault.chats.iter().all(|c| c.name != key) {
+                continue;
+            }
+
+            discovered += 1;
+
+            for member in members {
+                topology.entry(member).or_default().insert(key);
+            }
+        }
+
+        let mut topology = topology.into_iter().collect::<Vec<_>>();
+        topology.sort_by_key(|(_, v)| usize::MAX - v.len());
+
+        let mut to_connect = vec![];
+        let mut seen = HashSet::new();
+        while seen.len() < discovered {
+            let (peer, chats) = topology.pop().unwrap();
+            if !chats.iter().fold(false, |acc, &ch| acc | seen.insert(ch)) {
+                continue;
+            }
+            to_connect.push((peer, chats));
+        }
+
+        to_connect
+            .into_iter()
+            .map(|(pick, set)| {
+                let hash = RandomState::new().hash_one(pick) as usize;
+
+                let nd = *nodes.get(&pick).unwrap();
+
+                let route: [_; 3] = nodes
+                    .iter()
+                    .map(|(a, b)| (*b, *a))
+                    .cycle()
+                    .skip(hash % nodes.len())
+                    .take(2)
+                    .chain(iter::once((nd, pick)))
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
+
+                (
+                    swarm
+                        .behaviour_mut()
+                        .onion
+                        .open_path(route.map(|(ud, p)| (ud.enc.into(), p)))
+                        .unwrap(),
+                    set,
+                )
+            })
+            .collect_into(&mut awaiting);
+
+        let mut subscriptions = futures::stream::SelectAll::new();
+        while !awaiting.is_empty() {
+            let (mut stream, subs, id) =
+                open_path(&mut swarm, &mut peer_search, &mut awaiting).await?;
+            for &chat in subs.iter() {
+                send_request(
+                    Request::Subscribe(UserOrChat::Chat(chat)),
+                    &mut stream,
+                    &mut buffer,
+                );
+            }
+            subscriptions.push(Subscription {
+                id,
+                subs: subs
+                    .into_iter()
+                    .filter_map(|c| {
+                        if let Some(meta) = vault.chats.iter().find(|m| m.name == c) {
+                            Some((c, meta.secret))
+                        } else {
+                            log::warn!("chat {c} not found in vault");
+                            None
+                        }
+                    })
+                    .collect(),
+                stream,
+                cursor: protocols::chat::NO_CURSOR,
+            });
+        }
 
         Ok(Self {
             keys,
@@ -341,11 +456,11 @@ impl Node {
             commands: commands.to_stream().fuse(),
             swarm,
             peer_search,
-            search_route: SearchRouteState::Established(search_stream),
-            pending_streams: vec![],
-            subscriptions: futures::stream::SelectAll::new(),
-            temp_buffer,
+            profile_path: SearchRouteState::Established(profile_path),
+            subscriptions,
             nodes,
+            buffer,
+            buffer2: vec![],
             username: profile.name,
             vault,
         })
@@ -356,45 +471,135 @@ impl Node {
             futures::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event),
                 command = self.commands.select_next_some() => self.handle_command(command),
-                search_packet = self.search_route.poll().fuse() => self.handle_search_packet(search_packet),
-                (id, request) = self.subscriptions.select_next_some() => self.handle_subscription_request(id, request),
+                search_packet = self.profile_path.poll().fuse() => self.handle_profile_response(search_packet),
+                (id, response) = self.subscriptions.select_next_some() => self.handle_subscription_response(id, response),
             }
         }
     }
 
-    fn handle_swarm_event(&mut self, event: SE) {
-        todo!()
-    }
-
-    fn handle_command(&mut self, event: Command) {
-        todo!()
-    }
-
-    fn handle_search_packet(&mut self, event: Option<Vec<u8>>) {
-        let Some(pckt) = event else {
-            let new_route: [_; 3] = self
+    fn handle_profile_response(&mut self, packet: Option<Vec<u8>>) {
+        let Some(packet) = packet else {
+            let route: [_; 3] = self
                 .nodes
                 .iter()
-                .map(|(a, b)| (b.enc.into(), *a))
+                .map(|(a, b)| (*b, *a))
                 .take(3)
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap();
-            self.search_route = SearchRouteState::Reestablishing(
+
+            self.profile_path = SearchRouteState::Reestablishing(
                 self.swarm
                     .behaviour_mut()
                     .onion
-                    .open_path(new_route)
-                    .expect("to be valid at this point"),
-                (),
+                    .open_path(route.map(|(u, p)| (u.enc.into(), p)))
+                    .unwrap(),
             );
             return;
         };
 
-        todo!()
+        let Some(resp) = Response::decode(&mut packet.as_slice()) else {
+            log::error!("profile response is malformed");
+            return;
+        };
+
+        match resp {
+            Response::Mail(_) => todo!(),
+
+            Response::MailWritten => log::info!("mail written"),
+            Response::MailWriteFailed(e) => log::error!("failed to write mail: {}", e),
+            Response::DataWritten => log::info!("vault written"),
+            Response::DataWriteFailed(e) => log::error!("failed to write data: {}", e),
+
+            // TODO: only initial request gets this
+            Response::MailRed(_) => unreachable!(),
+            Response::DataRed(_) => unreachable!(),
+            Response::MailRedFailed(e) => log::error!("failed to read mail: {}", e),
+
+            // TODO: move to separate enum
+            Response::Message(_) => unreachable!(),
+            Response::FetchedMessages(_) => unreachable!(),
+            Response::SearchResults(_) => unreachable!(),
+            Response::Subscribed(_) => unreachable!(),
+            Response::FailedMessage(_) => unreachable!(),
+            Response::ChatNotFound => unreachable!(),
+        }
     }
 
-    fn handle_subscription_request(&mut self, id: PathId, request: io::Result<Vec<u8>>) {
+    fn handle_swarm_event(&mut self, event: SE) {
+        match event {
+            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest { to })) => {
+                component_utils::handle_conn_request(to, &mut self.swarm, &mut self.peer_search);
+            }
+            SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
+                if component_utils::try_handle_conn_response(
+                    &e,
+                    &mut self.swarm,
+                    &mut self.peer_search,
+                ) => {}
+            e => log::debug!("{:?}", e),
+        }
+    }
+
+    fn handle_command(&mut self, command: Command) {
+        match command {
+            Command::SendMessage { chat, content } => {
+                let Some(sub) = self
+                    .subscriptions
+                    .iter_mut()
+                    .find(|s| s.subs.contains_key(&chat))
+                else {
+                    log::error!("chat not found when sending message");
+                    return;
+                };
+
+                let Some(meta) = self.vault.chats.iter_mut().find(|s| s.name == chat) else {
+                    log::error!("chat meta not found when sending message");
+                    return;
+                };
+
+                self.buffer.clear();
+                RawChatMessage {
+                    user: self.username,
+                    content: &content,
+                }
+                .encode(&mut self.buffer);
+                crypto::encrypt(&mut self.buffer, *sub.subs.get(&chat).unwrap());
+
+                send_request(
+                    Request::Send(Message {
+                        chat,
+                        content: &self.buffer,
+                        proof: ActionProof::for_chat(&mut meta.message_no, &self.keys.sign, chat),
+                    }),
+                    &mut sub.stream,
+                    &mut self.buffer2,
+                );
+            }
+            Command::FetchMessages(chat) => {
+                let Some(sub) = self
+                    .subscriptions
+                    .iter_mut()
+                    .find(|s| s.subs.contains_key(&chat))
+                else {
+                    log::error!("chat not found when sending message");
+                    return;
+                };
+
+                send_request(
+                    Request::FetchMessages(FetchMessages {
+                        chat,
+                        cursor: sub.cursor,
+                    }),
+                    &mut sub.stream,
+                    &mut self.buffer,
+                );
+            }
+            Command::None => {}
+        }
+    }
+
+    fn handle_subscription_response(&mut self, id: PathId, request: io::Result<Vec<u8>>) {
         let msg = match request {
             Ok(m) => m,
             Err(e) => {
@@ -403,7 +608,7 @@ impl Node {
             }
         };
 
-        let Some(pckt) = Response::decode(&mut msg.as_slice()) else {
+        let Some(pckt) = ChatResponse::decode(&mut msg.as_slice()) else {
             log::error!("chat subscription packet is malformed");
             return;
         };
@@ -414,30 +619,19 @@ impl Node {
         };
 
         match pckt {
-            Response::Message(msg) => {
-                if msg.chat != sub.chat {
+            ChatResponse::New(msg) => {
+                let Some(&secret) = sub.subs.get(&msg.chat) else {
                     log::warn!("message chat does not match subscription");
                     return;
-                }
+                };
 
                 if msg.proof.is_chat_valid(msg.chat) {
                     log::warn!("message chat is invalid");
                     return;
                 }
 
-                let Some(meta) = self.vault.chats.iter_mut().find(|c| c.name == msg.chat) else {
-                    log::warn!("message chat not found");
-                    return;
-                };
-
-                let Some(PrefixedMessage { no: _, content }) = <_>::decode(&mut &*msg.content)
-                else {
-                    log::warn!("message content is malformed, no message no");
-                    return;
-                };
-
-                let mut content = content.to_vec();
-                let Some(decrypted) = crypto::decrypt(&mut content, meta.secret) else {
+                let mut content = msg.content.to_vec();
+                let Some(decrypted) = crypto::decrypt(&mut content, secret) else {
                     log::warn!("message content is malformed, cannot decrypt");
                     return;
                 };
@@ -453,26 +647,24 @@ impl Node {
                     content: content.into(),
                 });
             }
-            Response::FetchedMessages(fmsg @ FetchedMessages { chat, cursor, .. }) => {
+            ChatResponse::Fetched(fmsg @ FetchedMessages { chat, cursor, .. }) => {
                 let messages = fmsg.messages.to_vec();
                 sub.cursor = cursor;
                 (self.events)(Event::FetchedMessages { chat, messages });
             }
-            Response::Subscribed(chn) => {
-                (self.events)(Event::Subscribed(chn));
-            }
-            Response::SearchResults(_) => log::error!("unepxected response"),
-            Response::ChatNotFound => log::error!("chat not found"),
-            Response::FailedMessage(e) => log::error!("failed to put message: {}", e),
-            Response::DataRed(_) => log::error!("unexpected response"),
-            Response::MailWritten => log::error!("unexpected response"),
-            Response::MailWriteFailed(e) => log::error!("failed to write mail: {}", e),
+            ChatResponse::Failed(e) => log::error!("failed to fetch messages: {}", e),
         }
     }
 
     pub fn username(&self) -> UserName {
         self.username
     }
+}
+
+pub fn send_request<'a, T: Codec<'a>>(resp: T, stream: &mut EncryptedStream, buffer: &mut Vec<u8>) {
+    buffer.clear();
+    resp.encode(buffer);
+    stream.write(buffer);
 }
 
 #[allow(deprecated)]
@@ -494,9 +686,29 @@ pub enum BootError {
     #[error("failed to fetch profile: {0}")]
     FetchProfile(chain_api::GetUserError),
     #[error("failed to search profile: {0}")]
-    ProfileSearch(io::Error),
+    Profile(FormPathError),
     #[error("failed to fetch vault: {0}")]
     VauldFetch(io::Error),
+    #[error("failed to decode vault response")]
+    VaultDecoding,
+    #[error("failed to decrypt vault")]
+    VaultDecrypting,
+    #[error("failed to decode vault blob")]
+    VaultFinalDecoding,
+    #[error("failed to search for chat (stream broken): {0}")]
+    ChatSearch(io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum FormPathError {
+    #[error("stream failed: {0}")]
+    Stream(#[from] io::Error),
+    #[error("failed to decode search results")]
+    Decoding,
+    #[error("retrieved cluster has mismatched key")]
+    KeyMismatch,
+    #[error("failed to retrieve a valid node")]
+    NodeFind,
 }
 
 fn node_data_to_path_seg(data: NodeData) -> (PeerId, NodeData) {
@@ -510,292 +722,9 @@ fn node_data_to_path_seg(data: NodeData) -> (PeerId, NodeData) {
     (peer_id, data)
 }
 
-pub async fn run(
-    keys: UserKeys,
-    chain_bootstrap_node: &str,
-    wevents: WriteSignal<Event>,
-    rcommands: ReadSignal<Command>,
-) {
-    let node = Node::new(keys, chain_bootstrap_node, wevents, rcommands)
-        .await
-        .unwrap();
-
-    // use libp2p::core::multiaddr::Protocol;
-    // use libp2p::*;
-
-    // let bootstrap_node: SocketAddr = (Ipv4Addr::LOCALHOST, 8900).into();
-
-    // let nodes = chain_api::nodes("http://localhost:8700")
-    //     .await
-    //     .unwrap()
-    //     .into_iter()
-    //     .map(node_data_to_path_seg)
-    //     .collect::<HashMap<_, _>>();
-
-    // let keys = UserKeys::new();
-    // let keypair = identity::Keypair::ed25519_from_bytes(keys.sign.ed).unwrap();
-    // let transport = websocket_websys::Transport::new(100)
-    //     .upgrade(Version::V1Lazy)
-    //     .authenticate(noise::Config::new(&keypair).unwrap())
-    //     .multiplex(yamux::Config::default())
-    //     .boxed();
-    // let peer_id = keypair.public().to_peer_id();
-
-    // let behaviour = Behaviour {
-    //     onion: onion::Behaviour::new(
-    //         onion::Config::new(None, peer_id).keep_alive_interval(Duration::from_secs(100)),
-    //     ),
-    //     kad: kad::Behaviour::with_config(
-    //         peer_id,
-    //         kad::store::MemoryStore::new(peer_id),
-    //         mem::take(
-    //             kad::Config::default().set_replication_factor(protocols::chat::REPLICATION_FACTOR),
-    //         ),
-    //     ),
-    // };
-
-    // let mut swarm = swarm::Swarm::new(
-    //     transport,
-    //     behaviour,
-    //     peer_id,
-    //     libp2p::swarm::Config::with_wasm_executor(),
-    // );
-
-    // swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
-
-    // // rely on a fact that hash map has random order of iteration (RandomState)
-    // let route: [_; 3] = nodes
-    //     .iter()
-    //     .map(|(a, b)| (*b, *a))
-    //     .take(3)
-    //     .collect::<Vec<_>>()
-    //     .try_into()
-    //     .unwrap();
-
-    let mut commands = rcommands.to_stream().fuse();
-
-    // fn dile_addr(addr: SocketAddr) -> Multiaddr {
-    //     Multiaddr::empty()
-    //         .with(match addr {
-    //             SocketAddr::V4(addr) => Protocol::Ip4(addr.ip().to_owned()),
-    //             SocketAddr::V6(addr) => Protocol::Ip6(addr.ip().to_owned()),
-    //         })
-    //         .with(Protocol::Tcp(addr.port()))
-    //         .with(Protocol::Ws("/".into()))
-    // }
-
-    // swarm.dial(dile_addr(bootstrap_node)).unwrap();
-
-    // let mut discovery = KadPeerSearch::default();
-    // let mut peer_search_route = None::<EncryptedStream>;
-    // let mut search_route = swarm.behaviour_mut().onion.open_path(route).unwrap();
-    // let mut buffer = vec![];
-    // let mut pending_streams = vec![];
-    // let mut subscriptions = SelectAll::<Subscription>::new();
-    // let mut connected = false;
-    // loop {
-    //     enum LoopEvent<A, B> {
-    //         Command(Command),
-    //         Event(SwarmEvent<A, B>),
-    //         SearchPacket(io::Result<Vec<u8>>),
-    //         SubscriptionPacket(io::Result<Vec<u8>>),
-    //     }
-
-    //     let search_future = std::future::poll_fn(|cx| match peer_search_route.as_mut() {
-    //         Some(s) => s.poll(cx).map_ok(|v| v.to_vec()),
-    //         None => Poll::Pending,
-    //     });
-
-    //     let e = futures::select! {
-    //         command = commands.select_next_some() => LoopEvent::Command(command),
-    //         event = swarm.select_next_some() => LoopEvent::Event(event),
-    //         packet = search_future.fuse() => LoopEvent::SearchPacket(packet),
-    //         packet = subscriptions.select_next_some() => LoopEvent::SubscriptionPacket(packet),
-    //     };
-
-    //     match e {
-    //         LoopEvent::SubscriptionPacket(r) => {
-    //             let msg = match r {
-    //                 Ok(m) => m,
-    //                 Err(e) => {
-    //                     log::error!("chat subscription error: {e}");
-    //                     continue;
-    //                 }
-    //             };
-
-    //             let Some(pckt) = Response::decode(&mut msg.as_slice()) else {
-    //                 continue;
-    //             };
-
-    //             match pckt {
-    //                 Response::Message(msg) => {
-    //                     todo!()
-    //                 }
-    //                 Response::FetchedMessages(fmsg @ FetchedMessages { chat, cursor, .. }) => {
-    //                     let messages = fmsg.messages.to_vec();
-    //                     subscriptions
-    //                         .iter_mut()
-    //                         .find(|s| s.chat == chat)
-    //                         .unwrap()
-    //                         .cursor = cursor;
-    //                     events(Event::FetchedMessages { chat, messages });
-    //                 }
-    //                 Response::Subscribed(chn) => {
-    //                     events(Event::Subscribed(chn));
-    //                 }
-    //                 Response::SearchResults(_) => log::error!("unepxected response"),
-    //                 Response::ChatNotFound => log::error!("chat not found"),
-    //                 Response::FailedMessage(e) => log::error!("failed to put message: {}", e),
-    //                 Response::DataRed(_) => todo!(),
-    //                 Response::MailWritten => todo!(),
-    //                 Response::MailWriteFailed(e) => log::error!("failed to write mail: {}", e),
-    //             }
-    //         }
-    //         LoopEvent::SearchPacket(r) => {
-    //             let msg = match r {
-    //                 Ok(m) => m,
-    //                 Err(e) => {
-    //                     log::error!("search path error: {e}");
-    //                     let route: [_; 3] = nodes
-    //                         .iter()
-    //                         .map(|(a, b)| (*b, *a))
-    //                         .take(3)
-    //                         .collect::<Vec<_>>()
-    //                         .try_into()
-    //                         .unwrap();
-
-    //                     search_route = swarm.behaviour_mut().onion.open_path(route).unwrap();
-    //                     peer_search_route = None;
-    //                     continue;
-    //                 }
-    //             };
-
-    //             let Some(Response::SearchResults(SearchResult {
-    //                 members,
-    //                 key: UserOrChat::Chat(chat),
-    //             })) = Response::decode(&mut &*msg)
-    //             else {
-    //                 log::error!("search packet is malformed");
-    //                 continue;
-    //             };
-
-    //             let Some((peer, key)) = members
-    //                 .into_iter()
-    //                 .skip(*peer_id.to_bytes().last().unwrap() as usize % 2)
-    //                 .find_map(|p| Some((p, *nodes.get(&p)?)))
-    //             else {
-    //                 log::error!("no member peer found");
-    //                 continue;
-    //             };
-
-    //             log::info!("peer picked: {} for chat: {}", peer, chat);
-
-    //             let route: [_; 3] = nodes
-    //                 .iter()
-    //                 .filter(|&(&a, _)| a != peer)
-    //                 .map(|(a, b)| (*b, *a))
-    //                 .take(2)
-    //                 .chain(iter::once((key, peer)))
-    //                 .collect::<Vec<_>>()
-    //                 .try_into()
-    //                 .unwrap();
-
-    //             pending_streams.push((chat, swarm.behaviour_mut().onion.open_path(route).unwrap()));
-
-    //             log::info!("search results");
-    //         }
-    //         LoopEvent::Command(c) => match c {
-    //             _ if peer_search_route.is_none() => log::error!("sarch route not present"),
-    //             Command::Subscrbe { chat } => {
-    //                 buffer.clear();
-    //                 protocols::chat::Request::SearchFor(UserOrChat::Chat(chat)).encode(&mut buffer);
-    //                 peer_search_route.as_mut().unwrap().write(&mut buffer);
-    //             }
-    //             Command::SendMessage {
-    //                 chat,
-    //                 name,
-    //                 content,
-    //             } => {
-    //                 let Some(sub) = subscriptions.iter_mut().find(|s| s.chat == chat) else {
-    //                     log::error!("chat not found");
-    //                     continue;
-    //                 };
-
-    //                 todo!()
-    //             }
-    //             Command::FetchMessages(chat) => {
-    //                 let sub = subscriptions.iter_mut().find(|s| s.chat == chat).unwrap();
-
-    //                 buffer.clear();
-    //                 Request::FetchMessages(FetchMessages {
-    //                     chat,
-    //                     cursor: sub.cursor,
-    //                 })
-    //                 .encode(&mut buffer);
-    //                 sub.stream.write(&mut buffer);
-    //             }
-    //             Command::None => {}
-    //         },
-    //         LoopEvent::Event(event) => match event {
-    //             SwarmEvent::ConnectionEstablished {
-    //                 peer_id,
-    //                 endpoint: ConnectedPoint::Dialer { address, .. },
-    //                 ..
-    //             } => {
-    //                 swarm.behaviour_mut().kad.add_address(&peer_id, address);
-    //                 if !mem::replace(&mut connected, true) {
-    //                     swarm.behaviour_mut().kad.bootstrap().unwrap();
-    //                 }
-    //             }
-    //             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest {
-    //                 to,
-    //             })) => {
-    //                 component_utils::handle_conn_request(to, &mut swarm, &mut discovery);
-    //             }
-    //             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
-    //                 stream,
-    //                 id,
-    //             ))) if id == search_route => {
-    //                 peer_search_route = Some(stream);
-    //                 events(Event::Saturated);
-    //             }
-    //             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
-    //                 mut stream,
-    //                 id,
-    //             ))) if pending_streams.iter().any(|&(_, pid)| id == pid) => {
-    //                 let index = pending_streams
-    //                     .iter()
-    //                     .position(|&(_, pid)| id == pid)
-    //                     .unwrap();
-    //                 let (chat, _) = pending_streams.swap_remove(index);
-    //                 buffer.clear();
-    //                 Request::Subscribe(chat).encode(&mut buffer);
-    //                 log::debug!("subscribing to {}", chat);
-    //                 stream.write(&mut buffer);
-    //                 subscriptions.push(Subscription {
-    //                     chat,
-    //                     stream,
-    //                     cursor: protocols::chat::NO_CURSOR,
-    //                 });
-    //             }
-    //             SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
-    //                 if component_utils::try_handle_conn_response(
-    //                     &e,
-    //                     &mut swarm,
-    //                     &mut discovery,
-    //                 ) => {}
-    //             SwarmEvent::Behaviour(BehaviourEvent::Onion(o)) => {
-    //                 panic!("unexpected onion event: {:?}", o)
-    //             }
-    //             e => logging::log!("{:?}", e),
-    //         },
-    //     }
-    // }
-}
-
 struct Subscription {
     id: PathId,
-    chat: ChatName,
+    subs: HashMap<ChatName, SharedSecret>,
     stream: EncryptedStream,
     cursor: protocols::chat::Cursor,
 }
