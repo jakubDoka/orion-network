@@ -4,7 +4,6 @@ use leptos::html::Input;
 use leptos::*;
 use leptos_router::Redirect;
 use protocols::chat::{ChatName, CreateChatErrorData, UserName};
-use web_sys::KeyboardEvent;
 
 use crate::node::MessageContent;
 use crate::{get_value, navigate_to, node, report_validity};
