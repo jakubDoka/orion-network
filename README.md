@@ -1,5 +1,10 @@
 # Orion network
 
+## Dependencies
+
+- rust toolchain - can be installed [here](https://www.rust-lang.org/tools/install)
+- trunk - `cargo install trunk`
+
 ## Run backend
 
 ```bash
