@@ -98,6 +98,7 @@ macro_rules! gen_simple_error {
 
 gen_simple_error! {
     error PutMessageError {
+        ChatNotFound => "chat does not exist",
         InvalidContent => "cannot parse message content",
         InvalidMessage => "message signature does not check out",
         NotMember => "you are not a member of this chat",
@@ -121,15 +122,20 @@ gen_simple_error! {
         NotPermitted => "not gonna happen (permission denaid)",
         InvalidProof => "send me a proof, not random bytes (invalid proof)",
     }
+
+    error CreateChatError {
+        AlreadyExists => "chat name is taken",
+        InvalidProof => "expected proof for 0 + chat name",
+    }
 }
 
 impl ActionProof {
     fn new(no: &mut ActionNo, sk: &crypto::sign::KeyPair, salt: [u8; SALT_SIZE]) -> Self {
         *no += 1;
-        let sig = sk.sign(&Self::build_salt(salt, *no)).into();
+        let sig = sk.sign(&Self::build_salt(salt, *no - 1)).into();
         Self {
             pk: sk.public_key().into(),
-            no: *no,
+            no: *no - 1,
             sig,
         }
     }
@@ -234,13 +240,20 @@ component_utils::protocol! { 'a:
         Search: Identity => 0,
         ReadData: Identity => 1,
         Subscribe: Vec<ChatName> => 2,
+        Create: CreateChat => 3,
+    }
+
+    #[derive(Clone, Copy)]
+    struct CreateChat {
+        name: ChatName,
+        proof: ActionProof,
     }
 
     #[derive(Clone, Copy)]
     enum ProfileRequest<'a> {
         Search: ChatName => 0,
-        WriteData: WriteData<'a> => 0,
-        Subscribe: ActionProof => 1,
+        WriteData: WriteData<'a> => 1,
+        Subscribe: ActionProof => 2,
         KeepAlive => 30,
     }
 
@@ -274,6 +287,14 @@ component_utils::protocol! { 'a:
         Failed: PutMessageError => 1,
         Fetched: FetchedMessages<'a> => 2,
         NotFound => 3,
+        CannotCreate: CreateChatErrorData => 4,
+        Created: ChatName => 5,
+    }
+
+    #[derive(Clone, Copy)]
+    struct CreateChatErrorData {
+        err: CreateChatError,
+        name: ChatName,
     }
 
     enum ProfileResponse<'a> {
@@ -311,6 +332,7 @@ component_utils::protocol! { 'a:
         Mail: &'a [u8] => 2,
         ChatHistory: ChatHistory<'a> => 2,
         WriteData: WriteData<'a> => 3,
+        CreateChat: CreateChat => 4,
     }
 
     #[derive(Clone, Copy)]

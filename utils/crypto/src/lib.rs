@@ -48,9 +48,9 @@ pub fn decrypt(data: &mut [u8], secret: SharedSecret) -> Option<&mut [u8]> {
         return None;
     }
 
-    let (data, prefix) = data.split_at_mut(data.len() - NONCE_SIZE + TAG_SIZE);
-    let nonce = <Nonce<<Aes256Gcm as AeadCore>::NonceSize>>::from_slice(&prefix[..TAG_SIZE]);
-    let tag = <Tag<Aes256Gcm>>::from_slice(&prefix[TAG_SIZE..]);
+    let (data, postfix) = data.split_at_mut(data.len() - NONCE_SIZE - TAG_SIZE);
+    let nonce = <Nonce<<Aes256Gcm as AeadCore>::NonceSize>>::from_slice(&postfix[TAG_SIZE..]);
+    let tag = <Tag<Aes256Gcm>>::from_slice(&postfix[..TAG_SIZE]);
     let cipher = Aes256Gcm::new(&GenericArray::from(secret));
     cipher
         .decrypt_in_place_detached(nonce, ASOC_DATA, data, tag)

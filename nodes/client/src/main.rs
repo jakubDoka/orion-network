@@ -12,6 +12,8 @@ use leptos::signal_prelude::*;
 use leptos::*;
 use leptos_router::*;
 use protocols::chat::{ChatName, UserKeys, UserName};
+use std::cmp::Ordering;
+use std::fmt::Display;
 use std::future::Future;
 
 mod chat;
@@ -29,9 +31,9 @@ const CHAIN_BOOTSTRAP_NODE: &str = "http://localhost:8700";
 
 #[derive(Clone, Copy)]
 struct LoggedState {
-    _revents: ReadSignal<node::Event>,
+    revents: ReadSignal<node::Event>,
     wcommands: WriteSignal<node::Command>,
-    rchats: ReadSignal<Vec<ChatName>>,
+    chats: RwSignal<Vec<ChatName>>,
     rkeys: ReadSignal<Option<UserKeys>>,
     rusername: ReadSignal<UserName>,
 }
@@ -41,8 +43,8 @@ fn App() -> impl IntoView {
     let (rcommands, wcommands) = create_signal(node::Command::None);
     let (rkeys, wkeys) = create_signal(None::<UserKeys>);
     let (rusername, wusername) = create_signal(UserName::from("username").unwrap());
-    let (rchats, wchats) = create_signal(Vec::new());
-    let (rcurrent_chat, wcurrent_chat) = create_signal(None::<ChatName>);
+    let chats = create_rw_signal(Vec::new());
+    let (rboot_phase, wboot_phase) = create_signal(None::<BootPhase>);
 
     create_effect(move |_| {
         let Some(keys) = rkeys() else {
@@ -50,7 +52,10 @@ fn App() -> impl IntoView {
         };
 
         spawn_local(async move {
-            let n = match Node::new(keys, CHAIN_BOOTSTRAP_NODE, wevents, rcommands).await {
+            navigate_to("/");
+            let n = match Node::new(keys, CHAIN_BOOTSTRAP_NODE, wevents, rcommands, wboot_phase)
+                .await
+            {
                 Ok(n) => n,
                 Err(e) => {
                     log::error!("failed to create node: {e}");
@@ -59,17 +64,17 @@ fn App() -> impl IntoView {
             };
 
             wusername(n.username());
-            wchats(n.chats().collect());
+            chats.set(n.chats().collect());
 
-            leptos_router::use_navigate()("/chat", Default::default());
+            navigate_to("/chat");
             n.run().await;
         });
     });
 
     let state = LoggedState {
-        _revents: revents,
+        revents,
         wcommands,
-        rchats,
+        chats,
         rkeys,
         rusername,
     };
@@ -78,6 +83,7 @@ fn App() -> impl IntoView {
     let profile = move || view! { <Profile state/> };
     let login = move || view! { <Login wkeys/> };
     let register = move || view! { <Register wkeys/> };
+    let boot = move || view! { <Boot rboot_phase/> };
 
     view! {
         <Router>
@@ -86,9 +92,62 @@ fn App() -> impl IntoView {
             <Route path="/profile" view=profile></Route>
             <Route path="/login" view=login></Route>
             <Route path="/register" view=register></Route>
-            <Route path="/" view=chat></Route>
+            <Route path="/" view=boot></Route>
         </Routes>
         </Router>
+    }
+}
+
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[repr(u8)]
+pub enum BootPhase {
+    #[error("fetch topology...")]
+    FetchTopology,
+    #[error("initiating orion connection...")]
+    InitiateConnection,
+    #[error("initiating search path...")]
+    InitialRoute,
+    #[error("searching profile...")]
+    ProfileSearch,
+    #[error("loading profile...")]
+    ProfileLoad,
+    #[error("searching chats...")]
+    ChatSearch,
+    #[error("loading chats...")]
+    ChatLoad,
+    #[error("ready")]
+    ChatRun,
+}
+
+#[component]
+fn Boot(rboot_phase: ReadSignal<Option<BootPhase>>) -> impl IntoView {
+    let phases = (0..BootPhase::ChatRun as usize)
+        .map(|i| {
+            let margin = if i == 0 { "" } else { "lbm" };
+            let compute_class = move || {
+                rboot_phase.with(|phase| match phase.map(|p| i.cmp(&(p as usize))) {
+                    Some(Ordering::Less) => "bar-loaded",
+                    Some(Ordering::Equal) => "bar-loading",
+                    Some(Ordering::Greater) => "bar-unloaded",
+                    None => "",
+                })
+            };
+            view! { <span class=move || format!("bp hc fg1 tac {} {margin}", compute_class()) /> }
+        })
+        .collect_view();
+    let message = move || match rboot_phase() {
+        Some(s) => format!("{s}"),
+        None => "confused".to_string(),
+    };
+
+    view! {
+        <main class="ma sc bp">
+            <h1>Initiating connections</h1>
+            <p>{message}</p>
+            <div class="flx bp pc">
+                {phases}
+            </div>
+        </main>
     }
 }
 
@@ -98,7 +157,7 @@ fn Nav(rusername: ReadSignal<UserName>) -> impl IntoView {
         <nav class="sc flx jcsb fg0">
             <div class="flx">
                 <A class="bf hov bp rsb" href="/chat">/rooms</A>
-                <A class="bf hov bp sb" href="/priofile">/profile</A>
+                <A class="bf hov bp sb" href="/profile">/profile</A>
                 <A class="bf hov bp sb" href="/login">/logout</A>
             </div>
             <div class="bp bf hc lsb">
@@ -173,4 +232,19 @@ fn load_file(input: HtmlElement<Input>) -> Option<impl Future<Output = Result<Ve
         inner.waker = Some(cx.waker().clone());
         Poll::Pending
     }))
+}
+
+fn report_validity(elem: NodeRef<Input>, message: impl Display) {
+    elem.get_untracked()
+        .unwrap()
+        .set_custom_validity(&format!("{message}"));
+    elem.get_untracked().unwrap().report_validity();
+}
+
+fn get_value(elem: NodeRef<Input>) -> String {
+    elem.get_untracked().unwrap().value()
+}
+
+fn navigate_to(path: impl Display) {
+    leptos_router::use_navigate()(&format!("{path}"), Default::default());
 }

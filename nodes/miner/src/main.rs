@@ -23,7 +23,7 @@ use onion::EncryptedStream;
 use protocols::chat::*;
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     mem,
     net::Ipv4Addr,
     pin::Pin,
@@ -210,6 +210,7 @@ impl Miner {
             .iter_mut()
             .filter(|c| c.state.is_this_chat(&msg.chat))
         {
+            log::error!("sending message to client");
             send_response(ChatResponse::New(msg), &mut client.inner, &mut self.buffer);
         }
 
@@ -256,6 +257,19 @@ impl Miner {
                 if let Err(e) = self.swarm.behaviour_mut().kad.store_mut().write_data(wd) {
                     log::error!("failed to write data: {e:?}");
                 }
+            }
+            PutRecord::CreateChat(CreateChat { name, proof }) => {
+                if let Err(e) = self
+                    .swarm
+                    .behaviour_mut()
+                    .kad
+                    .store_mut()
+                    .create_chat(name, proof)
+                {
+                    log::warn!("failed to create chat: {e:?}");
+                }
+
+                log::info!("created chat {name}");
             }
             PutRecord::ChatHistory(_) => todo!(),
         };
@@ -325,6 +339,7 @@ impl Miner {
                     .push((stream.id, UserOrChat::Chat(chat), vec![], qid));
             }
             ProfileRequest::WriteData(wd) => {
+                log::info!("writing data");
                 let res = self.swarm.behaviour_mut().kad.store_mut().write_data(wd);
                 let soccess = res.is_ok();
                 let resp = match res {
@@ -419,6 +434,31 @@ impl Miner {
                     messages.clear();
                 }
                 stream.state = StreamState::Chats(chats.into_iter().collect());
+            }
+            InitRequest::Create(CreateChat { name, proof }) => {
+                let resp = match store.create_chat(name, proof) {
+                    Err(err) => ChatResponse::CannotCreate(CreateChatErrorData { err, name }),
+                    Ok(()) => ChatResponse::Created(name),
+                };
+                let success = matches!(resp, ChatResponse::Created(_));
+                send_response(resp, &mut stream.inner, &mut self.buffer);
+                if !success {
+                    return;
+                }
+
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .put_record(
+                        kad::Record {
+                            key: name.to_bytes().into(),
+                            value: PutRecord::CreateChat(CreateChat { name, proof }).to_bytes(),
+                            publisher: None,
+                            expires: None,
+                        },
+                        Quorum::N(protocols::chat::REPLICATION_FACTOR),
+                    )
+                    .unwrap();
             }
         }
     }
@@ -615,18 +655,9 @@ impl ChatStore {
             return Err(PutMessageError::InvalidMessage);
         }
 
-        let chat = self.chats.entry(chat).or_default();
-        if chat.members.is_empty() {
-            chat.members.push(Member {
-                id: 0,
-                identity: rm.proof.pk,
-                perm: 0,
-                action_no: 0,
-            });
-            chat.messages
-                .push(Base128Bytes::new(0).chain(rm.content.iter().copied()));
-            return Ok(());
-        }
+        let Some(chat) = self.chats.get_mut(&chat) else {
+            return Err(PutMessageError::ChatNotFound);
+        };
 
         let Some(member) = chat.members.iter_mut().find(|m| m.identity == rm.proof.pk) else {
             return Err(PutMessageError::NotMember);
@@ -684,6 +715,27 @@ impl ChatStore {
                 chat.members.remove(index);
             }
         }
+
+        Ok(())
+    }
+
+    fn create_chat(&mut self, name: ChatName, proof: ActionProof) -> Result<(), CreateChatError> {
+        if !proof.is_chat_valid(name) || proof.no != 0 {
+            log::warn!("invalid proof for chat creation");
+            return Err(CreateChatError::InvalidProof);
+        }
+
+        let Entry::Vacant(chat) = self.chats.entry(name) else {
+            log::warn!("chat already exists");
+            return Err(CreateChatError::AlreadyExists);
+        };
+
+        chat.insert(ChatState::default()).members.push(Member {
+            id: 0,
+            identity: proof.pk,
+            perm: 0,
+            action_no: 0,
+        });
 
         Ok(())
     }

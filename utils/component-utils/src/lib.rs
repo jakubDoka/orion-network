@@ -197,6 +197,20 @@ pub fn drain_filter<'a, T>(
     }
 }
 
+pub struct DropFn<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> DropFn<F> {
+    pub fn new(f: F) -> Self {
+        Self(Some(f))
+    }
+}
+
+impl<F: FnOnce()> Drop for DropFn<F> {
+    fn drop(&mut self) {
+        self.0.take().unwrap()()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

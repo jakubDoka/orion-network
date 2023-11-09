@@ -1,10 +1,9 @@
 #![feature(iter_next_chunk)]
 use std::{
     cell::Cell,
-    fmt,
-    future::Future,
-    io,
-    ops::DerefMut,
+    clone, fmt,
+    future::{poll_fn, Future},
+    io, mem,
     pin::Pin,
     rc::Rc,
     task::{Poll, Waker},
@@ -13,7 +12,10 @@ use std::{
 use libp2p_core::transport::TransportError as TE;
 use libp2p_core::{multiaddr::Protocol as MP, Multiaddr};
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
-use web_sys::{window, CloseEvent, MessageEvent, WebSocket};
+use web_sys::{
+    console::{self, log_1},
+    window, CloseEvent, Event, MessageEvent, WebSocket,
+};
 
 fn parse_multiaddr(ma: &Multiaddr) -> Result<String, &'static str> {
     let Ok([ip, MP::Tcp(port), MP::Ws(path)]) = ma.iter().next_chunk() else {
@@ -46,7 +48,7 @@ impl libp2p_core::Transport for Transport {
 
     type ListenerUpgrade = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
-    type Dial = ConnectionFut;
+    type Dial = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn listen_on(
         &mut self,
@@ -65,7 +67,9 @@ impl libp2p_core::Transport for Transport {
             return Err(TE::MultiaddrNotSupported(addr));
         };
 
-        Connection::dial(&addr, self.trottle_period).map_err(TE::Other)
+        Connection::new(&addr, self.trottle_period)
+            .map(|f| Box::pin(f) as _)
+            .map_err(TE::Other)
     }
 
     fn dial_as_listener(
@@ -89,24 +93,21 @@ impl libp2p_core::Transport for Transport {
 }
 
 #[derive(Debug)]
-pub struct Error(JsValue);
+pub struct Error(TrustMeBroItsSend<JsValue>);
 
 impl From<JsValue> for Error {
     fn from(e: JsValue) -> Self {
-        Error(e)
+        Error(TrustMeBroItsSend(e))
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "{:?}", self.0 .0)
     }
 }
 
 impl std::error::Error for Error {}
-
-unsafe impl Send for Error {}
-unsafe impl Sync for Error {}
 
 struct Timeout {
     _closure: Closure<dyn FnMut()>,
@@ -139,8 +140,9 @@ impl Drop for Timeout {
 type CloseCallback = Cell<Option<Closure<dyn FnMut(CloseEvent)>>>;
 type ReadCallback = Cell<Option<Closure<dyn FnMut(MessageEvent)>>>;
 
-#[derive(Default)]
 struct ConnectionState {
+    ws: WebSocket,
+
     close_closure: CloseCallback,
     close_waker: Cell<Option<Waker>>,
 
@@ -154,20 +156,30 @@ struct ConnectionState {
 
 impl ConnectionState {
     fn new(ws: WebSocket) -> Rc<Self> {
-        let state = Rc::new(Self::default());
+        let state = Rc::new(Self {
+            ws,
+            close_closure: Cell::new(None),
+            close_waker: Cell::new(None),
+            read_closure: Cell::new(None),
+            read_waker: Cell::new(None),
+            read_buf: Cell::new(Vec::new()),
+            trottle_callback: Cell::new(None),
+        });
 
-        let close_state = Rc::downgrade(&state);
+        let close_state = DebugDrop(Rc::downgrade(&state), "foola".into());
         let close_closure = Closure::<dyn FnMut(CloseEvent)>::new(move |_| {
-            if let Some(waker) = close_state.upgrade().and_then(|s| s.close_waker.take()) {
+            if let Some(waker) = close_state.0.upgrade().and_then(|s| s.close_waker.take()) {
                 waker.wake();
             }
         });
-        ws.set_onclose(Some(close_closure.as_ref().unchecked_ref()));
+        state
+            .ws
+            .set_onclose(Some(close_closure.as_ref().unchecked_ref()));
         state.close_closure.set(Some(close_closure));
 
-        let read_state = Rc::downgrade(&state);
+        let read_state = DebugDrop(Rc::downgrade(&state), "guula".into());
         let read_closure = Closure::<dyn FnMut(_)>::new(move |e: MessageEvent| {
-            let Some(state) = read_state.upgrade() else {
+            let Some(state) = read_state.0.upgrade() else {
                 return;
             };
 
@@ -184,12 +196,36 @@ impl ConnectionState {
                 waker.wake();
             }
         });
-        ws.set_onmessage(Some(read_closure.as_ref().unchecked_ref()));
+        state
+            .ws
+            .set_onmessage(Some(read_closure.as_ref().unchecked_ref()));
         state.read_closure.set(Some(read_closure));
 
         state
     }
 }
+
+impl Drop for ConnectionState {
+    fn drop(&mut self) {
+        self.ws.set_onclose(None);
+        self.ws.set_onmessage(None);
+        self.ws.close().unwrap();
+    }
+}
+
+#[derive(Debug)]
+pub struct TrustMeBroItsSend<T>(T);
+
+impl<T: Future> Future for TrustMeBroItsSend<T> {
+    type Output = T::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        unsafe { self.map_unchecked_mut(|x| &mut x.0).poll(cx) }
+    }
+}
+
+unsafe impl<T> Send for TrustMeBroItsSend<T> {}
+unsafe impl<T> Sync for TrustMeBroItsSend<T> {}
 
 pub struct Connection {
     inner: WebSocket,
@@ -197,70 +233,41 @@ pub struct Connection {
     trottle_period: i32,
 }
 
-unsafe impl Send for Connection {}
-unsafe impl Sync for Connection {}
-
-impl Drop for Connection {
-    fn drop(&mut self) {
-        self.inner.set_onopen(None);
-        self.inner.set_onclose(None);
-        self.inner.set_onmessage(None);
-        self.inner.close().unwrap();
-    }
-}
-
-pub struct ConnectionFut {
-    conn: Option<Connection>,
-    closure: Closure<dyn FnMut()>,
-    waker: Rc<Cell<Option<Waker>>>,
-}
-
-impl Future for ConnectionFut {
-    type Output = Result<Connection, Error>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let s = self.deref_mut();
-        let Some(conn) = s.conn.as_mut() else {
-            return Poll::Pending;
-        };
-
-        s.waker.set(Some(cx.waker().clone()));
-
-        if conn.inner.onopen().is_some() {
-            return Poll::Ready(Ok(s.conn.take().unwrap()));
-        }
-
-        conn.inner
-            .set_onopen(Some(s.closure.as_ref().unchecked_ref()));
-
-        Poll::Pending
-    }
-}
-
-unsafe impl Send for ConnectionFut {}
-unsafe impl Sync for ConnectionFut {}
-
 impl Connection {
-    pub fn dial(url: &str, trottle_period: i32) -> Result<ConnectionFut, Error> {
+    pub fn new(
+        url: &str,
+        trottle_period: i32,
+    ) -> Result<impl Future<Output = Result<Self, Error>> + Send, Error> {
         let sock = WebSocket::new(url)?;
         sock.set_binary_type(web_sys::BinaryType::Arraybuffer);
         let state = ConnectionState::new(sock.clone());
         let waker = Rc::new(Cell::new(None::<Waker>));
-        // we construct here so that connection cleanup runns even if future is dropped early
-        let closure = Closure::<dyn FnMut()>::new({
-            let waker = waker.clone();
-            move || waker.take().unwrap().wake()
+        let cleanup = DropFn::new({
+            let sock = sock.clone();
+            move || sock.set_onopen(None)
         });
-        let conn = Some(Connection {
-            inner: sock.clone(),
-            state,
-            trottle_period,
-        });
-        Ok(ConnectionFut {
-            conn,
-            closure,
-            waker,
-        })
+        Ok(TrustMeBroItsSend(poll_fn(move |cx| {
+            _ = &cleanup;
+            waker.set(Some(cx.waker().clone()));
+
+            if sock.onopen().is_some() {
+                return Poll::Ready(Ok(Connection {
+                    inner: sock.clone(),
+                    state: state.clone(),
+                    trottle_period,
+                }));
+            }
+
+            let closure = Closure::<dyn FnMut()>::new({
+                let waker = DebugDrop(waker.clone(), "good".into());
+                move || waker.0.take().unwrap().wake()
+            });
+            sock.set_onopen(Some(closure.as_ref().unchecked_ref()));
+
+            closure.forget();
+
+            Poll::Pending
+        })))
     }
 }
 
@@ -340,5 +347,35 @@ impl futures::AsyncWrite for Connection {
             .close()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
         Poll::Pending
+    }
+}
+
+unsafe impl Send for Connection {}
+
+struct DebugDrop<T>(T, String);
+
+impl<T> Drop for DebugDrop<T> {
+    fn drop(&mut self) {
+        console::log_1(&(self.1.clone()).into());
+    }
+}
+
+pub struct DropFn<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> DropFn<F> {
+    pub fn new(f: F) -> Self {
+        Self(Some(f))
+    }
+
+    pub fn forget(&mut self) {
+        self.0.take();
+    }
+}
+
+impl<F: FnOnce()> Drop for DropFn<F> {
+    fn drop(&mut self) {
+        if let Some(f) = self.0.take() {
+            f()
+        }
     }
 }

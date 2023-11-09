@@ -46,10 +46,12 @@ pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
     };
 
     view! {
-        <Nav/>
-        <form class="flx fdc">
-            <input class="pc hov bp tbm" type="file" node_ref=key_file on:change=on_change required />
-        </form>
+        <div class="sc flx fdc bp ma">
+            <Nav/>
+            <form class="flx fdc">
+                <input class="pc hov bp tbm" type="file" node_ref=key_file on:change=on_change required />
+            </form>
+        </div>
     }
 }
 
@@ -112,12 +114,14 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
     };
 
     view! {
-        <Nav/>
-        <form class="flx fdc">
-            <input class="pc hov bp tbm" type="text" placeholder="new username" maxlength="32" node_ref=username required on:change=on_change />
-            <input class="pc hov bp tbm" type="button" value="register" on:click=on_register />
-            <a hidden=true class="pc hov bp tbm bf tac" node_ref=download_link>/download-again</a>
-        </form>
+        <div class="sc flx fdc bp ma">
+            <Nav/>
+            <form class="flx fdc">
+                <input class="pc hov bp tbm" type="text" placeholder="new username" maxlength="32" node_ref=username required on:change=on_change />
+                <input class="pc hov bp tbm" type="button" value="register" on:click=on_register />
+                <a hidden=true class="pc hov bp tbm bf tac" node_ref=download_link>/download-again</a>
+            </form>
+        </div>
     }
 }
 

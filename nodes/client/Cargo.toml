@@ -24,12 +24,13 @@ websocket-websys = { version = "0.1.0", path = "../../utils/websocket-websys" }
 [dependencies.web-sys]
 version = "0.3.65"
 features = [
-  'Document',
-  'Window',
-  'console',
-  'Event',
-  'FileReader',
-  'File',
-  'FileList',
-  'HtmlInputElement',
-  'BlobPropertyBag',]
+  "Document",
+  "Window",
+  "console",
+  "Event",
+  "FileReader",
+  "File",
+  "FileList",
+  "HtmlInputElement",
+  "BlobPropertyBag",
+  "Storage",]

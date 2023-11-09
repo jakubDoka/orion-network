@@ -39,6 +39,7 @@ pub struct Handler {
 
 impl Handler {
     pub fn new(keypair: Option<KeyPair>, buffer_cap: usize, should_exist: bool) -> Self {
+        log::debug!("new handler, shoudl exist: {:?}", should_exist);
         Self {
             keypair,
             buffer_cap,
@@ -77,6 +78,7 @@ impl ConnectionHandler for Handler {
         }
 
         if self.core.has_no_trafic() {
+            log::debug!("no trafic, closing, {:?}", self.clean);
             return libp2p_swarm::KeepAlive::No;
         }
 
@@ -141,9 +143,7 @@ impl ConnectionHandler for Handler {
                 ..
             }) => match from {
                 ChannelSource::Stream(from) => ToBehaviour::NewChannel([from, to]),
-                ChannelSource::ThisNode(key, id) => {
-                    ToBehaviour::OutboundStream { the: to, key, id }
-                }
+                ChannelSource::ThisNode(key, id) => ToBehaviour::OutboundStream { to, key, id },
             },
             CE::DialUpgradeError(e) => ToBehaviour::Error(HError::DialUpgrade(e.error)),
             CE::ListenUpgradeError(e) => ToBehaviour::Error(HError::ListenUpgrade(e.error)),
@@ -167,7 +167,7 @@ pub enum HError {
 pub enum ToBehaviour {
     NewChannel([Stream; 2]),
     OutboundStream {
-        the: Stream,
+        to: Stream,
         key: SharedSecret,
         id: PathId,
     },

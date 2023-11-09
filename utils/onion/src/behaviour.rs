@@ -148,6 +148,11 @@ impl Behaviour {
     }
 
     fn add_connection(&mut self, to: PeerId, to_id: ConnectionId) -> bool {
+        if self.peer_to_connection.get(&to).is_some() {
+            log::debug!("connection to {} already exists", to);
+            return false;
+        }
+
         self.peer_to_connection.insert(to, to_id);
 
         let incoming = component_utils::drain_filter(&mut self.pending_connections, |p| p.to != to)
@@ -155,17 +160,15 @@ impl Behaviour {
         let requests = component_utils::drain_filter(&mut self.pending_requests, |p| p.to != to)
             .map(IncomingOrRequest::Request);
 
-        let mut satisfied = false;
         for p in incoming.chain(requests) {
             self.events.push_back(TS::NotifyHandler {
                 peer_id: to,
                 handler: NotifyHandler::One(to_id),
                 event: handler::FromBehaviour::InitPacket(p),
             });
-            satisfied = true;
         }
 
-        satisfied
+        true
     }
 
     /// Must be called when a peer cannot be found, otherwise a pending connection information is
@@ -268,7 +271,7 @@ impl NetworkBehaviour for Behaviour {
                 self.events
                     .push_back(TS::GenerateEvent(Event::InboundStream(s)));
             }
-            HTB::OutboundStream { the, key, id } => {
+            HTB::OutboundStream { to: the, key, id } => {
                 self.events
                     .push_back(TS::GenerateEvent(Event::OutboundStream(
                         EncryptedStream::new(the, key),

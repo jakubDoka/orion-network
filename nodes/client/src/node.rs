@@ -1,9 +1,9 @@
 use chain_api::NodeData;
+use component_utils::futures;
 use component_utils::futures::stream::Fuse;
-use component_utils::futures::{self, FutureExt};
 use component_utils::kad::KadPeerSearch;
 use component_utils::Codec;
-use crypto::{decrypt, SharedSecret};
+use crypto::decrypt;
 use leptos::signal_prelude::*;
 use libp2p::core::upgrade::Version;
 use libp2p::core::ConnectedPoint;
@@ -19,8 +19,10 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::task::Poll;
 use std::time::Duration;
-use std::{future, io, mem, pin::Pin, usize};
+use std::{io, mem, pin::Pin, usize};
 use std::{iter, u8};
+
+use crate::BootPhase;
 
 pub type MessageContent = std::rc::Rc<str>;
 
@@ -35,17 +37,8 @@ component_utils::protocol! { 'a:
     struct ChatMeta {
         name: ChatName,
         secret: crypto::SharedSecret,
-        salt: [u8; protocols::chat::SALT_SIZE],
         message_no: ActionNo,
         permission: Permission,
-    }
-
-    struct Theme {
-        primary: u32,
-        secondary: u32,
-        hihlight: u32,
-        font: u32,
-        error: u32,
     }
 
     struct RawChatMessage<'a> {
@@ -54,16 +47,68 @@ component_utils::protocol! { 'a:
     }
 }
 
-impl Default for Theme {
-    fn default() -> Self {
-        Self {
-            primary: 0x000000ff,
-            secondary: 0x444444ff,
-            hihlight: 0xffffffff,
-            font: 0xffffffff,
-            error: 0xff0000ff,
+macro_rules! gen_theme {
+    ($(
+        $name:ident: $value:literal,
+    )*) => {
+        component_utils::protocol! { 'a:
+            #[derive(Clone, Copy, PartialEq)]
+            struct Theme {
+                $(
+                    $name: u32,
+                )*
+            }
         }
-    }
+
+        impl Theme {
+            pub fn apply(self) {
+                for (k, v) in [
+                    $(
+                        (stringify!($name), self.$name),
+                    )*
+                ] {
+                    leptos::document()
+                        .body()
+                        .unwrap()
+                        .style()
+                        .set_property(&format!("--{}-color", k), &format!("#{:08x}", v))
+                        .unwrap();
+                }
+            }
+
+            pub fn from_current() -> Self {
+                Self {
+                    $(
+                        $name: leptos::document()
+                            .body()
+                            .unwrap()
+                            .style()
+                            .get_property_value(&format!("--{}-color", stringify!($name)))
+                            .unwrap()
+                            .strip_prefix("#")
+                            .map(|s| u32::from_str_radix(s, 16).unwrap())
+                            .unwrap(),
+                    )*
+                }
+            }
+
+            pub const KEYS: &'static [&'static str] = &[$(stringify!($name),)*];
+        }
+
+        impl Default for Theme {
+            fn default() -> Self {
+                Self { $( $name: $value,)* }
+            }
+        }
+    };
+}
+
+gen_theme! {
+    primary: 0x000000ff,
+    secondary: 0x333333ff,
+    highlight: 0xffffffff,
+    font: 0xffffffff,
+    error: 0xff0000ff,
 }
 
 #[derive(Clone)]
@@ -77,38 +122,23 @@ pub enum Event {
         chat: ChatName,
         messages: Vec<u8>,
     },
+    ChatCreated(ChatName),
+    CannotCreateChat(CreateChatErrorData),
     None,
 }
 
 #[derive(Clone)]
 pub enum Command {
+    #[allow(dead_code)]
     SendMessage {
         chat: ChatName,
         content: String,
     },
+    CreateChat(ChatName),
     #[allow(dead_code)]
     FetchMessages(ChatName),
+    SetTheme(Theme),
     None,
-}
-
-enum SearchRouteState {
-    Established(EncryptedStream),
-    Reestablishing(PathId),
-}
-
-impl SearchRouteState {
-    pub async fn poll(&mut self) -> Option<Vec<u8>> {
-        match self {
-            Self::Established(s) => match s.select_next_some().await {
-                Ok(o) => Some(o),
-                Err(err) => {
-                    log::error!("search route error: {}", err);
-                    None
-                }
-            },
-            Self::Reestablishing(..) => future::pending().await,
-        }
-    }
 }
 
 pub struct Node {
@@ -118,12 +148,17 @@ pub struct Node {
     keys: UserKeys,
     swarm: Swarm<Behaviour>,
     peer_search: KadPeerSearch,
-    profile_path: SearchRouteState,
+    profile_path: EncryptedStream,
     subscriptions: futures::stream::SelectAll<Subscription>,
+    pending_subscriptions: Vec<(PathId, SubIntent)>,
     nodes: HashMap<PeerId, NodeData>,
     buffer: Vec<u8>,
     buffer2: Vec<u8>,
     vault: Vault,
+}
+
+pub enum SubIntent {
+    Create(ChatName, ActionProof),
 }
 
 impl Node {
@@ -132,7 +167,9 @@ impl Node {
         chain_bootstrap_node: &str,
         events: WriteSignal<Event>,
         commands: ReadSignal<Command>,
+        wboot_phase: WriteSignal<Option<BootPhase>>,
     ) -> Result<Self, BootError> {
+        wboot_phase(Some(BootPhase::FetchTopology));
         let node_request = chain_api::nodes(chain_bootstrap_node);
         let profile_request = chain_api::user_by_sign(chain_bootstrap_node, keys.identity().sign);
         let (node_data, profile) = futures::join!(node_request, profile_request);
@@ -150,14 +187,7 @@ impl Node {
             return Err(BootError::NotEnoughNodes(nodes.len()));
         }
 
-        let route @ [(enter_node, ..), ..]: [_; 3] = nodes
-            .iter()
-            .map(|(a, b)| (*b, *a))
-            .take(3)
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-
+        wboot_phase(Some(BootPhase::InitiateConnection));
         let keypair = identity::Keypair::ed25519_from_bytes(keys.sign.ed).unwrap();
         let transport = websocket_websys::Transport::new(100)
             .upgrade(Version::V1)
@@ -187,6 +217,14 @@ impl Node {
             libp2p::swarm::Config::with_wasm_executor().with_idle_connection_timeout(Duration::MAX), // TODO: please, dont
         );
 
+        let route @ [(enter_node, ..), ..]: [_; 3] = nodes
+            .iter()
+            .map(|(a, b)| (*b, *a))
+            .take(3)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
         use libp2p::core::multiaddr::Protocol;
         swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
         swarm
@@ -210,6 +248,8 @@ impl Node {
             }
         }
 
+        wboot_phase(Some(BootPhase::InitialRoute));
+
         let mut peer_search = KadPeerSearch::default();
 
         let pid = swarm
@@ -222,7 +262,6 @@ impl Node {
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest {
                     to,
                 })) => {
-                    log::error!("{to}");
                     component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
                 }
                 SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
@@ -230,10 +269,7 @@ impl Node {
                         &e,
                         &mut swarm,
                         &mut peer_search,
-                    ) =>
-                {
-                    log::error!("{e:?}");
-                }
+                    ) => {}
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
@@ -242,8 +278,9 @@ impl Node {
             }
         };
 
-        let mut buffer = vec![];
+        wboot_phase(Some(BootPhase::ProfileSearch));
 
+        let mut buffer = vec![];
         send_request(
             InitRequest::Search(profile.sign),
             &mut init_stream,
@@ -269,13 +306,15 @@ impl Node {
             todo!("error handling")
         };
 
-        let hash = RandomState::new().hash_one(key) as usize;
+        wboot_phase(Some(BootPhase::ProfileLoad));
 
+        let hash = RandomState::new().hash_one(key) as usize;
         let route: [_; 3] = nodes
             .iter()
             .map(|(a, b)| (*b, *a))
             .cycle()
             .skip(hash % nodes.len())
+            .filter(|(_, p)| *p != pick.1)
             .take(2)
             .chain(iter::once(pick))
             .collect::<Vec<_>>()
@@ -319,15 +358,20 @@ impl Node {
         let mut vault = if resp.is_empty() {
             Vault::default()
         } else {
-            let foo = decrypt(&mut resp, keys.vault).unwrap();
-            Vault::decode(&mut &*foo).unwrap()
+            let vault = decrypt(&mut resp, keys.vault).unwrap();
+            Vault::decode(&mut &*vault).unwrap()
         };
+
+        vault.theme.apply();
 
         send_request(
             ProfileRequest::Subscribe(ActionProof::for_profile(&mut vault.action_no, &keys.sign)),
             &mut profile_stream,
             &mut buffer,
         );
+        let _mail = profile_stream.next().await.unwrap().unwrap();
+
+        wboot_phase(Some(BootPhase::ChatSearch));
 
         for chat in vault.chats.iter() {
             send_request(
@@ -339,14 +383,6 @@ impl Node {
 
         let mut awaiting = vec![];
 
-        for chat in vault.chats.iter() {
-            send_request(
-                ProfileRequest::Search(chat.name),
-                &mut profile_stream,
-                &mut buffer,
-            );
-        }
-
         let mut topology = HashMap::<PeerId, HashSet<ChatName>>::new();
         let mut discovered = 0;
         for _ in 0..vault.chats.len() {
@@ -355,13 +391,18 @@ impl Node {
                 Err(e) => return Err(BootError::ChatSearch(e)),
             };
 
-            let Some(ProfileResponse::Search(ChatSearchResult { members, key })) =
-                <_>::decode(&mut &*resp)
-            else {
+            let Some(res) = <_>::decode(&mut &*resp) else {
+                log::error!("search response is malformed");
+                continue;
+            };
+
+            let ProfileResponse::Search(ChatSearchResult { members, key }) = res else {
+                log::error!("search response is of invalid variant");
                 continue;
             };
 
             if vault.chats.iter().all(|c| c.name != key) {
+                log::error!("search to unexistent chat");
                 continue;
             }
 
@@ -371,6 +412,8 @@ impl Node {
                 topology.entry(member).or_default().insert(key);
             }
         }
+
+        wboot_phase(Some(BootPhase::ChatLoad));
 
         let mut topology = topology.into_iter().collect::<Vec<_>>();
         topology.sort_by_key(|(_, v)| usize::MAX - v.len());
@@ -397,6 +440,7 @@ impl Node {
                     .map(|(a, b)| (*b, *a))
                     .cycle()
                     .skip(hash % nodes.len())
+                    .filter(|(_, p)| *p != pick)
                     .take(2)
                     .chain(iter::once((nd, pick)))
                     .collect::<Vec<_>>()
@@ -449,21 +493,13 @@ impl Node {
 
             subscriptions.push(Subscription {
                 id,
-                subs: subs
-                    .into_iter()
-                    .filter_map(|c| {
-                        if let Some(meta) = vault.chats.iter().find(|m| m.name == c) {
-                            Some((c, meta.secret))
-                        } else {
-                            log::warn!("chat {c} not found in vault");
-                            None
-                        }
-                    })
-                    .collect(),
+                subs,
                 stream,
                 cursor: protocols::chat::NO_CURSOR,
             });
         }
+
+        wboot_phase(Some(BootPhase::ChatRun));
 
         Ok(Self {
             keys,
@@ -471,9 +507,10 @@ impl Node {
             commands: commands.to_stream().fuse(),
             swarm,
             peer_search,
-            profile_path: SearchRouteState::Established(profile_stream),
+            profile_path: profile_stream,
             subscriptions,
             nodes,
+            pending_subscriptions: vec![],
             buffer,
             buffer2: vec![],
             username: profile.name,
@@ -486,31 +523,19 @@ impl Node {
             futures::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event),
                 command = self.commands.select_next_some() => self.handle_command(command),
-                search_packet = self.profile_path.poll().fuse() => self.handle_profile_response(search_packet),
+                search_packet = self.profile_path.select_next_some() => self.handle_profile_response(search_packet),
                 (id, response) = self.subscriptions.select_next_some() => self.handle_subscription_response(id, response),
             }
         }
     }
 
-    fn handle_profile_response(&mut self, packet: Option<Vec<u8>>) {
-        let Some(packet) = packet else {
-            let route: [_; 3] = self
-                .nodes
-                .iter()
-                .map(|(a, b)| (*b, *a))
-                .take(3)
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
-
-            self.profile_path = SearchRouteState::Reestablishing(
-                self.swarm
-                    .behaviour_mut()
-                    .onion
-                    .open_path(route.map(|(u, p)| (u.enc.into(), p)))
-                    .unwrap(),
-            );
-            return;
+    fn handle_profile_response(&mut self, packet: io::Result<Vec<u8>>) {
+        let packet = match packet {
+            Ok(p) => p,
+            Err(e) => {
+                log::error!("profile response error: {e}");
+                return;
+            }
         };
 
         let Some(resp) = ProfileResponse::decode(&mut packet.as_slice()) else {
@@ -522,7 +547,56 @@ impl Node {
             ProfileResponse::Mail(_) => {}
             ProfileResponse::DataWritten => log::debug!("vault written"),
             ProfileResponse::DataWriteFailed(e) => log::error!("vault write failed: {e}"),
-            ProfileResponse::Search(_) => todo!(),
+            ProfileResponse::Search(ChatSearchResult { members, key }) => {
+                let hash = RandomState::new().hash_one(key) as usize;
+
+                let Some(pick) = members
+                    .into_iter()
+                    .collect::<HashSet<_>>() // kind of a suffle
+                    .into_iter()
+                    .find_map(|m| Some((*self.nodes.get(&m)?, m)))
+                else {
+                    todo!("error handling")
+                };
+
+                let route: [_; 3] = self
+                    .nodes
+                    .iter()
+                    .map(|(a, b)| (*b, *a))
+                    .cycle()
+                    .skip(hash % self.nodes.len())
+                    .filter(|(_, p)| *p != pick.1)
+                    .take(2)
+                    .chain(iter::once(pick))
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
+
+                let quid = self
+                    .swarm
+                    .behaviour_mut()
+                    .onion
+                    .open_path(route.map(|(ud, p)| (ud.enc.into(), p)))
+                    .unwrap();
+
+                let Some(meta) = self.vault.chats.iter_mut().find(|c| c.name == key) else {
+                    log::error!("search to unexistent chat");
+                    return;
+                };
+
+                if meta.message_no == 0 {
+                    self.pending_subscriptions.push((
+                        quid,
+                        SubIntent::Create(
+                            key,
+                            ActionProof::for_chat(&mut meta.message_no, &self.keys.sign, key),
+                        ),
+                    ));
+                    return;
+                }
+
+                panic!("{key}");
+            }
         }
     }
 
@@ -537,6 +611,33 @@ impl Node {
                     &mut self.swarm,
                     &mut self.peer_search,
                 ) => {}
+            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
+                mut stream,
+                id,
+            ))) => {
+                if let Some(index) = self
+                    .pending_subscriptions
+                    .iter()
+                    .position(|&(pid, ..)| pid == id)
+                {
+                    let (.., intent) = self.pending_subscriptions.swap_remove(index);
+                    match intent {
+                        SubIntent::Create(name, proof) => {
+                            send_request(
+                                InitRequest::Create(CreateChat { name, proof }),
+                                &mut stream,
+                                &mut self.buffer,
+                            );
+                            self.subscriptions.push(Subscription {
+                                id,
+                                subs: [name].into_iter().collect(),
+                                stream,
+                                cursor: NO_CURSOR,
+                            });
+                        }
+                    }
+                }
+            }
             e => log::debug!("{:?}", e),
         }
     }
@@ -547,7 +648,7 @@ impl Node {
                 let Some(sub) = self
                     .subscriptions
                     .iter_mut()
-                    .find(|s| s.subs.contains_key(&chat))
+                    .find(|s| s.subs.contains(&chat))
                 else {
                     log::error!("chat not found when sending message");
                     return;
@@ -564,23 +665,42 @@ impl Node {
                     content: &content,
                 }
                 .encode(&mut self.buffer);
-                crypto::encrypt(&mut self.buffer, *sub.subs.get(&chat).unwrap());
+                crypto::encrypt(&mut self.buffer, meta.secret);
+
+                self.buffer2.clear();
+                MessagePayload::Arbitrary(&self.buffer).encode(&mut self.buffer2);
 
                 send_request(
                     ChatRequest::Send(Message {
                         chat,
-                        content: &self.buffer,
+                        content: &self.buffer2,
                         proof: ActionProof::for_chat(&mut meta.message_no, &self.keys.sign, chat),
                     }),
                     &mut sub.stream,
-                    &mut self.buffer2,
+                    &mut self.buffer,
+                );
+            }
+            Command::CreateChat(name) => {
+                let meta = ChatMeta {
+                    name,
+                    secret: crypto::new_secret(),
+                    message_no: 0,
+                    permission: 0,
+                };
+
+                self.vault.chats.push(meta);
+
+                send_request(
+                    ProfileRequest::Search(name),
+                    &mut self.profile_path,
+                    &mut self.buffer,
                 );
             }
             Command::FetchMessages(chat) => {
                 let Some(sub) = self
                     .subscriptions
                     .iter_mut()
-                    .find(|s| s.subs.contains_key(&chat))
+                    .find(|s| s.subs.contains(&chat))
                 else {
                     log::error!("chat not found when sending message");
                     return;
@@ -594,6 +714,11 @@ impl Node {
                     &mut sub.stream,
                     &mut self.buffer,
                 );
+            }
+            Command::SetTheme(theme) if self.vault.theme == theme => {}
+            Command::SetTheme(theme) => {
+                self.vault.theme = theme;
+                self.save_vault();
             }
             Command::None => {}
         }
@@ -620,18 +745,24 @@ impl Node {
 
         match pckt {
             ChatResponse::New(msg) => {
-                let Some(&secret) = sub.subs.get(&msg.chat) else {
+                let Some(meta) = self.vault.chats.iter().find(|c| c.name == msg.chat) else {
                     log::warn!("message chat does not match subscription");
                     return;
                 };
 
-                if msg.proof.is_chat_valid(msg.chat) {
+                if !msg.proof.is_chat_valid(msg.chat) {
                     log::warn!("message chat is invalid");
                     return;
                 }
 
-                let mut content = msg.content.to_vec();
-                let Some(decrypted) = crypto::decrypt(&mut content, secret) else {
+                let Some(MessagePayload::Arbitrary(content)) = <_>::decode(&mut &*msg.content)
+                else {
+                    log::warn!("message content is malformed");
+                    return;
+                };
+
+                let mut content = content.to_vec();
+                let Some(decrypted) = crypto::decrypt(&mut content, meta.secret) else {
                     log::warn!("message content is malformed, cannot decrypt");
                     return;
                 };
@@ -652,9 +783,31 @@ impl Node {
                 sub.cursor = cursor;
                 (self.events)(Event::FetchedMessages { chat, messages });
             }
-            ChatResponse::Failed(e) => log::error!("failed to fetch messages: {}", e),
+            ChatResponse::Created(ch) => {
+                self.save_vault();
+                (self.events)(Event::ChatCreated(ch))
+            }
+
             ChatResponse::NotFound => log::error!("chat not found"),
+            ChatResponse::Failed(e) => log::error!("failed to fetch messages: {}", e),
+            ChatResponse::CannotCreate(e) => (self.events)(Event::CannotCreateChat(e)),
         }
+    }
+
+    fn save_vault(&mut self) {
+        log::debug!("saving vault");
+        let proof = ActionProof::for_profile(&mut self.vault.action_no, &self.keys.sign);
+        self.buffer.clear();
+        self.vault.encode(&mut self.buffer);
+        crypto::encrypt(&mut self.buffer, self.keys.vault);
+        send_request(
+            ProfileRequest::WriteData(WriteData {
+                data: &self.buffer,
+                proof,
+            }),
+            &mut self.profile_path,
+            &mut self.buffer2,
+        );
     }
 
     pub fn username(&self) -> UserName {
@@ -707,7 +860,7 @@ fn node_data_to_path_seg(data: NodeData) -> (PeerId, NodeData) {
 
 struct Subscription {
     id: PathId,
-    subs: HashMap<ChatName, SharedSecret>,
+    subs: HashSet<ChatName>,
     stream: EncryptedStream,
     cursor: protocols::chat::Cursor,
 }
