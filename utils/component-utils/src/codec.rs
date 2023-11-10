@@ -220,6 +220,19 @@ impl<'a> Codec<'a> for u8 {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Reminder<'a>(pub &'a [u8]);
+
+impl<'a> Codec<'a> for Reminder<'a> {
+    fn encode(&self, buffer: &mut Vec<u8>) {
+        buffer.extend_from_slice(self.0);
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        Some(Self(std::mem::take(buffer)))
+    }
+}
+
 /// Some structures suport optimized codec when placed as the last part of the message
 #[derive(Debug, Clone, Copy)]
 pub struct Unbound<T>(pub T);

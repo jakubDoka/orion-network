@@ -8,6 +8,15 @@ use protocols::chat::{ChatName, CreateChatErrorData, UserName};
 use crate::node::MessageContent;
 use crate::{get_value, navigate_to, node, report_validity};
 
+fn is_at_bottom(messages_div: HtmlElement<leptos::html::Div>) -> bool {
+    let scroll_bottom = messages_div.scroll_top();
+    let scroll_height = messages_div.scroll_height();
+    let client_height = messages_div.client_height();
+
+    let prediction = 200;
+    scroll_height - client_height <= scroll_bottom + prediction
+}
+
 #[leptos::component]
 pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     let crate::LoggedState {
@@ -40,11 +49,14 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
 
     let messages = create_node_ref::<leptos::html::Div>();
     let message_view = move |username: UserName, content: MessageContent| {
-        let my_name = rusername.get_untracked() == username;
+        let my_message = rusername.get_untracked() == username;
+        let justify = if my_message { "right" } else { "left" };
         view! {
-            <div class="hc bp flx tbm" class:pc=my_name>
-                <div class="hc" class:pc=my_name>{username.to_string()}:</div>
-                <div class="lbp hc" class:pc=my_name>{content.to_string()}</div>
+            <div class="tbm flx" style=("justify-content", justify)>
+                <div class="hc bp flx" class:pc=my_message>
+                    <div class="hc" class:pc=my_message>{username.to_string()}:</div>
+                    <div class="lbp hc" class:pc=my_message>{content.to_string()}</div>
+                </div>
             </div>
         }
     };
@@ -52,6 +64,13 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
         let messages = messages.get_untracked().expect("universe to work");
         let message = message_view(username, content);
         messages.append_child(&message).unwrap();
+    };
+    let prepend_message = move |username: UserName, content: MessageContent| {
+        let messages = messages.get_untracked().expect("universe to work");
+        let message = message_view(username, content);
+        messages
+            .insert_before(&message, messages.first_child().as_ref())
+            .unwrap();
     };
 
     let hidden = create_rw_signal(true);
@@ -73,6 +92,16 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             name,
             content,
         } if current_chat.get_untracked() == Some(chat) => append_message(name, content),
+        node::Event::FetchedMessages { chat, messages }
+            if current_chat.get_untracked() == Some(chat) =>
+        {
+            for (name, content) in messages {
+                prepend_message(name, content);
+            }
+        }
+        node::Event::FetchedMessages { chat, messages } => {
+            log::info!("fetched messages for {chat}: {messages:#?}");
+        }
         _ => {}
     });
 
@@ -95,12 +124,6 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
 
     let message_input = create_node_ref::<Input>();
     let on_input = move |e: web_sys::KeyboardEvent| {
-        log::info!(
-            "key: {} {} {}",
-            e.key_code(),
-            '\n' as u32,
-            e.get_modifier_state("Shift")
-        );
         if e.key_code() != '\r' as u32 || e.get_modifier_state("Shift") {
             return;
         }
@@ -116,6 +139,19 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
         log::info!("sending message: {}", content);
 
         wcommands(node::Command::SendMessage { chat, content });
+    };
+
+    let message_scroll = create_node_ref::<leptos::html::Div>();
+    let on_scroll = move |_| {
+        let Some(chat) = current_chat.get_untracked() else {
+            return;
+        };
+
+        if !is_at_bottom(message_scroll.get_untracked().unwrap()) {
+            return;
+        }
+
+        wcommands(node::Command::FetchMessages(chat))
     };
 
     view! {
@@ -157,7 +193,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                 </div>
             </div>
             <div class="sc fg1 flx pb fdc" hidden=move || current_chat.with(Option::is_none)>
-                <div class="fg1 flx fdc sc pr oys fy"><div class="fg1 flx fdc bp sc pa fy" node_ref=messages>
+                <div class="fg1 flx fdc sc pr oys fy" on:scroll=on_scroll node_ref=message_scroll><div class="fg1 flx fdc bp sc fsc fy boa" node_ref=messages>
                 </div></div>
                 <div class="fg0 flx bm bp pc">
                     <input class="fg1 sc hov" type="text" placeholder="mesg..." node_ref=message_input on:keyup=on_input />

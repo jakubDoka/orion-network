@@ -2,6 +2,7 @@ use std::{collections::VecDeque, iter, num::NonZeroUsize, usize};
 use std::{mem, u16, u32};
 
 use component_utils::arrayvec::ArrayString;
+use component_utils::Reminder;
 use component_utils::{libp2p_identity::PeerId, Codec};
 
 pub const CHAT_NAME_CAP: usize = 32;
@@ -239,8 +240,14 @@ component_utils::protocol! { 'a:
     enum InitRequest {
         Search: Identity => 0,
         ReadData: Identity => 1,
-        Subscribe: Vec<ChatName> => 2,
+        Subscribe: ChatSubs => 2,
         Create: CreateChat => 3,
+    }
+
+    #[derive(Clone)]
+    struct ChatSubs {
+        chats: Vec<ChatName>,
+        identity: Identity,
     }
 
     #[derive(Clone, Copy)]
@@ -286,9 +293,15 @@ component_utils::protocol! { 'a:
         New: Message<'a> => 0,
         Failed: PutMessageError => 1,
         Fetched: FetchedMessages<'a> => 2,
+        Subscribed: Subscribed => 3,
         NotFound => 3,
         CannotCreate: CreateChatErrorData => 4,
         Created: ChatName => 5,
+    }
+
+    struct Subscribed {
+        chat: ChatName,
+        no: ActionNo,
     }
 
     #[derive(Clone, Copy)]
@@ -367,25 +380,29 @@ component_utils::protocol! { 'a:
         perm: Permission,
         action_no: ActionNo,
     }
+
+    #[derive(Clone, Copy)]
+    struct PrefixedMessage<'a> {
+        prefix: MemberId,
+        content: Reminder<'a>,
+    }
 }
 
-impl<'a> FetchedMessages<'a> {
-    pub fn messages(&self) -> impl Iterator<Item = &'a [u8]> {
-        let mut iter = self.messages.iter();
-        iter::from_fn(move || {
-            let len = iter
-                .by_ref()
-                .copied()
-                .next_chunk()
-                .map(u16::from_be_bytes)
-                .ok()?;
+pub fn unpack_messages(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let mut iter = buffer.iter();
+    iter::from_fn(move || {
+        let len = iter
+            .by_ref()
+            .copied()
+            .next_chunk()
+            .map(u16::from_be_bytes)
+            .ok()?;
 
-            let slice = iter.as_slice().get(..len as usize)?;
-            iter.advance_by(len as usize).unwrap();
+        let slice = iter.as_slice().get(..len as usize)?;
+        iter.advance_by(len as usize).unwrap();
 
-            Some(slice)
-        })
-    }
+        Some(slice)
+    })
 }
 
 impl<'a> ChatHistory<'a> {

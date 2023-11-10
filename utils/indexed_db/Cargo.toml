@@ -1,0 +1,36 @@
+[package]
+name = "indexed_db"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.29"
+
+[dependencies.web-sys]
+version = "0.3.65"
+features = [
+    "DomException",
+    "DomStringList",
+    "Event",
+    "EventTarget",
+    "IdbDatabase",
+    "IdbFactory",
+    "IdbObjectStore",
+    "IdbObjectStoreParameters",
+    "IdbOpenDbRequest",
+    "IdbKeyRange",
+    "IdbRequest",
+    "IdbRequestReadyState",
+    "IdbTransaction",
+    "IdbTransactionMode",
+    "IdbVersionChangeEvent",
+    "Window",
+    "WorkerGlobalScope",
+    "IdbIndex",
+    "IdbIndexParameters",
+    "IdbCursor",
+    "IdbCursorDirection",
+    "IdbCursorWithValue",
+]

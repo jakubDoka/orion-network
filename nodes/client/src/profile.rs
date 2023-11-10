@@ -24,7 +24,7 @@ pub fn Profile(state: crate::LoggedState) -> impl IntoView {
         .unwrap();
     let elements = colors.iter().map(|&c| {
         let mut value = style.get_property_value(&format!("--{c}-color")).unwrap();
-        value.truncate(7);
+        value.truncate("#000000".len());
         let on_change = move |e: web_sys::Event| {
             let value = event_target_value(&e);
             document()
@@ -41,8 +41,9 @@ pub fn Profile(state: crate::LoggedState) -> impl IntoView {
             </div>
         }
     });
+
     let on_save = move |_| {
-        let them = Theme::from_current();
+        let them = Theme::from_current().unwrap_or_default();
         wcommands(node::Command::SetTheme(them));
     };
 

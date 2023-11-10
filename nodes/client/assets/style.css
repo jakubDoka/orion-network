@@ -265,6 +265,10 @@ body, .fsc {
 	left: 0px;
 }
 
+.boa {
+	bottom: auto;
+}
+
 a {
 	text-decoration: none;
 }

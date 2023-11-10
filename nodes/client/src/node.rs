@@ -21,6 +21,7 @@ use std::task::Poll;
 use std::time::Duration;
 use std::{io, mem, pin::Pin, usize};
 use std::{iter, u8};
+use web_sys::wasm_bindgen::JsValue;
 
 use crate::BootPhase;
 
@@ -47,6 +48,28 @@ component_utils::protocol! { 'a:
     }
 }
 
+pub fn try_set_color(name: &str, value: u32) -> Result<(), JsValue> {
+    leptos::document()
+        .body()
+        .ok_or("no body")?
+        .style()
+        .set_property(name, &format!("#{:08x}", value))
+}
+
+pub fn try_load_color_from_style(name: &str) -> Result<u32, JsValue> {
+    u32::from_str_radix(
+        leptos::document()
+            .body()
+            .ok_or("no body")?
+            .style()
+            .get_property_value(name)?
+            .strip_prefix('#')
+            .ok_or("expected # to start the color")?,
+        16,
+    )
+    .map_err(|e| e.to_string().into())
+}
+
 macro_rules! gen_theme {
     ($(
         $name:ident: $value:literal,
@@ -61,35 +84,15 @@ macro_rules! gen_theme {
         }
 
         impl Theme {
-            pub fn apply(self) {
-                for (k, v) in [
-                    $(
-                        (stringify!($name), self.$name),
-                    )*
-                ] {
-                    leptos::document()
-                        .body()
-                        .unwrap()
-                        .style()
-                        .set_property(&format!("--{}-color", k), &format!("#{:08x}", v))
-                        .unwrap();
-                }
+            pub fn apply(self) -> Result<(), JsValue> {
+                $(try_set_color(concat!("--", stringify!($name), "-color"), self.$name)?;)*
+                Ok(())
             }
 
-            pub fn from_current() -> Self {
-                Self {
-                    $(
-                        $name: leptos::document()
-                            .body()
-                            .unwrap()
-                            .style()
-                            .get_property_value(&format!("--{}-color", stringify!($name)))
-                            .unwrap()
-                            .strip_prefix("#")
-                            .map(|s| u32::from_str_radix(s, 16).unwrap())
-                            .unwrap(),
-                    )*
-                }
+            pub fn from_current() -> Result<Self, JsValue> {
+                Ok(Self { $(
+                    $name: try_load_color_from_style(concat!("--", stringify!($name), "-color"))?,
+                )* })
             }
 
             pub const KEYS: &'static [&'static str] = &[$(stringify!($name),)*];
@@ -120,7 +123,8 @@ pub enum Event {
     },
     FetchedMessages {
         chat: ChatName,
-        messages: Vec<u8>,
+        messages: Vec<(UserName, MessageContent)>,
+        end: bool,
     },
     ChatCreated(ChatName),
     CannotCreateChat(CreateChatErrorData),
@@ -362,7 +366,7 @@ impl Node {
             Vault::decode(&mut &*vault).unwrap()
         };
 
-        vault.theme.apply();
+        let _ = vault.theme.apply();
 
         send_request(
             ProfileRequest::Subscribe(ActionProof::for_profile(&mut vault.action_no, &keys.sign)),
@@ -486,7 +490,10 @@ impl Node {
             };
 
             send_request(
-                InitRequest::Subscribe(subs.iter().copied().collect()),
+                InitRequest::Subscribe(ChatSubs {
+                    chats: subs.iter().copied().collect(),
+                    identity: keys.sign.public_key().into(),
+                }),
                 &mut stream,
                 &mut buffer,
             );
@@ -655,7 +662,7 @@ impl Node {
                 };
 
                 let Some(meta) = self.vault.chats.iter_mut().find(|s| s.name == chat) else {
-                    log::error!("chat meta not found when sending message");
+                    log::error!("chat meta not found when sending messxge");
                     return;
                 };
 
@@ -734,7 +741,7 @@ impl Node {
         };
 
         let Some(pckt) = ChatResponse::decode(&mut msg.as_slice()) else {
-            log::error!("chat subscription packet is malformed");
+            log::error!("chat subscription packet is malformed, {msg:?}");
             return;
         };
 
@@ -778,10 +785,57 @@ impl Node {
                     content: content.into(),
                 });
             }
-            ChatResponse::Fetched(fmsg @ FetchedMessages { chat, cursor, .. }) => {
-                let messages = fmsg.messages.to_vec();
+            ChatResponse::Subscribed(Subscribed { chat, no }) => {
+                let Some(meta) = self.vault.chats.iter_mut().find(|c| c.name == chat) else {
+                    log::warn!("message chat does not match subscription");
+                    return;
+                };
+                meta.message_no = no + 1;
+            }
+            ChatResponse::Fetched(FetchedMessages {
+                chat,
+                cursor,
+                messages,
+            }) => {
+                let Some(meta) = self.vault.chats.iter_mut().find(|c| c.name == chat) else {
+                    log::warn!("message chat does not match subscription");
+                    return;
+                };
+
+                let messages = unpack_messages(messages)
+                    .filter_map(|m| {
+                        let Some(PrefixedMessage { prefix: _, content }) = <_>::decode(&mut &*m)
+                        else {
+                            log::warn!("message does not have prefix");
+                            return None;
+                        };
+
+                        self.buffer.clear();
+                        self.buffer.extend_from_slice(content.0);
+
+                        let Some(decrypted) = crypto::decrypt(&mut self.buffer, meta.secret) else {
+                            log::warn!("message content is malformed, cannot decrypt");
+                            return None;
+                        };
+
+                        let Some(RawChatMessage { user, content }) = <_>::decode(&mut &*decrypted)
+                        else {
+                            log::warn!("message is decriptable but still malformed");
+                            return None;
+                        };
+
+                        Some((user, content.into()))
+                    })
+                    .collect::<Vec<_>>();
+
+                let end = messages.len() < MESSAGE_FETCH_LIMIT && cursor == NO_CURSOR;
+
                 sub.cursor = cursor;
-                (self.events)(Event::FetchedMessages { chat, messages });
+                (self.events)(Event::FetchedMessages {
+                    chat,
+                    messages,
+                    end,
+                });
             }
             ChatResponse::Created(ch) => {
                 self.save_vault();

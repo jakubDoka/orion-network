@@ -410,28 +410,29 @@ impl Miner {
                 stream.inner.write(&mut self.buffer);
                 stream.state = StreamState::Profile(identity);
             }
-            InitRequest::Subscribe(chats) => {
+            InitRequest::Subscribe(ChatSubs { chats, identity }) => {
                 if chats.is_empty() {
                     log::warn!("client tried to subscribe to no chats");
                     return;
                 }
-                let mut messages = vec![];
                 for &chat in chats.iter() {
-                    let resp = if let Some(chat_state) = store.chats.get(&chat) {
-                        let cursor =
-                            chat_state
-                                .messages
-                                .fetch(NO_CURSOR, usize::MAX, &mut messages);
-                        ChatResponse::Fetched(FetchedMessages {
-                            chat,
-                            cursor,
-                            messages: &messages,
-                        })
-                    } else {
-                        ChatResponse::NotFound
+                    let Some(chat_state) = store.chats.get(&chat) else {
+                        log::warn!("client tried to subscribe to a chat that doesn't exist");
+                        continue;
                     };
-                    send_response(resp, &mut stream.inner, &mut self.buffer);
-                    messages.clear();
+                    let Some(member) = chat_state.members.iter().find(|m| m.identity == identity)
+                    else {
+                        log::warn!("client tried to subscribe to a chat it's not a member of");
+                        continue;
+                    };
+                    send_response(
+                        ChatResponse::Subscribed(Subscribed {
+                            chat,
+                            no: member.action_no,
+                        }),
+                        &mut stream.inner,
+                        &mut self.buffer,
+                    );
                 }
                 stream.state = StreamState::Chats(chats.into_iter().collect());
             }
@@ -459,6 +460,7 @@ impl Miner {
                         Quorum::N(protocols::chat::REPLICATION_FACTOR),
                     )
                     .unwrap();
+                stream.state = StreamState::Chats([name].into_iter().collect());
             }
         }
     }
