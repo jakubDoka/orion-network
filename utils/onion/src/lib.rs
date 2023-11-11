@@ -5,13 +5,11 @@
 
 mod behaviour;
 mod handler;
-#[cfg(feature = "kad")]
+#[cfg(feature = "libp2p")]
 mod kad_search;
 mod packet;
 
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "kad")]
-pub use libp2p_kad;
 pub use {behaviour::*, handler::*, packet::KeyPair, packet::PublicKey, packet::SharedSecret};

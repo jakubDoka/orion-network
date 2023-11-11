@@ -5,6 +5,7 @@ use std::fmt;
 use std::sync::OnceLock;
 
 component_utils::protocol! { 'a:
+    #[derive(Debug, Clone)]
     struct UserData {
         name: UserName,
         sign: crypto::sign::SerializedPublicKey,

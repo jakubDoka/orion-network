@@ -11,7 +11,7 @@ component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 config = { version = "0.1.0", path = "../../utils/config" }
 crypto = { version = "0.1.0", path = "../../utils/crypto" }
 env_logger = "0.10.0"
-libp2p = { version = "0.52.3", features = ["tcp", "noise", "kad", "macros", "tokio", "yamux", "identify", "websocket", "gossipsub", "dns"] }
+libp2p = { version = "0.53.0", features = ["tcp", "noise", "kad", "macros", "tokio", "yamux", "identify", "websocket", "dns"] }
 log = "0.4.20"
 onion = { version = "0.1.0", path = "../../utils/onion" }
 protocols = { version = "0.1.0", path = "../../utils/protocols" }

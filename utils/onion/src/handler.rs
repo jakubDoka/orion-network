@@ -1,10 +1,9 @@
-use std::{collections::VecDeque, convert::Infallible, fmt, io, iter, slice, task::Poll};
+use std::{collections::VecDeque, fmt, io, iter, slice, task::Poll};
 
-use component_utils::{HandlerCore, HandlerRef};
 use futures::{AsyncReadExt, AsyncWriteExt, Future};
-use libp2p_core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use libp2p_identity::PeerId;
-use libp2p_swarm::{
+use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
+use libp2p::identity::PeerId;
+use libp2p::swarm::{
     handler::{FullyNegotiatedInbound, FullyNegotiatedOutbound},
     ConnectionHandler, ConnectionHandlerEvent, StreamProtocol,
 };
@@ -26,26 +25,21 @@ type Che = ConnectionHandlerEvent<
     <Handler as ConnectionHandler>::OutboundProtocol,
     <Handler as ConnectionHandler>::OutboundOpenInfo,
     <Handler as ConnectionHandler>::ToBehaviour,
-    Infallible,
 >;
 
 pub struct Handler {
     keypair: Option<KeyPair>,
     buffer_cap: usize,
-    clean: bool,
-    core: HandlerCore,
     events: VecDeque<Che>,
 }
 
 impl Handler {
-    pub fn new(keypair: Option<KeyPair>, buffer_cap: usize, should_exist: bool) -> Self {
-        log::debug!("new handler, shoudl exist: {:?}", should_exist);
+    pub fn new(keypair: Option<KeyPair>, buffer_cap: usize) -> Self {
+        log::debug!("new handler");
         Self {
             keypair,
             buffer_cap,
-            clean: should_exist,
-            core: Default::default(),
-            events: Default::default(),
+            events: VecDeque::new(),
         }
     }
 }
@@ -53,7 +47,6 @@ impl Handler {
 impl ConnectionHandler for Handler {
     type FromBehaviour = FromBehaviour;
     type ToBehaviour = ToBehaviour;
-    type Error = Infallible;
     type InboundProtocol = IUpgrade;
     type OutboundProtocol = OUpgrade;
     type InboundOpenInfo = ();
@@ -61,41 +54,17 @@ impl ConnectionHandler for Handler {
 
     fn listen_protocol(
         &self,
-    ) -> libp2p_swarm::SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        libp2p_swarm::SubstreamProtocol::new(
+    ) -> libp2p::swarm::SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
+        libp2p::swarm::SubstreamProtocol::new(
             IUpgrade {
                 keypair: self.keypair.clone(),
                 buffer_cap: self.buffer_cap,
-                rc: self.core.take_ref(),
             },
             (),
         )
     }
 
-    fn connection_keep_alive(&self) -> libp2p_swarm::KeepAlive {
-        if self.clean {
-            return libp2p_swarm::KeepAlive::Yes;
-        }
-
-        if self.core.has_no_trafic() {
-            log::debug!("no trafic, closing, {:?}", self.clean);
-            return libp2p_swarm::KeepAlive::No;
-        }
-
-        libp2p_swarm::KeepAlive::Yes
-    }
-
-    fn poll(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> Poll<
-        ConnectionHandlerEvent<
-            Self::OutboundProtocol,
-            Self::OutboundOpenInfo,
-            Self::ToBehaviour,
-            Infallible,
-        >,
-    > {
+    fn poll(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Che> {
         if let Some(event) = self.events.pop_front() {
             return Poll::Ready(event);
         }
@@ -108,12 +77,11 @@ impl ConnectionHandler for Handler {
             FromBehaviour::InitPacket(incoming) => {
                 self.events
                     .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
-                        protocol: libp2p_swarm::SubstreamProtocol::new(
+                        protocol: libp2p::swarm::SubstreamProtocol::new(
                             OUpgrade {
                                 keypair: self.keypair.clone().unwrap_or_default(),
                                 incoming,
                                 buffer_cap: self.buffer_cap,
-                                rc: self.core.take_ref(),
                             },
                             (),
                         ),
@@ -124,15 +92,15 @@ impl ConnectionHandler for Handler {
 
     fn on_connection_event(
         &mut self,
-        event: libp2p_swarm::handler::ConnectionEvent<
+        event: libp2p::swarm::handler::ConnectionEvent<
             Self::InboundProtocol,
             Self::OutboundProtocol,
             Self::InboundOpenInfo,
             Self::OutboundOpenInfo,
         >,
     ) {
-        use libp2p_swarm::handler::ConnectionEvent as CE;
-        use libp2p_swarm::handler::ConnectionHandlerEvent as CHE;
+        use libp2p::swarm::handler::ConnectionEvent as CE;
+        use libp2p::swarm::handler::ConnectionHandlerEvent as CHE;
         let ev = match event {
             CE::FullyNegotiatedInbound(FullyNegotiatedInbound {
                 protocol: Some(proto),
@@ -151,14 +119,13 @@ impl ConnectionHandler for Handler {
         };
 
         self.events.push_back(CHE::NotifyBehaviour(ev));
-        self.clean = false;
     }
 }
 
 #[derive(Debug, Error)]
 pub enum HError {
     #[error("dial upgrade error: {0}")]
-    DialUpgrade(libp2p_swarm::StreamUpgradeError<OUpgradeError>),
+    DialUpgrade(libp2p::swarm::StreamUpgradeError<OUpgradeError>),
     #[error("listen upgrade error: {0}")]
     ListenUpgrade(IUpgradeError),
 }
@@ -183,7 +150,6 @@ pub enum FromBehaviour {
 pub struct IUpgrade {
     keypair: Option<KeyPair>,
     buffer_cap: usize,
-    rc: HandlerRef,
 }
 
 impl fmt::Debug for IUpgrade {
@@ -232,17 +198,16 @@ pub struct StreamRequest {
     pub(crate) path: [(PublicKey, PeerId); crate::packet::PATH_LEN],
 }
 
-impl InboundUpgrade<libp2p_swarm::Stream> for IUpgrade {
+impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
     type Output = Option<IncomingOrResponse>;
     type Error = IUpgradeError;
     type Future = impl Future<Output = Result<Self::Output, Self::Error>>;
 
-    fn upgrade_inbound(self, mut stream: libp2p_swarm::Stream, proto: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, mut stream: libp2p::swarm::Stream, proto: Self::Info) -> Self::Future {
         async move {
             let Self {
                 keypair,
                 buffer_cap,
-                rc,
             } = self;
 
             log::debug!("received inbound stream: {}", proto);
@@ -265,6 +230,8 @@ impl InboundUpgrade<libp2p_swarm::Stream> for IUpgrade {
                 crate::packet::peel_initial(&keypair.expect("handshake to fail"), &mut buffer)
                     .ok_or(IUpgradeError::MalformedPacket)?;
 
+            log::debug!("peeled packet to: {:?}", to);
+
             log::debug!("received init packet");
             let Some(to) = to else {
                 log::debug!("received incoming stream");
@@ -277,13 +244,13 @@ impl InboundUpgrade<libp2p_swarm::Stream> for IUpgrade {
                     .map_err(IUpgradeError::WriteAuthPacket)?;
 
                 return Ok(Some(IncomingOrResponse::Response(EncryptedStream::new(
-                    Stream::new(stream, buffer_cap, rc),
+                    Stream::new(stream, buffer_cap),
                     ss,
                 ))));
             };
 
             Ok(Some(IncomingOrResponse::Incoming(IncomingStream {
-                stream: Stream::new(stream, buffer_cap, rc),
+                stream: Stream::new(stream, buffer_cap),
                 to,
                 buffer: buffer[..new_len].to_vec(),
             })))
@@ -309,7 +276,6 @@ pub struct OUpgrade {
     keypair: KeyPair,
     incoming: IncomingOrRequest,
     buffer_cap: usize,
-    rc: HandlerRef,
 }
 
 impl fmt::Debug for OUpgrade {
@@ -343,21 +309,21 @@ pub struct ChannelMeta {
     to: Stream,
 }
 
-impl OutboundUpgrade<libp2p_swarm::Stream> for OUpgrade {
+impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
     type Output = ChannelMeta;
     type Error = OUpgradeError;
     type Future = impl Future<Output = Result<Self::Output, Self::Error>>;
 
-    fn upgrade_outbound(self, mut stream: libp2p_swarm::Stream, _: Self::Info) -> Self::Future {
+    fn upgrade_outbound(self, mut stream: libp2p::swarm::Stream, _: Self::Info) -> Self::Future {
+        log::warn!("upgrading outbound stream");
         async move {
             let Self {
                 keypair,
                 incoming,
                 buffer_cap,
-                rc,
             } = self;
 
-            log::debug!("sending init packet");
+            log::warn!("sending init packet");
 
             let mut written_packet = vec![];
             let mut ss = [0; 32];
@@ -374,17 +340,19 @@ impl OutboundUpgrade<libp2p_swarm::Stream> for OUpgrade {
                 .write_all(&(buffer.len() as u16).to_be_bytes())
                 .await
                 .map_err(OUpgradeError::WritePacketLength)?;
+            log::warn!("wrote packet length: {}", buffer.len());
             stream
                 .write_all(buffer)
                 .await
                 .map_err(OUpgradeError::WritePacket)?;
+            log::warn!("wrote packet");
 
             let request = match incoming {
                 IncomingOrRequest::Incoming(i) => {
                     log::debug!("received incoming routable stream");
                     return Ok(ChannelMeta {
                         from: ChannelSource::Stream(i.stream),
-                        to: Stream::new(stream, buffer_cap, rc),
+                        to: Stream::new(stream, buffer_cap),
                     });
                 }
                 IncomingOrRequest::Request(r) => r,
@@ -405,13 +373,14 @@ impl OutboundUpgrade<libp2p_swarm::Stream> for OUpgrade {
                         .read(&mut buffer)
                         .await
                         .map_err(OUpgradeError::ReadPacket)?;
+                    log::warn!("received confirm packet");
 
                     if !packet::verify_confirm(&ss, &mut buffer) {
                         Err(OUpgradeError::AuthenticationFailed)
                     } else {
                         Ok(ChannelMeta {
                             from: ChannelSource::ThisNode(ss, request.path_id),
-                            to: Stream::new(stream, buffer_cap, rc),
+                            to: Stream::new(stream, buffer_cap),
                         })
                     }
                 }

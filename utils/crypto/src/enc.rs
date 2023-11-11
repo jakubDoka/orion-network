@@ -9,6 +9,7 @@ impl_transmute! {
     PublicKey, PUBLIC_KEY_SIZE, SerializedPublicKey;
     Ciphertext, CIPHERTEXT_SIZE, SerializedCiphertext;
     ChoosenPayload, CHOSEN_PAYLOAD_SIZE, SerializedChoosenPayload;
+    ChoosenCiphertext, CHOSEN_CIPHERTEXT_SIZE, SerializedChoosenCiphertext;
 }
 
 pub type EncapsulationError = KyberError;
@@ -17,7 +18,11 @@ pub const ASOC_DATA: &[u8] = concat!("pqc-orion-crypto/enc/", env!("CARGO_PKG_VE
 
 pub type Ciphertext = FixedAesPayload<{ pqc_kyber::KYBER_CIPHERTEXTBYTES }>;
 type EncriptedKey = FixedAesPayload<{ SHARED_SECRET_SIZE }>;
-pub type ChoosenCiphertext = FixedAesPayload<{ std::mem::size_of::<ChoosenPayload>() }>;
+
+pub struct ChoosenCiphertext {
+    pl: FixedAesPayload<{ std::mem::size_of::<ChoosenPayload>() }>,
+    x: x25519_dalek::PublicKey,
+}
 
 struct ChoosenPayload {
     key: EncriptedKey,
@@ -79,11 +84,10 @@ impl KeyPair {
         let x_secret = self.x.diffie_hellman(&public_key.x);
         let key = EncriptedKey::new(secret, ksecret, ASOC_DATA);
         let data = ChoosenPayload { key, kyb };
-        Ok(ChoosenCiphertext::new(
-            data.into(),
-            x_secret.to_bytes(),
-            ASOC_DATA,
-        ))
+        Ok(ChoosenCiphertext {
+            pl: FixedAesPayload::new(data.into(), x_secret.to_bytes(), ASOC_DATA),
+            x: x25519_dalek::PublicKey::from(&self.x),
+        })
     }
 
     pub fn decapsulate(
@@ -99,10 +103,9 @@ impl KeyPair {
     pub fn decapsulate_choosen(
         &self,
         ciphertext: ChoosenCiphertext,
-        public_key: &PublicKey,
     ) -> Result<SharedSecret, DecapsulationError> {
-        let x_secret = self.x.diffie_hellman(&public_key.x);
-        let data = ciphertext.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
+        let x_secret = self.x.diffie_hellman(&ciphertext.x);
+        let data = ciphertext.pl.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
         let payload: ChoosenPayload = data.into();
         let secret = pqc_kyber::decapsulate(&payload.kyb, &self.kyb.secret)?;
         let secret = payload.key.decrypt(secret, ASOC_DATA)?;
@@ -145,9 +148,7 @@ mod tests {
         let ciphertext = alice
             .encapsulate_choosen(&bob.public_key(), secret)
             .unwrap();
-        let dec = bob
-            .decapsulate_choosen(ciphertext, &alice.public_key())
-            .unwrap();
+        let dec = bob.decapsulate_choosen(ciphertext).unwrap();
         assert_eq!(secret, dec);
     }
 }

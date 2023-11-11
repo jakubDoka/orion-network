@@ -37,21 +37,17 @@ macro_rules! gen_config {
 }
 
 pub mod codec;
-pub mod handler;
-#[cfg(feature = "kad")]
+#[cfg(feature = "libp2p")]
 pub mod kad;
 pub mod stream;
 
-pub use {arrayvec, codec::*, futures, handler::*, stream::*};
+pub use {arrayvec, codec::*, futures, stream::*};
 
-#[cfg(feature = "kad")]
+#[cfg(feature = "libp2p")]
 pub use kad::*;
 
-#[cfg(feature = "kad")]
-pub use libp2p_kad;
-
-#[cfg(feature = "kad")]
-pub use libp2p_identity;
+#[cfg(feature = "libp2p")]
+pub use libp2p;
 
 #[derive(Debug)]
 pub struct LinearMap<K, V> {
@@ -87,6 +83,7 @@ impl<K: Eq, V> LinearMap<K, V> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        #[allow(clippy::map_identity)]
         self.values.iter().map(|(k, v)| (k, v))
     }
 }
@@ -208,6 +205,30 @@ impl<F: FnOnce()> DropFn<F> {
 impl<F: FnOnce()> Drop for DropFn<F> {
     fn drop(&mut self) {
         self.0.take().unwrap()()
+    }
+}
+
+pub struct AsocStream<A, S> {
+    pub inner: S,
+    pub assoc: A,
+}
+
+impl<A, S> AsocStream<A, S> {
+    pub fn new(inner: S, assoc: A) -> Self {
+        Self { inner, assoc }
+    }
+}
+
+impl<A: Clone, S: futures::Stream> futures::Stream for AsocStream<A, S> {
+    type Item = (A, S::Item);
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        unsafe { self.as_mut().map_unchecked_mut(|s| &mut s.inner) }
+            .poll_next(cx)
+            .map(|opt| opt.map(|item| (self.assoc.clone(), item)))
     }
 }
 

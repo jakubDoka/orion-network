@@ -1,4 +1,4 @@
-use chain_api::NodeData;
+use chain_api::{NodeData, UserData};
 use component_utils::futures;
 use component_utils::futures::stream::Fuse;
 use component_utils::kad::KadPeerSearch;
@@ -6,10 +6,9 @@ use component_utils::Codec;
 use crypto::decrypt;
 use leptos::signal_prelude::*;
 use libp2p::core::upgrade::Version;
-use libp2p::core::ConnectedPoint;
 use libp2p::futures::StreamExt;
 use libp2p::kad::store::MemoryStore;
-use libp2p::swarm::{ConnectionHandler, NetworkBehaviour, SwarmEvent};
+use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::*;
 use libp2p::{PeerId, Swarm};
 use onion::{EncryptedStream, PathId};
@@ -38,7 +37,7 @@ component_utils::protocol! { 'a:
     struct ChatMeta {
         name: ChatName,
         secret: crypto::SharedSecret,
-        message_no: ActionNo,
+        action_no: ActionNo,
         permission: Permission,
     }
 
@@ -132,6 +131,7 @@ pub enum Event {
 }
 
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     #[allow(dead_code)]
     SendMessage {
@@ -139,8 +139,12 @@ pub enum Command {
         content: String,
     },
     CreateChat(ChatName),
+    InviteUser {
+        chat: ChatName,
+        user: UserData,
+    },
     #[allow(dead_code)]
-    FetchMessages(ChatName),
+    FetchMessages(ChatName, bool),
     SetTheme(Theme),
     None,
 }
@@ -161,8 +165,10 @@ pub struct Node {
     vault: Vault,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum SubIntent {
     Create(ChatName, ActionProof),
+    Invited(ChatName),
 }
 
 impl Node {
@@ -192,7 +198,7 @@ impl Node {
         }
 
         wboot_phase(Some(BootPhase::InitiateConnection));
-        let keypair = identity::Keypair::ed25519_from_bytes(keys.sign.ed).unwrap();
+        let keypair = identity::Keypair::generate_ed25519();
         let transport = websocket_websys::Transport::new(100)
             .upgrade(Version::V1)
             .authenticate(noise::Config::new(&keypair).unwrap())
@@ -212,6 +218,7 @@ impl Node {
                         .set_replication_factor(protocols::chat::REPLICATION_FACTOR),
                 ),
             ),
+            identify: identify::Behaviour::new(identify::Config::new("l".into(), keypair.public())),
         };
 
         let mut swarm = swarm::Swarm::new(
@@ -230,7 +237,7 @@ impl Node {
             .unwrap();
 
         use libp2p::core::multiaddr::Protocol;
-        swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
+        swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
         swarm
             .dial(
                 Multiaddr::empty()
@@ -241,14 +248,18 @@ impl Node {
             .unwrap();
 
         loop {
-            if let SwarmEvent::ConnectionEstablished {
+            if let SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
                 peer_id,
-                endpoint: ConnectedPoint::Dialer { address, .. },
-                ..
-            } = swarm.select_next_some().await
+                info,
+            })) = swarm.select_next_some().await
             {
-                swarm.behaviour_mut().kad.add_address(&peer_id, address);
-                break;
+                if let Some(addr) = info.listen_addrs.first() {
+                    swarm
+                        .behaviour_mut()
+                        .kad
+                        .add_address(&peer_id, addr.clone());
+                    break;
+                }
             }
         }
 
@@ -262,10 +273,22 @@ impl Node {
             .open_path(route.map(|(u, p)| (u.enc.into(), p)))
             .unwrap();
         let mut init_stream = loop {
-            match swarm.select_next_some().await {
-                SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest {
-                    to,
+            let e = swarm.select_next_some().await;
+            log::error!("{:?}", e);
+            match e {
+                SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
+                    peer_id,
+                    info,
                 })) => {
+                    if let Some(addr) = info.listen_addrs.first() {
+                        swarm
+                            .behaviour_mut()
+                            .kad
+                            .add_address(&peer_id, addr.clone());
+                    }
+                }
+                SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
+                    log::debug!("connect request {to:?}");
                     component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
                 }
                 SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
@@ -273,12 +296,15 @@ impl Node {
                         &e,
                         &mut swarm,
                         &mut peer_search,
-                    ) => {}
+                    ) =>
+                {
+                    log::debug!("kad event {e:?}");
+                }
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
                 ))) if id == pid => break stream,
-                e => log::debug!("{:?}", e),
+                _ => {}
             }
         };
 
@@ -313,7 +339,7 @@ impl Node {
         wboot_phase(Some(BootPhase::ProfileLoad));
 
         let hash = RandomState::new().hash_one(key) as usize;
-        let route: [_; 3] = nodes
+        let mut route: [_; 3] = nodes
             .iter()
             .map(|(a, b)| (*b, *a))
             .cycle()
@@ -325,6 +351,8 @@ impl Node {
             .try_into()
             .unwrap();
 
+        route.reverse();
+
         let pid = swarm
             .behaviour_mut()
             .onion
@@ -333,9 +361,7 @@ impl Node {
 
         let mut profile_stream = loop {
             match swarm.select_next_some().await {
-                SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest {
-                    to,
-                })) => {
+                SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
                     component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
                 }
                 SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
@@ -373,7 +399,10 @@ impl Node {
             &mut profile_stream,
             &mut buffer,
         );
-        let _mail = profile_stream.next().await.unwrap().unwrap();
+        let mail = profile_stream.next().await.unwrap().unwrap();
+        let Some(ProfileSubscribeResponse::Success(bytes)) = <_>::decode(&mut &*mail) else {
+            todo!("error handling");
+        };
 
         wboot_phase(Some(BootPhase::ChatSearch));
 
@@ -386,6 +415,8 @@ impl Node {
         }
 
         let mut awaiting = vec![];
+
+        log::debug!("{}", vault.chats.len());
 
         let mut topology = HashMap::<PeerId, HashSet<ChatName>>::new();
         let mut discovered = 0;
@@ -405,6 +436,7 @@ impl Node {
                 continue;
             };
 
+            log::debug!("search response: {key} {members:#?}");
             if vault.chats.iter().all(|c| c.name != key) {
                 log::error!("search to unexistent chat");
                 continue;
@@ -420,7 +452,9 @@ impl Node {
         wboot_phase(Some(BootPhase::ChatLoad));
 
         let mut topology = topology.into_iter().collect::<Vec<_>>();
-        topology.sort_by_key(|(_, v)| usize::MAX - v.len());
+        topology.sort_by_key(|(_, v)| v.len());
+
+        log::debug!("topology: {topology:#?}");
 
         let mut to_connect = vec![];
         let mut seen = HashSet::new();
@@ -432,6 +466,8 @@ impl Node {
             to_connect.push((peer, chats));
         }
 
+        log::debug!("to_connect: {to_connect:#?}");
+
         to_connect
             .into_iter()
             .map(|(pick, set)| {
@@ -439,7 +475,7 @@ impl Node {
 
                 let nd = *nodes.get(&pick).unwrap();
 
-                let route: [_; 3] = nodes
+                let mut route: [_; 3] = nodes
                     .iter()
                     .map(|(a, b)| (*b, *a))
                     .cycle()
@@ -450,6 +486,8 @@ impl Node {
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap();
+
+                route.reverse();
 
                 (
                     swarm
@@ -466,9 +504,9 @@ impl Node {
         while !awaiting.is_empty() {
             let (mut stream, subs, id) = loop {
                 match swarm.select_next_some().await {
-                    SwarmEvent::Behaviour(BehaviourEvent::Onion(
-                        onion::Event::ConnectRequest { to },
-                    )) => {
+                    SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(
+                        to,
+                    ))) => {
                         component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
                     }
                     SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
@@ -508,7 +546,7 @@ impl Node {
 
         wboot_phase(Some(BootPhase::ChatRun));
 
-        Ok(Self {
+        let mut s = Self {
             keys,
             events,
             commands: commands.to_stream().fuse(),
@@ -522,7 +560,13 @@ impl Node {
             buffer2: vec![],
             username: profile.name,
             vault,
-        })
+        };
+
+        for mail in unpack_messages(bytes) {
+            s.handle_mail(mail);
+        }
+
+        Ok(s)
     }
 
     pub async fn run(mut self) {
@@ -532,6 +576,41 @@ impl Node {
                 command = self.commands.select_next_some() => self.handle_command(command),
                 search_packet = self.profile_path.select_next_some() => self.handle_profile_response(search_packet),
                 (id, response) = self.subscriptions.select_next_some() => self.handle_subscription_response(id, response),
+            }
+        }
+    }
+
+    fn handle_mail(&mut self, bytes: &[u8]) {
+        let mail = match Mail::decode(&mut &*bytes) {
+            Some(m) => m,
+            None => {
+                log::error!("mail is malformed");
+                return;
+            }
+        };
+
+        match mail {
+            Mail::ChatInvite(invite) => {
+                let chat = ChatMeta {
+                    name: invite.chat,
+                    secret: self
+                        .keys
+                        .enc
+                        .decapsulate_choosen(invite.secret.into())
+                        .unwrap(),
+                    action_no: ActionNo::MAX,
+                    permission: Permission::default(),
+                };
+
+                self.vault.chats.push(chat);
+
+                send_request(
+                    ProfileRequest::Search(invite.chat),
+                    &mut self.profile_path,
+                    &mut self.buffer,
+                );
+
+                self.save_vault();
             }
         }
     }
@@ -551,7 +630,7 @@ impl Node {
         };
 
         match resp {
-            ProfileResponse::Mail(_) => {}
+            ProfileResponse::Mail(bytes) => self.handle_mail(bytes),
             ProfileResponse::DataWritten => log::debug!("vault written"),
             ProfileResponse::DataWriteFailed(e) => log::error!("vault write failed: {e}"),
             ProfileResponse::Search(ChatSearchResult { members, key }) => {
@@ -566,7 +645,7 @@ impl Node {
                     todo!("error handling")
                 };
 
-                let route: [_; 3] = self
+                let mut route: [_; 3] = self
                     .nodes
                     .iter()
                     .map(|(a, b)| (*b, *a))
@@ -578,6 +657,8 @@ impl Node {
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap();
+
+                route.reverse();
 
                 let quid = self
                     .swarm
@@ -591,25 +672,26 @@ impl Node {
                     return;
                 };
 
-                if meta.message_no == 0 {
-                    self.pending_subscriptions.push((
-                        quid,
-                        SubIntent::Create(
-                            key,
-                            ActionProof::for_chat(&mut meta.message_no, &self.keys.sign, key),
-                        ),
-                    ));
-                    return;
-                }
+                let intent = if meta.action_no == 0 {
+                    SubIntent::Create(
+                        key,
+                        ActionProof::for_chat(&mut meta.action_no, &self.keys.sign, key),
+                    )
+                } else if meta.action_no == ActionNo::MAX {
+                    meta.action_no = 0;
+                    SubIntent::Invited(key)
+                } else {
+                    panic!("{key}");
+                };
 
-                panic!("{key}");
+                self.pending_subscriptions.push((quid, intent));
             }
         }
     }
 
     fn handle_swarm_event(&mut self, event: SE) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest { to })) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
                 component_utils::handle_conn_request(to, &mut self.swarm, &mut self.peer_search);
             }
             SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
@@ -641,6 +723,16 @@ impl Node {
                                 stream,
                                 cursor: NO_CURSOR,
                             });
+                        }
+                        SubIntent::Invited(name) => {
+                            send_request(
+                                InitRequest::Subscribe(ChatSubs {
+                                    chats: [name].into_iter().collect(),
+                                    identity: self.keys.sign.public_key().into(),
+                                }),
+                                &mut stream,
+                                &mut self.buffer,
+                            );
                         }
                     }
                 }
@@ -681,17 +773,71 @@ impl Node {
                     ChatRequest::Send(Message {
                         chat,
                         content: &self.buffer2,
-                        proof: ActionProof::for_chat(&mut meta.message_no, &self.keys.sign, chat),
+                        proof: ActionProof::for_chat(&mut meta.action_no, &self.keys.sign, chat),
                     }),
                     &mut sub.stream,
                     &mut self.buffer,
+                );
+            }
+            Command::InviteUser { chat, user } => {
+                let Some(sub) = self
+                    .subscriptions
+                    .iter_mut()
+                    .find(|s| s.subs.contains(&chat))
+                else {
+                    log::error!("chat not found when sending message");
+                    return;
+                };
+
+                let Some(meta) = self.vault.chats.iter_mut().find(|s| s.name == chat) else {
+                    log::error!("chat meta not found when sending messxge");
+                    return;
+                };
+
+                let payload = MessagePayload::AddMember(AddMember {
+                    invited: user.sign,
+                    perm_offset: 0,
+                });
+
+                self.buffer.clear();
+                payload.encode(&mut self.buffer);
+                send_request(
+                    ChatRequest::Send(Message {
+                        chat,
+                        content: &self.buffer,
+                        proof: ActionProof::for_chat(&mut meta.action_no, &self.keys.sign, chat),
+                    }),
+                    &mut sub.stream,
+                    &mut self.buffer2,
+                );
+
+                let mail = Mail::ChatInvite(ChatInvite {
+                    chat,
+                    member_id: 0,
+                    secret: self
+                        .keys
+                        .enc
+                        .encapsulate_choosen(&user.enc.into(), meta.secret)
+                        .unwrap()
+                        .into(),
+                });
+
+                self.buffer.clear();
+                mail.encode(&mut self.buffer);
+                send_request(
+                    ProfileRequest::SendMail(SendMail {
+                        id: user.sign,
+                        data: &self.buffer,
+                    }),
+                    &mut self.profile_path,
+                    &mut self.buffer2,
                 );
             }
             Command::CreateChat(name) => {
                 let meta = ChatMeta {
                     name,
                     secret: crypto::new_secret(),
-                    message_no: 0,
+                    action_no: 0,
                     permission: 0,
                 };
 
@@ -703,7 +849,7 @@ impl Node {
                     &mut self.buffer,
                 );
             }
-            Command::FetchMessages(chat) => {
+            Command::FetchMessages(chat, restart) => {
                 let Some(sub) = self
                     .subscriptions
                     .iter_mut()
@@ -716,7 +862,7 @@ impl Node {
                 send_request(
                     ChatRequest::Fetch(FetchMessages {
                         chat,
-                        cursor: sub.cursor,
+                        cursor: if restart { NO_CURSOR } else { sub.cursor },
                     }),
                     &mut sub.stream,
                     &mut self.buffer,
@@ -790,7 +936,10 @@ impl Node {
                     log::warn!("message chat does not match subscription");
                     return;
                 };
-                meta.message_no = no + 1;
+                meta.action_no = no + 1;
+                if no == 0 {
+                    (self.events)(Event::ChatCreated(chat));
+                }
             }
             ChatResponse::Fetched(FetchedMessages {
                 chat,
@@ -880,10 +1029,7 @@ pub fn send_request<'a, T: Codec<'a>>(resp: T, stream: &mut EncryptedStream, buf
 }
 
 #[allow(deprecated)]
-type SE = libp2p::swarm::SwarmEvent<
-    <Behaviour as NetworkBehaviour>::ToSwarm,
-    <<Behaviour as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::Error,
->;
+type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 
 const MIN_NODES: usize = 5;
 
@@ -902,8 +1048,8 @@ pub enum BootError {
 }
 
 fn node_data_to_path_seg(data: NodeData) -> (PeerId, NodeData) {
-    let peer_id = component_utils::libp2p_identity::PublicKey::from(
-        component_utils::libp2p_identity::ed25519::PublicKey::try_from_bytes(
+    let peer_id = component_utils::libp2p::identity::PublicKey::from(
+        component_utils::libp2p::identity::ed25519::PublicKey::try_from_bytes(
             &crypto::sign::PublicKey::from(data.sign).ed,
         )
         .unwrap(),
@@ -936,6 +1082,7 @@ impl futures::Stream for Subscription {
 struct Behaviour {
     onion: onion::Behaviour,
     kad: libp2p::kad::Behaviour<MemoryStore>,
+    identify: libp2p::identify::Behaviour,
 }
 
 component_utils::impl_kad_search!(Behaviour => (onion::Behaviour => onion));

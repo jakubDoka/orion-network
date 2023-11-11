@@ -35,17 +35,11 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     let selected: Option<ChatName> = leptos_router::use_query_map()
         .with_untracked(|m| m.get("id").and_then(|v| v.as_str().try_into().ok()))
         .filter(|v| chats.with(|chats| chats.contains(v)));
+    if let Some(selected) = selected {
+        wcommands(node::Command::FetchMessages(selected, true));
+    }
     let current_chat = create_rw_signal(selected);
-
-    let side_chat = move |chat: ChatName| {
-        let select_chat = move |_| {
-            current_chat.set(Some(chat));
-            navigate_to(format_args!("/chat/{chat}"));
-        };
-        let selected = move || current_chat.get() == Some(chat);
-        let not_selected = move || current_chat.get() != Some(chat);
-        view! { <div class="sb tac bp toe" class:hc=selected class:hov=not_selected on:click=select_chat> {chat.to_string()} </div> }
-    };
+    let red_all_messages = create_rw_signal(false);
 
     let messages = create_node_ref::<leptos::html::Div>();
     let message_view = move |username: UserName, content: MessageContent| {
@@ -73,6 +67,19 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             .unwrap();
     };
 
+    let side_chat = move |chat: ChatName| {
+        let select_chat = move |_| {
+            current_chat.set(Some(chat));
+            navigate_to(format_args!("/chat/{chat}"));
+            let messages = messages.get_untracked().expect("universe to work");
+            messages.set_inner_html("");
+            wcommands(node::Command::FetchMessages(chat, true));
+        };
+        let selected = move || current_chat.get() == Some(chat);
+        let not_selected = move || current_chat.get() != Some(chat);
+        view! { <div class="sb tac bp toe" class:hc=selected class:hov=not_selected on:click=select_chat> {chat.to_string()} </div> }
+    };
+
     let hidden = create_rw_signal(true);
     let bts_disabled = create_rw_signal(false);
     let name_input = create_node_ref::<Input>();
@@ -92,14 +99,17 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             name,
             content,
         } if current_chat.get_untracked() == Some(chat) => append_message(name, content),
-        node::Event::FetchedMessages { chat, messages }
-            if current_chat.get_untracked() == Some(chat) =>
-        {
+        node::Event::FetchedMessages {
+            chat,
+            messages,
+            end,
+        } if current_chat.get_untracked() == Some(chat) => {
+            red_all_messages.update(|v| *v |= end);
             for (name, content) in messages {
                 prepend_message(name, content);
             }
         }
-        node::Event::FetchedMessages { chat, messages } => {
+        node::Event::FetchedMessages { chat, messages, .. } => {
             log::info!("fetched messages for {chat}: {messages:#?}");
         }
         _ => {}
@@ -143,6 +153,10 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
 
     let message_scroll = create_node_ref::<leptos::html::Div>();
     let on_scroll = move |_| {
+        if red_all_messages.get_untracked() {
+            return;
+        }
+
         let Some(chat) = current_chat.get_untracked() else {
             return;
         };
@@ -151,7 +165,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             return;
         }
 
-        wcommands(node::Command::FetchMessages(chat))
+        wcommands(node::Command::FetchMessages(chat, false))
     };
 
     view! {

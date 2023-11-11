@@ -3,7 +3,7 @@ use std::{mem, u16, u32};
 
 use component_utils::arrayvec::ArrayString;
 use component_utils::Reminder;
-use component_utils::{libp2p_identity::PeerId, Codec};
+use component_utils::{libp2p::identity::PeerId, Codec};
 
 pub const CHAT_NAME_CAP: usize = 32;
 pub const USER_NAME_CAP: usize = 32;
@@ -14,7 +14,9 @@ pub const MAX_MESSAGE_SIZE: usize = 1024;
 pub const MAX_MAIL_SIZE: usize = 512;
 pub const MESSAGE_FETCH_LIMIT: usize = 20;
 pub const NO_CURSOR: Cursor = Cursor::MAX;
-pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(3) };
+pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(2) };
+pub const QUORUM: NonZeroUsize =
+    unsafe { NonZeroUsize::new_unchecked(REPLICATION_FACTOR.get() - 1) };
 pub const SALT_SIZE: usize = 32;
 pub const NO_SIZE: usize = 4;
 
@@ -261,6 +263,7 @@ component_utils::protocol! { 'a:
         Search: ChatName => 0,
         WriteData: WriteData<'a> => 1,
         Subscribe: ActionProof => 2,
+        SendMail: SendMail<'a> => 3,
         KeepAlive => 30,
     }
 
@@ -284,7 +287,7 @@ component_utils::protocol! { 'a:
     }
 
     #[derive(Clone, Copy)]
-    struct WriteMail<'a> {
+    struct SendMail<'a> {
         id: Identity,
         data: &'a [u8],
     }
@@ -357,7 +360,7 @@ component_utils::protocol! { 'a:
     struct ChatInvite {
         chat: ChatName,
         member_id: MemberId,
-        secret: crypto::enc::SerializedCiphertext,
+        secret: crypto::enc::SerializedChoosenCiphertext,
     }
 
     #[derive(Clone, Copy)]

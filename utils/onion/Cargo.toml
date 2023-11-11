@@ -11,10 +11,7 @@ component-utils = { version = "0.1.0", path = "../component-utils", no-default-f
 crypto = { version = "0.1.0", path = "../crypto" }
 futures = "0.3.28"
 instant = "0.1.12"
-libp2p-core = "0.40.1"
-libp2p-identity = { version = "0.2.3", features = ["peerid", "ed25519"] }
-libp2p-kad = { version = "0.44.5", optional = true }
-libp2p-swarm = "0.43.4"
+libp2p = { version = "0.53.0" }
 log = "0.4.20"
 spin = { version = "0.9.8", default-features = false, features = ["mutex", "spin_mutex"] }
 thiserror = "1.0.50"
@@ -22,10 +19,11 @@ void = "1.0.2"
 
 [dev-dependencies]
 env_logger = "0.10.0"
-libp2p = { version = "0.52.3", features = ["tokio", "tcp", "noise", "yamux", "macros"] }
-tokio = { version = "1.32.0", features = ["rt", "macros", "time"] }
+libp2p = { version = "0.53.0", features = ["tokio", "tcp", "noise", "yamux", "macros", "kad", "identify"] }
+rand = "0.8.5"
+tokio = { version = "1.32.0", features = ["rt", "macros", "time", "rt-multi-thread"] }
 
 [features]
 default = ["kad"]
-kad = ["libp2p-kad", "component-utils/kad"]
+kad = [ "component-utils/libp2p", "libp2p/kad"]
 wasm = ["instant/wasm-bindgen"]

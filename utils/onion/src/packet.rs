@@ -5,8 +5,8 @@ use aes_gcm::{
     aes::cipher::Unsigned,
     AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
 };
-use libp2p_core::multihash::Multihash;
-use libp2p_identity::PeerId;
+use libp2p::core::multihash::Multihash;
+use libp2p::identity::PeerId;
 
 pub const OK: u8 = 0;
 pub const MISSING_PEER: u8 = 1;

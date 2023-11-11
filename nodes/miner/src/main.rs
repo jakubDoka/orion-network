@@ -6,7 +6,7 @@ use chain_api::NodeData;
 use component_utils::{
     codec::Codec,
     kad::KadPeerSearch,
-    libp2p_kad::{
+    libp2p::kad::{
         store::{MemoryStore, RecordStore},
         InboundRequest, QueryId, Quorum, StoreInserts,
     },
@@ -16,7 +16,7 @@ use libp2p::{
     core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
     futures::{self, StreamExt},
     kad,
-    swarm::{ConnectionHandler, NetworkBehaviour, SwarmEvent},
+    swarm::{NetworkBehaviour, SwarmEvent},
     Multiaddr, PeerId, Transport,
 };
 use onion::EncryptedStream;
@@ -38,6 +38,7 @@ struct Miner {
     clients: futures::stream::SelectAll<Stream>,
     search_queries: Vec<(usize, UserOrChat, Vec<PeerId>, QueryId)>,
     buffer: Vec<u8>,
+    bootstrapped: bool,
 }
 
 impl Miner {
@@ -72,7 +73,11 @@ impl Miner {
                     mail_boxes: Default::default(),
                     mem: MemoryStore::new(peer_id),
                 },
-                mem::take(kad::Config::default().set_record_filtering(StoreInserts::FilterBoth)),
+                mem::take(
+                    kad::Config::default()
+                        .set_replication_factor(REPLICATION_FACTOR)
+                        .set_record_filtering(StoreInserts::FilterBoth),
+                ),
             ),
             identfy: libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
                 "0.1.0".into(),
@@ -145,10 +150,17 @@ impl Miner {
             clients: Default::default(),
             search_queries: Default::default(),
             buffer: Default::default(),
+            bootstrapped: false,
         }
     }
 
-    fn try_handle_search_query(&mut self, id: QueryId, peers: &[PeerId], last: bool) -> bool {
+    fn try_handle_search_query(
+        &mut self,
+        id: QueryId,
+        peers: &[PeerId],
+        last: bool,
+        reported_key: &[u8],
+    ) -> bool {
         let Some(index) = self.search_queries.iter().position(|&(.., q)| q == id) else {
             return false;
         };
@@ -172,10 +184,13 @@ impl Miner {
         let (_, key, members, _) = self.search_queries.swap_remove(index);
         match key {
             UserOrChat::User(key) => {
+                debug_assert_eq!(Identity::decode(&mut &*reported_key), Some(key));
                 let req = InitSearchResult { members, key };
                 send_response(req, &mut client.inner, &mut self.buffer);
             }
             UserOrChat::Chat(key) => {
+                log::info!("found chat {key} in {}", self.swarm.local_peer_id());
+                debug_assert_eq!(ChatName::decode(&mut &*reported_key), Some(key));
                 let req = ProfileResponse::Search(ChatSearchResult { members, key });
                 send_response(req, &mut client.inner, &mut self.buffer);
             }
@@ -235,7 +250,7 @@ impl Miner {
                     .behaviour_mut()
                     .kad
                     .store_mut()
-                    .put_mail(mail_id, msg)
+                    .write_mail(mail_id, msg)
                 {
                     log::error!("failed to put notification: {e:?}");
                     return;
@@ -254,11 +269,13 @@ impl Miner {
                 }
             }
             PutRecord::WriteData(wd) => {
+                debug_assert_eq!(wd.proof.pk.to_bytes(), record.key.as_ref());
                 if let Err(e) = self.swarm.behaviour_mut().kad.store_mut().write_data(wd) {
                     log::error!("failed to write data: {e:?}");
                 }
             }
             PutRecord::CreateChat(CreateChat { name, proof }) => {
+                debug_assert_eq!(ChatName::decode(&mut record.key.as_ref()), Some(name));
                 if let Err(e) = self
                     .swarm
                     .behaviour_mut()
@@ -267,9 +284,10 @@ impl Miner {
                     .create_chat(name, proof)
                 {
                     log::warn!("failed to create chat: {e:?}");
+                    return;
                 }
 
-                log::info!("created chat {name}");
+                log::info!("created chat {name} in {}", self.swarm.local_peer_id());
             }
             PutRecord::ChatHistory(_) => todo!(),
         };
@@ -284,8 +302,13 @@ impl Miner {
                 for addr in info.listen_addrs {
                     self.swarm.behaviour_mut().kad.add_address(&peer_id, addr);
                 }
+
+                if !self.bootstrapped {
+                    self.swarm.behaviour_mut().kad.bootstrap().unwrap();
+                    self.bootstrapped = true;
+                }
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest { to })) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
                 component_utils::handle_conn_request(to, &mut self.swarm, &mut self.peer_discovery)
             }
             SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
@@ -296,10 +319,10 @@ impl Miner {
                 ) => {}
             SwarmEvent::Behaviour(BehaviourEvent::Kad(kad::Event::OutboundQueryProgressed {
                 id,
-                result: kad::QueryResult::GetClosestPeers(Ok(kad::GetClosestPeersOk { peers, .. })),
+                result: kad::QueryResult::GetClosestPeers(Ok(kad::GetClosestPeersOk { peers, key })),
                 step,
                 ..
-            })) if self.try_handle_search_query(id, &peers, step.last) => {}
+            })) if self.try_handle_search_query(id, &peers, step.last, &key) => {}
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::InboundStream(inner))) => {
                 log::warn!("inbound stream");
                 self.clients.push(Stream {
@@ -334,7 +357,7 @@ impl Miner {
                     .swarm
                     .behaviour_mut()
                     .kad
-                    .get_closest_peers(chat.as_bytes().to_vec());
+                    .get_closest_peers(chat.to_bytes());
                 self.search_queries
                     .push((stream.id, UserOrChat::Chat(chat), vec![], qid));
             }
@@ -358,12 +381,12 @@ impl Miner {
                     .put_record(
                         // todo we send identity twice
                         kad::Record {
-                            key: wd.proof.pk.to_vec().into(),
+                            key: wd.proof.pk.to_bytes().into(),
                             value: PutRecord::WriteData(wd).to_bytes(),
                             publisher: None,
                             expires: None,
                         },
-                        Quorum::N(protocols::chat::REPLICATION_FACTOR),
+                        Quorum::N(protocols::chat::QUORUM),
                     )
                     .unwrap();
             }
@@ -378,6 +401,32 @@ impl Miner {
                     Err(e) => ProfileSubscribeResponse::Failure(e),
                 };
                 send_response(req, &mut stream.inner, &mut self.buffer);
+            }
+            ProfileRequest::SendMail(SendMail { id, data }) => {
+                if let Err(e) = self
+                    .swarm
+                    .behaviour_mut()
+                    .kad
+                    .store_mut()
+                    .write_mail(id, data)
+                {
+                    log::error!("failed to write mail: {e:?}");
+                    return;
+                }
+
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .put_record(
+                        kad::Record {
+                            key: id.to_bytes().into(),
+                            value: PutRecord::Mail(data).to_bytes(),
+                            publisher: None,
+                            expires: None,
+                        },
+                        Quorum::N(protocols::chat::QUORUM),
+                    )
+                    .unwrap();
             }
             ProfileRequest::KeepAlive => todo!(),
         }
@@ -398,7 +447,7 @@ impl Miner {
                     .swarm
                     .behaviour_mut()
                     .kad
-                    .get_closest_peers(profile.to_vec());
+                    .get_closest_peers(profile.to_bytes());
                 self.search_queries
                     .push((stream.id, UserOrChat::User(profile), vec![], qid));
             }
@@ -417,7 +466,9 @@ impl Miner {
                 }
                 for &chat in chats.iter() {
                     let Some(chat_state) = store.chats.get(&chat) else {
-                        log::warn!("client tried to subscribe to a chat that doesn't exist");
+                        log::warn!(
+                            "client tried to subscribe to a chat that doesn't exist: {chat}"
+                        );
                         continue;
                     };
                     let Some(member) = chat_state.members.iter().find(|m| m.identity == identity)
@@ -457,7 +508,7 @@ impl Miner {
                             publisher: None,
                             expires: None,
                         },
-                        Quorum::N(protocols::chat::REPLICATION_FACTOR),
+                        Quorum::N(protocols::chat::QUORUM),
                     )
                     .unwrap();
                 stream.state = StreamState::Chats([name].into_iter().collect());
@@ -490,7 +541,7 @@ impl Miner {
                             publisher: None,
                             expires: None,
                         },
-                        Quorum::N(protocols::chat::REPLICATION_FACTOR),
+                        Quorum::N(protocols::chat::QUORUM),
                     )
                     .unwrap();
             }
@@ -553,10 +604,7 @@ pub fn send_response<'a, T: Codec<'a>>(
 }
 
 #[allow(deprecated)]
-type SE = libp2p::swarm::SwarmEvent<
-    <Behaviour as NetworkBehaviour>::ToSwarm,
-    <<Behaviour as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::Error,
->;
+type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -599,7 +647,7 @@ struct ChatStore {
 }
 
 impl ChatStore {
-    fn put_mail(&mut self, id: Identity, msg: &[u8]) -> Result<(), PutMailError> {
+    fn write_mail(&mut self, id: Identity, msg: &[u8]) -> Result<(), PutMailError> {
         if msg.len() > protocols::chat::MAX_MAIL_SIZE {
             return Err(PutMailError::MailTooBig);
         }

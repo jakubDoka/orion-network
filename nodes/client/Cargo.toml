@@ -14,7 +14,7 @@ crypto = { version = "0.1.0", path = "../../utils/crypto" }
 hex = "0.4.3"
 leptos = { version = "0.5.1", default-features = false, features = ["nightly", "csr"] }
 leptos_router = { version = "0.5.2", features = ["nightly", "csr"] }
-libp2p = { version = "0.52.3", features = ["kad", "macros", "wasm-bindgen", "yamux", "noise"] }
+libp2p = { version = "0.53.0", features = ["noise", "kad", "macros", "yamux", "wasm-bindgen", "identify"] }
 log = "0.4.20"
 onion = { version = "0.1.0", path = "../../utils/onion", features = ["wasm"] }
 protocols = { version = "0.1.0", path = "../../utils/protocols" }

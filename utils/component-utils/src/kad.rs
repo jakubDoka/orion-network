@@ -1,15 +1,16 @@
 use std::collections::VecDeque;
 
-use libp2p_identity::PeerId;
-use libp2p_kad::{store::RecordStore, QueryId, QueryResult};
+use libp2p::identity::PeerId;
+use libp2p::kad::{store::RecordStore, QueryId, QueryResult};
 
-use libp2p_swarm::Swarm;
+use libp2p::swarm::Swarm;
 
-pub trait KadSearchComponent: libp2p_swarm::NetworkBehaviour {
+pub trait KadSearchComponent: libp2p::swarm::NetworkBehaviour {
     fn redail(&mut self, peer: PeerId);
+    fn mark_failed(&mut self, peer: PeerId);
 }
 
-pub trait KadSearchBehaviour: libp2p_swarm::NetworkBehaviour {
+pub trait KadSearchBehaviour: libp2p::swarm::NetworkBehaviour {
     type RecordStore: RecordStore + Send + 'static;
     type Component: KadSearchComponent + Send + 'static;
 
@@ -17,7 +18,7 @@ pub trait KadSearchBehaviour: libp2p_swarm::NetworkBehaviour {
         &mut self,
     ) -> (
         &mut Self::Component,
-        &mut libp2p_kad::Behaviour<Self::RecordStore>,
+        &mut libp2p::kad::Behaviour<Self::RecordStore>,
     );
 }
 
@@ -34,19 +35,22 @@ pub fn handle_conn_request(
 }
 
 pub fn try_handle_conn_response(
-    event: &libp2p_kad::Event,
+    event: &libp2p::kad::Event,
     swarm: &mut Swarm<impl KadSearchBehaviour>,
     discovery: &mut KadPeerSearch,
 ) -> bool {
     match discovery.try_handle_kad_event(event, swarm.behaviour_mut().context().1) {
-        Some(Some(peer_id)) if swarm.is_connected(&peer_id) => {
+        KadSearchResult::Discovered(peer_id) if swarm.is_connected(&peer_id) => {
             swarm.behaviour_mut().context().0.redail(peer_id);
         }
-        Some(Some(peer_id)) => {
+        KadSearchResult::Discovered(peer_id) => {
             swarm.dial(peer_id).unwrap();
         }
-        Some(None) => {}
-        None => return false,
+        KadSearchResult::Pending => {}
+        KadSearchResult::Failed(peer_id) => {
+            swarm.behaviour_mut().context().0.mark_failed(peer_id);
+        }
+        KadSearchResult::Ignored => return false,
     }
 
     true
@@ -55,7 +59,7 @@ pub fn try_handle_conn_response(
 #[macro_export]
 macro_rules! impl_kad_search {
     ($ty:ty => ($component_type:ty => $component:ident)) => {
-        $crate::impl_kad_search!($ty => ($crate::libp2p_kad::store::MemoryStore, $component_type => $component, kad));
+        $crate::impl_kad_search!($ty => ($crate::libp2p::kad::store::MemoryStore, $component_type => $component, kad));
     };
 
     ($ty:ty => ($store:ty, $onion_type:ty => $onion:ident, $kad:ident)) => {
@@ -67,7 +71,7 @@ macro_rules! impl_kad_search {
                 &mut self,
             ) -> (
                 &mut Self::Component,
-                &mut $crate::libp2p_kad::Behaviour<Self::RecordStore>,
+                &mut $crate::libp2p::kad::Behaviour<Self::RecordStore>,
             ) {
                 (&mut self.$onion, &mut self.$kad)
             }
@@ -80,11 +84,18 @@ pub struct KadPeerSearch {
     discovery_queries: VecDeque<(QueryId, PeerId)>,
 }
 
+pub enum KadSearchResult {
+    Ignored,
+    Discovered(PeerId),
+    Failed(PeerId),
+    Pending,
+}
+
 impl KadPeerSearch {
     pub fn discover_peer(
         &mut self,
         peer_id: PeerId,
-        kad: &mut libp2p_kad::Behaviour<impl RecordStore + Send + 'static>,
+        kad: &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>,
     ) {
         let query_id = kad.get_closest_peers(peer_id);
         self.discovery_queries.push_back((query_id, peer_id));
@@ -92,34 +103,45 @@ impl KadPeerSearch {
 
     pub fn try_handle_kad_event(
         &mut self,
-        event: &libp2p_kad::Event,
-        kad: &mut libp2p_kad::Behaviour<impl RecordStore + Send + 'static>,
-    ) -> Option<Option<PeerId>> {
-        let libp2p_kad::Event::OutboundQueryProgressed {
+        event: &libp2p::kad::Event,
+        kad: &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>,
+    ) -> KadSearchResult {
+        let libp2p::kad::Event::OutboundQueryProgressed {
             id,
             result: QueryResult::GetClosestPeers(Ok(closest_peers)),
             step,
             ..
         } = event
         else {
-            return None;
+            return KadSearchResult::Ignored;
         };
 
-        let index = self.discovery_queries.iter().position(|(q, _)| q == id)?;
+        log::error!("kad event matches");
+
+        let Some(index) = self.discovery_queries.iter().position(|(q, _)| q == id) else {
+            return KadSearchResult::Ignored;
+        };
         let (_, target) = self.discovery_queries.swap_remove_front(index).unwrap();
+
+        log::error!("kad event matches 2");
 
         if closest_peers.peers.contains(&target) {
             if let Some(mut q) = kad.query_mut(id) {
                 q.finish();
             }
-            return Some(Some(target));
+            log::error!("kad event matches 3");
+            return KadSearchResult::Discovered(target);
         }
 
         if !step.last {
+            log::error!("kad event matches 4");
             self.discovery_queries.push_back((*id, target));
+            return KadSearchResult::Pending;
         }
 
-        Some(None)
+        log::error!("kad event matches 5");
+
+        KadSearchResult::Failed(target)
     }
 }
 
@@ -131,15 +153,15 @@ pub struct KadRandomPeerSearch {
 impl KadRandomPeerSearch {
     pub fn discover_random(
         &mut self,
-        kad: &mut libp2p_kad::Behaviour<impl RecordStore + Send + 'static>,
+        kad: &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>,
     ) {
         let rpi = PeerId::random();
         let query_id = kad.get_closest_peers(rpi);
         self.discovery_queries.push_back(query_id);
     }
 
-    pub fn try_handle_kad_event(&mut self, event: &mut libp2p_kad::Event) -> Vec<PeerId> {
-        let libp2p_kad::Event::OutboundQueryProgressed {
+    pub fn try_handle_kad_event(&mut self, event: &mut libp2p::kad::Event) -> Vec<PeerId> {
+        let libp2p::kad::Event::OutboundQueryProgressed {
             id,
             result: QueryResult::GetClosestPeers(Ok(closest_peers)),
             ..
@@ -159,14 +181,14 @@ impl KadRandomPeerSearch {
 
 #[derive(Default)]
 pub struct KadProviderSearch {
-    discovery_queries: VecDeque<(QueryId, libp2p_kad::RecordKey, Vec<PeerId>)>,
+    discovery_queries: VecDeque<(QueryId, libp2p::kad::RecordKey, Vec<PeerId>)>,
 }
 
 impl KadProviderSearch {
     pub fn discover_providers(
         &mut self,
-        key: libp2p_kad::RecordKey,
-        kad: &mut libp2p_kad::Behaviour<impl RecordStore + Send + 'static>,
+        key: libp2p::kad::RecordKey,
+        kad: &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>,
     ) {
         let query_id = kad.get_providers(key.clone());
         self.discovery_queries.push_back((query_id, key, vec![]));
@@ -174,9 +196,9 @@ impl KadProviderSearch {
 
     pub fn try_handle_kad_event(
         &mut self,
-        event: &libp2p_kad::Event,
-    ) -> Option<Option<(libp2p_kad::RecordKey, Vec<PeerId>)>> {
-        let libp2p_kad::Event::OutboundQueryProgressed {
+        event: &libp2p::kad::Event,
+    ) -> Option<Option<(libp2p::kad::RecordKey, Vec<PeerId>)>> {
+        let libp2p::kad::Event::OutboundQueryProgressed {
             id,
             result: QueryResult::GetProviders(Ok(providers)),
             step,
@@ -189,10 +211,10 @@ impl KadProviderSearch {
         let index = self.discovery_queries.iter().position(|(q, ..)| q == id)?;
         let (_, key, mut list) = self.discovery_queries.swap_remove_front(index).unwrap();
         match providers {
-            libp2p_kad::GetProvidersOk::FoundProviders { providers, .. } => {
+            libp2p::kad::GetProvidersOk::FoundProviders { providers, .. } => {
                 list.extend(providers);
             }
-            libp2p_kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {}
+            libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {}
         }
 
         if !step.last {

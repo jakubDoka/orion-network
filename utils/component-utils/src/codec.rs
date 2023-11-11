@@ -2,10 +2,10 @@ use std::{io, sync::Arc, u32, usize};
 
 use arrayvec::{ArrayString, ArrayVec};
 use futures::{AsyncRead, AsyncReadExt};
-#[cfg(feature = "kad")]
-use libp2p_core::multihash::Multihash;
-#[cfg(feature = "kad")]
-use libp2p_identity::PeerId;
+#[cfg(feature = "libp2p")]
+use libp2p::core::multihash::Multihash;
+#[cfg(feature = "libp2p")]
+use libp2p::identity::PeerId;
 
 pub fn encode_len(len: usize) -> [u8; 4] {
     (len as u32).to_be_bytes()
@@ -367,7 +367,7 @@ impl<'a, T: Codec<'a>, const SIZE: usize> Codec<'a> for [T; SIZE] {
     }
 }
 
-#[cfg(feature = "kad")]
+#[cfg(feature = "libp2p")]
 impl<'a> Codec<'a> for PeerId {
     fn encode(&self, buffer: &mut Vec<u8>) {
         let mh = Multihash::from(*self);

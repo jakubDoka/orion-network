@@ -8,16 +8,16 @@ use aes_gcm::{
     aead::{generic_array::GenericArray, OsRng},
     AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
 };
-use component_utils::{HandlerRef, PacketReader};
+use component_utils::PacketReader;
 use core::fmt;
 use futures::{
     stream::{FusedStream, FuturesUnordered},
     AsyncRead, StreamExt,
 };
 use instant::{Duration, Instant};
-use libp2p_identity::PeerId;
-use libp2p_swarm::ToSwarm as TS;
-use libp2p_swarm::{
+use libp2p::identity::PeerId;
+use libp2p::swarm::ToSwarm as TS;
+use libp2p::swarm::{
     dial_opts::{DialOpts, PeerCondition},
     CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
 };
@@ -34,7 +34,7 @@ pub struct Behaviour {
     events: VecDeque<TS<Event, handler::FromBehaviour>>,
     pending_connections: Vec<IncomingStream>,
     pending_requests: Vec<StreamRequest>,
-    error_streams: FuturesUnordered<component_utils::ClosingStream<libp2p_swarm::Stream>>,
+    error_streams: FuturesUnordered<component_utils::ClosingStream<libp2p::swarm::Stream>>,
     path_counter: usize,
     buffer: Arc<spin::Mutex<[u8; 1 << 16]>>,
 }
@@ -92,9 +92,13 @@ impl Behaviour {
         }
 
         let Some(&conn_id) = self.peer_to_connection.get(&sr.to) else {
-            log::debug!("queueing connection to {}", sr.to);
+            log::debug!(
+                "queueing connection to {} from {}",
+                sr.to,
+                self.config.current_peer_id
+            );
             self.events
-                .push_back(TS::GenerateEvent(Event::ConnectRequest { to: sr.to }));
+                .push_back(TS::GenerateEvent(Event::ConnectRequest(sr.to)));
             self.pending_requests.push(sr);
             return;
         };
@@ -133,9 +137,13 @@ impl Behaviour {
         }
 
         let Some(&conn_id) = self.peer_to_connection.get(&is.to) else {
-            log::debug!("queueing connection to {}", is.to);
+            log::debug!(
+                "queueing connection to {} from {}",
+                is.to,
+                self.config.current_peer_id
+            );
             self.events
-                .push_back(TS::GenerateEvent(Event::ConnectRequest { to: is.to }));
+                .push_back(TS::GenerateEvent(Event::ConnectRequest(is.to)));
             self.pending_connections.push(is);
             return;
         };
@@ -147,10 +155,10 @@ impl Behaviour {
         });
     }
 
-    fn add_connection(&mut self, to: PeerId, to_id: ConnectionId) -> bool {
+    fn add_connection(&mut self, to: PeerId, to_id: ConnectionId) {
         if self.peer_to_connection.get(&to).is_some() {
             log::debug!("connection to {} already exists", to);
-            return false;
+            return;
         }
 
         self.peer_to_connection.insert(to, to_id);
@@ -160,15 +168,19 @@ impl Behaviour {
         let requests = component_utils::drain_filter(&mut self.pending_requests, |p| p.to != to)
             .map(IncomingOrRequest::Request);
 
+        log::warn!(
+            "adding connection to {to} from {}",
+            self.config.current_peer_id
+        );
+
         for p in incoming.chain(requests) {
+            log::debug!("sending pending stream to {to}");
             self.events.push_back(TS::NotifyHandler {
                 peer_id: to,
                 handler: NotifyHandler::One(to_id),
                 event: handler::FromBehaviour::InitPacket(p),
             });
         }
-
-        true
     }
 
     /// Must be called when a peer cannot be found, otherwise a pending connection information is
@@ -201,24 +213,19 @@ impl Behaviour {
         });
     }
 
-    fn create_handler(
-        &mut self,
-        peer: PeerId,
-        connection_id: ConnectionId,
-        incoming: bool,
-    ) -> Handler {
-        let should_exist = self.add_connection(peer, connection_id) | incoming;
-        Handler::new(
-            self.config.secret.clone(),
-            self.config.buffer_cap,
-            should_exist,
-        )
+    fn create_handler(&mut self, peer: PeerId, connection_id: ConnectionId) -> Handler {
+        self.add_connection(peer, connection_id);
+        Handler::new(self.config.secret.clone(), self.config.buffer_cap)
     }
 }
 
 impl component_utils::KadSearchComponent for Behaviour {
-    fn redail(&mut self, peer: libp2p_identity::PeerId) {
+    fn redail(&mut self, peer: libp2p::identity::PeerId) {
         self.redail(peer);
+    }
+
+    fn mark_failed(&mut self, peer: PeerId) {
+        self.report_unreachable(peer);
     }
 }
 
@@ -230,35 +237,35 @@ impl NetworkBehaviour for Behaviour {
     fn handle_established_inbound_connection(
         &mut self,
         connection_id: ConnectionId,
-        peer: libp2p_identity::PeerId,
-        _local_addr: &libp2p_core::Multiaddr,
-        _remote_addr: &libp2p_core::Multiaddr,
-    ) -> Result<libp2p_swarm::THandler<Self>, libp2p_swarm::ConnectionDenied> {
-        Ok(self.create_handler(peer, connection_id, true))
+        peer: libp2p::identity::PeerId,
+        _local_addr: &libp2p::core::Multiaddr,
+        _remote_addr: &libp2p::core::Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        Ok(self.create_handler(peer, connection_id))
     }
 
     fn handle_established_outbound_connection(
         &mut self,
         connection_id: ConnectionId,
-        peer: libp2p_identity::PeerId,
-        _addr: &libp2p_core::Multiaddr,
-        _role_override: libp2p_core::Endpoint,
-    ) -> Result<libp2p_swarm::THandler<Self>, libp2p_swarm::ConnectionDenied> {
-        Ok(self.create_handler(peer, connection_id, false))
+        peer: libp2p::identity::PeerId,
+        _addr: &libp2p::core::Multiaddr,
+        _role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        Ok(self.create_handler(peer, connection_id))
     }
 
-    fn on_swarm_event(&mut self, event: libp2p_swarm::FromSwarm<Self::ConnectionHandler>) {
-        use libp2p_swarm::FromSwarm as FS;
-        if let FS::ConnectionClosed(c) = event {
+    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
+        if let libp2p::swarm::FromSwarm::ConnectionClosed(c) = event {
+            log::debug!("connection closed to {}", c.peer_id);
             self.peer_to_connection.remove(&c.peer_id);
         }
     }
 
     fn on_connection_handler_event(
         &mut self,
-        peer_id: libp2p_identity::PeerId,
+        peer_id: libp2p::identity::PeerId,
         connection_id: ConnectionId,
-        event: libp2p_swarm::THandlerOutEvent<Self>,
+        event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {
         use crate::handler::ToBehaviour as HTB;
         match event {
@@ -284,7 +291,7 @@ impl NetworkBehaviour for Behaviour {
                     .push_back(TS::GenerateEvent(Event::Error(Error::Handler(e))));
                 self.events.push_back(TS::CloseConnection {
                     peer_id,
-                    connection: { CloseConnection::One(connection_id) },
+                    connection: CloseConnection::One(connection_id),
                 })
             }
         }
@@ -293,8 +300,7 @@ impl NetworkBehaviour for Behaviour {
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
-        _params: &mut impl libp2p_swarm::PollParameters,
-    ) -> Poll<TS<Self::ToSwarm, libp2p_swarm::THandlerInEvent<Self>>> {
+    ) -> Poll<TS<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
         if let Some(event) = self.events.pop_front() {
             return Poll::Ready(event);
         }
@@ -336,7 +342,7 @@ component_utils::gen_config! {
 
 #[derive(Debug)]
 pub enum Event {
-    ConnectRequest { to: PeerId },
+    ConnectRequest(PeerId),
     InboundStream(EncryptedStream),
     OutboundStream(EncryptedStream, PathId),
     Error(Error),
@@ -435,27 +441,25 @@ impl futures::stream::FusedStream for EncryptedStream {
 
 #[derive(Debug)]
 pub struct Stream {
-    inner: libp2p_swarm::Stream,
+    inner: libp2p::swarm::Stream,
     writer: component_utils::PacketWriter,
-    rc: HandlerRef,
 }
 
 impl Stream {
-    pub(crate) fn new(inner: libp2p_swarm::Stream, cap: usize, rc: HandlerRef) -> Self {
+    pub(crate) fn new(inner: libp2p::swarm::Stream, cap: usize) -> Self {
         Self {
             inner,
             writer: component_utils::PacketWriter::new(cap),
-            rc,
         }
     }
 
-    pub fn stream(&mut self) -> &mut libp2p_swarm::Stream {
+    pub fn stream(&mut self) -> &mut libp2p::swarm::Stream {
         &mut self.inner
     }
 
     pub(crate) fn forward_from(
         &mut self,
-        from: &mut libp2p_swarm::Stream,
+        from: &mut libp2p::swarm::Stream,
         temp: &mut [u8],
         last_packet: &mut instant::Instant,
         cx: &mut std::task::Context<'_>,
@@ -473,15 +477,11 @@ impl Stream {
         }
     }
 
-    fn is_valid(&self) -> bool {
-        !self.rc.is_invalid()
-    }
-
     fn write_error(&mut self, bytes: u8) {
         self.writer.write(&[bytes]);
     }
 
-    fn into_closing_stream(self) -> component_utils::ClosingStream<libp2p_swarm::Stream> {
+    fn into_closing_stream(self) -> component_utils::ClosingStream<libp2p::swarm::Stream> {
         component_utils::ClosingStream::new(self.inner, self.writer)
     }
 }
@@ -531,16 +531,8 @@ impl Channel {
             return false;
         }
 
-        let is_valid = self.from.is_valid() || self.to.is_valid();
-        let is_active = self.last_packet + timeout > instant::Instant::now();
-        if is_valid && is_active {
+        if self.last_packet + timeout > instant::Instant::now() {
             return true;
-        }
-
-        if !is_valid {
-            log::debug!("invalid channel");
-        } else {
-            log::debug!("inactive channel");
         }
 
         self.invalid = true;
