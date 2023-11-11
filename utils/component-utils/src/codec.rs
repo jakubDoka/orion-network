@@ -134,7 +134,7 @@ impl Iterator for Base128Bytes {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.0 == 0 && !std::mem::take(&mut self.1) {
+        if !std::mem::take(&mut self.1) && self.0 == 0 {
             return None;
         }
 

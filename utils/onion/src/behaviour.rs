@@ -278,13 +278,18 @@ impl NetworkBehaviour for Behaviour {
                 self.events
                     .push_back(TS::GenerateEvent(Event::InboundStream(s)));
             }
-            HTB::OutboundStream { to: the, key, id } => {
-                self.events
-                    .push_back(TS::GenerateEvent(Event::OutboundStream(
-                        EncryptedStream::new(the, key),
-                        id,
-                    )))
-            }
+            HTB::OutboundStream {
+                to: the,
+                key,
+                id,
+                from,
+            } => self
+                .events
+                .push_back(TS::GenerateEvent(Event::OutboundStream(
+                    EncryptedStream::new(the, key),
+                    id,
+                    from,
+                ))),
             HTB::Error(e) => {
                 self.peer_to_connection.remove(&peer_id);
                 self.events
@@ -344,7 +349,7 @@ component_utils::gen_config! {
 pub enum Event {
     ConnectRequest(PeerId),
     InboundStream(EncryptedStream),
-    OutboundStream(EncryptedStream, PathId),
+    OutboundStream(EncryptedStream, PathId, PeerId),
     Error(Error),
 }
 

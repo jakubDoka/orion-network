@@ -105,7 +105,7 @@ async fn open_path(
         let (e, id, ..) = futures::future::select_all(swarms.iter_mut().map(|s| s.next())).await;
         match e.unwrap() {
             SwarmEvent::Behaviour(crate::Event::InboundStream(s)) => input = Some(s),
-            SwarmEvent::Behaviour(crate::Event::OutboundStream(s, _)) => output = Some(s),
+            SwarmEvent::Behaviour(crate::Event::OutboundStream(s, ..)) => output = Some(s),
             e => log::debug!("{id} {e:?}"),
         }
 
@@ -480,7 +480,7 @@ async fn settle_down() {
                     {
                         log::error!("kad event {e:?}");
                     }
-                    SE::Behaviour(BE::Onion(OE::OutboundStream(mut stream, id))) => {
+                    SE::Behaviour(BE::Onion(OE::OutboundStream(mut stream, id, ..))) => {
                         stream.write(&mut b"hello".to_vec());
                         streams.push(AsocStream::new(stream, stream_counter));
                         stream_counter += 1;

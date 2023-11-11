@@ -90,8 +90,11 @@ pub enum CreateUserError {
     Conflict,
 }
 
-pub async fn user_by_name(addr: impl fmt::Display, name: &str) -> Result<UserData, GetUserError> {
-    let url = format!("{addr}{}", USER_BY_NAME.replace(":id", name));
+pub async fn user_by_name(
+    addr: impl fmt::Display,
+    name: UserName,
+) -> Result<UserData, GetUserError> {
+    let url = format!("{addr}{}", USER_BY_NAME.replace(":id", &name));
     get_user(url).await
 }
 

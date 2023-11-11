@@ -111,7 +111,9 @@ impl ConnectionHandler for Handler {
                 ..
             }) => match from {
                 ChannelSource::Stream(from) => ToBehaviour::NewChannel([from, to]),
-                ChannelSource::ThisNode(key, id) => ToBehaviour::OutboundStream { to, key, id },
+                ChannelSource::ThisNode(key, id, from) => {
+                    ToBehaviour::OutboundStream { to, key, id, from }
+                }
             },
             CE::DialUpgradeError(e) => ToBehaviour::Error(HError::DialUpgrade(e.error)),
             CE::ListenUpgradeError(e) => ToBehaviour::Error(HError::ListenUpgrade(e.error)),
@@ -137,6 +139,7 @@ pub enum ToBehaviour {
         to: Stream,
         key: SharedSecret,
         id: PathId,
+        from: PeerId,
     },
     IncomingStream(IncomingOrResponse),
     Error(HError),
@@ -300,7 +303,7 @@ impl UpgradeInfo for OUpgrade {
 #[derive(Debug)]
 pub enum ChannelSource {
     Stream(Stream),
-    ThisNode(SharedSecret, PathId),
+    ThisNode(SharedSecret, PathId, PeerId),
 }
 
 #[derive(Debug)]
@@ -327,13 +330,14 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
 
             let mut written_packet = vec![];
             let mut ss = [0; 32];
-            let buffer = match &incoming {
+            let (buffer, peer_id) = match &incoming {
                 IncomingOrRequest::Request(r) => {
                     ss = packet::new_initial(&r.recipient, r.path, &keypair, &mut written_packet)
                         .map_err(OUpgradeError::PacketCreation)?;
-                    &written_packet
+                    (&written_packet, r.path[0].1)
                 }
-                IncomingOrRequest::Incoming(i) => &i.buffer,
+                IncomingOrRequest::Incoming(i) => (&i.buffer, i.to), // the peer id is arbitrary in
+                                                                     // this case
             };
 
             stream
@@ -379,7 +383,7 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                         Err(OUpgradeError::AuthenticationFailed)
                     } else {
                         Ok(ChannelMeta {
-                            from: ChannelSource::ThisNode(ss, request.path_id),
+                            from: ChannelSource::ThisNode(ss, request.path_id, peer_id),
                             to: Stream::new(stream, buffer_cap),
                         })
                     }

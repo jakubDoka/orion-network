@@ -60,19 +60,15 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
     let username = create_node_ref::<Input>();
     let download_link = create_node_ref::<leptos::html::A>();
 
-    let on_change = move |_| {};
-
     let on_register = move |_| {
         let key = UserKeys::new();
         let username = username.get_untracked().expect("universe to work");
         let Ok(username_content) = UserName::try_from(username.value().as_str()) else {
-            username.set_custom_validity("username is too long");
-            username.report_validity();
             return;
         };
 
         spawn_local(async move {
-            if chain_api::user_by_name(CHAIN_BOOTSTRAP_NODE, &username_content)
+            if chain_api::user_by_name(CHAIN_BOOTSTRAP_NODE, username_content)
                 .await
                 .is_ok()
             {
@@ -113,12 +109,19 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
         });
     };
 
+    let validation_trigger = create_trigger();
+    let on_change = move |_| validation_trigger.notify();
+    let disabled = move || {
+        validation_trigger.track();
+        !username.get_untracked().unwrap().check_validity()
+    };
+
     view! {
         <div class="sc flx fdc bp ma">
             <Nav/>
             <form class="flx fdc">
-                <input class="pc hov bp tbm" type="text" placeholder="new username" maxlength="32" node_ref=username required on:change=on_change />
-                <input class="pc hov bp tbm" type="button" value="register" on:click=on_register />
+                <input class="pc hov bp tbm" type="text" placeholder="new username" maxlength="32" node_ref=username on:input=on_change required />
+                <input class="pc hov bp tbm" type="button" value="register" on:click=on_register disabled=disabled />
                 <a hidden=true class="pc hov bp tbm bf tac" node_ref=download_link>/download-again</a>
             </form>
         </div>

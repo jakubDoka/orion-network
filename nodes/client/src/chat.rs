@@ -3,10 +3,10 @@ use std::mem;
 use leptos::html::Input;
 use leptos::*;
 use leptos_router::Redirect;
-use protocols::chat::{ChatName, CreateChatErrorData, UserName};
+use protocols::chat::{AddMember, ChatName, CreateChatErrorData, UserName};
 
 use crate::node::MessageContent;
-use crate::{get_value, navigate_to, node, report_validity};
+use crate::{get_value, navigate_to, node, report_validity, CHAIN_BOOTSTRAP_NODE};
 
 fn is_at_bottom(messages_div: HtmlElement<leptos::html::Div>) -> bool {
     let scroll_bottom = messages_div.scroll_top();
@@ -34,7 +34,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
 
     let selected: Option<ChatName> = leptos_router::use_query_map()
         .with_untracked(|m| m.get("id").and_then(|v| v.as_str().try_into().ok()))
-        .filter(|v| chats.with(|chats| chats.contains(v)));
+        .filter(|v| chats.with_untracked(|chats| chats.contains(v)));
     if let Some(selected) = selected {
         wcommands(node::Command::FetchMessages(selected, true));
     }
@@ -45,11 +45,12 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     let message_view = move |username: UserName, content: MessageContent| {
         let my_message = rusername.get_untracked() == username;
         let justify = if my_message { "right" } else { "left" };
+        let color = if my_message { "hc" } else { "pc" };
         view! {
             <div class="tbm flx" style=("justify-content", justify)>
-                <div class="hc bp flx" class:pc=my_message>
-                    <div class="hc" class:pc=my_message>{username.to_string()}:</div>
-                    <div class="lbp hc" class:pc=my_message>{content.to_string()}</div>
+                <div class=format!("bp flx {color}")>
+                    <div class=color>{username.to_string()}:</div>
+                    <div class=format!("lbp {color}")>{content.to_string()}</div>
                 </div>
             </div>
         }
@@ -80,19 +81,65 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
         view! { <div class="sb tac bp toe" class:hc=selected class:hov=not_selected on:click=select_chat> {chat.to_string()} </div> }
     };
 
-    let hidden = create_rw_signal(true);
-    let bts_disabled = create_rw_signal(false);
-    let name_input = create_node_ref::<Input>();
+    let cc_hidden = create_rw_signal(true);
+    let cc_bts_disabled = create_rw_signal(false);
+    let cc_name_input = create_node_ref::<Input>();
+    let on_open_cc = move |_| cc_hidden.set(false);
+    let on_close_cc = move |_| cc_hidden.set(true);
+    let on_cc = move |_| {
+        let Ok(chat) = ChatName::try_from(get_value(cc_name_input).as_str()) else {
+            return;
+        };
+        if chats.with(|chats| chats.contains(&chat)) {
+            report_validity(
+                cc_name_input,
+                format_args!("chat '{chat}' already exists and you have it"),
+            );
+            return;
+        }
+        wcommands(node::Command::CreateChat(chat));
+        cc_bts_disabled.set(true);
+    };
+
+    let mi_hidden = create_rw_signal(true);
+    let mi_bts_disabled = create_rw_signal(false);
+    let mi_name_input = create_node_ref::<Input>();
+    let on_open_mi = move |_| mi_hidden.set(false);
+    let on_close_mi = move |_| mi_hidden.set(true);
+    let on_mi = move |_| {
+        let Ok(user) = UserName::try_from(get_value(mi_name_input).as_str()) else {
+            return;
+        };
+
+        let Some(chat) = current_chat.get_untracked() else {
+            return;
+        };
+
+        mi_bts_disabled.set(true);
+        spawn_local(async move {
+            let user = match chain_api::user_by_name(CHAIN_BOOTSTRAP_NODE, user).await {
+                Ok(u) => u,
+                Err(e) => {
+                    report_validity(mi_name_input, format_args!("failed to fetch user: {e}"));
+                    return;
+                }
+            };
+            wcommands(node::Command::InviteUser { chat, user });
+        })
+    };
 
     create_effect(move |_| match revents() {
         node::Event::ChatCreated(chat) => {
             chats.update(|chats| chats.push(chat));
-            hidden.set(true);
-            bts_disabled.set(false);
+            cc_hidden.set(true);
+            cc_bts_disabled.set(false);
         }
         node::Event::CannotCreateChat(CreateChatErrorData { err, name }) => {
-            report_validity(name_input, format_args!("failed to create '{name}': {err}"));
-            bts_disabled.set(false);
+            report_validity(
+                cc_name_input,
+                format_args!("failed to create '{name}': {err}"),
+            );
+            cc_bts_disabled.set(false);
         }
         node::Event::NewMessage {
             chat,
@@ -112,25 +159,20 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
         node::Event::FetchedMessages { chat, messages, .. } => {
             log::info!("fetched messages for {chat}: {messages:#?}");
         }
+        node::Event::MailWritten => {
+            mi_hidden.set(true);
+            mi_bts_disabled.set(false);
+        }
+        node::Event::MailWriteError(e) => {
+            report_validity(mi_name_input, format_args!("failed to write mail: {e}"));
+            mi_bts_disabled.set(false);
+        }
+        node::Event::AddedMember(AddMember { .. }) => {
+            mi_hidden.set(true);
+            mi_bts_disabled.set(false);
+        }
         _ => {}
     });
-
-    let on_open = move |_| hidden.set(false);
-    let on_close = move |_| hidden.set(true);
-    let on_create = move |_| {
-        let Ok(chat) = ChatName::try_from(get_value(name_input).as_str()) else {
-            return;
-        };
-        if chats.with(|chats| chats.contains(&chat)) {
-            report_validity(
-                name_input,
-                format_args!("chat '{chat}' already exists and you have it"),
-            );
-            return;
-        }
-        wcommands(node::Command::CreateChat(chat));
-        bts_disabled.set(true);
-    };
 
     let message_input = create_node_ref::<Input>();
     let on_input = move |e: web_sys::KeyboardEvent| {
@@ -149,6 +191,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
         log::info!("sending message: {}", content);
 
         wcommands(node::Command::SendMessage { chat, content });
+        message_input.get_untracked().unwrap().set_value("");
     };
 
     let message_scroll = create_node_ref::<leptos::html::Div>();
@@ -168,61 +211,47 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
         wcommands(node::Command::FetchMessages(chat, false))
     };
 
+    let chats_view =
+        move || chats.with(|chats| chats.iter().map(|&chat| side_chat(chat)).collect_view());
+
     view! {
         <crate::Nav rusername/>
         <main class="tbm flx fg1 jcsb">
             <div class="sidebar bhc fg0 rbm oys pr">
                 <div class="pa">
                     <div class="bp lsp sc sb tac">
-                        "chats" <button class="hov sf pc lsm" on:click=on_open >+</button>
+                        "chats" <button class="hov sf pc lsm" on:click=on_open_cc >+</button>
                     </div>
-                    <For each=chats key=mem::copy children=side_chat />
+                    {chats_view}
                     <div class="tac bm" hidden=move || !chats.with(Vec::is_empty)>"no chats yet"</div>
-                    /*
-                    <div class="bp toe lsp sc sb tac">
-                        dms
-                    </div>
-                    <div class="sb hov tac bp toe">
-                        some dm
-                    </div>
-                    <div class="sb hov tac bp toe">
-                        some dm log as fuck
-                    </div>
-                    <div class="sb hov tac bp toe">
-                        some dm log as fuck
-                    </div>
-                    <div class="sb hov tac bp toe">
-                        some dm log as fuck aksjd laksj dla ksjdlkajs hdlkajs lhk jdsahlksj hdl kjsahdl kjs
-                    </div>
-                    <div class="sb hov tac bp toe">
-                        somedmlogasfucklakjsdlkajhdlkaj
-                    </div>
-                    <div class="sb hov tac bp toe">
-                        some dm log as fuck
-                    </div>
-                    <div class="sb hov tac bp toe">
-                        some dm log as fuck
-                    </div>
-                    */
                 </div>
             </div>
             <div class="sc fg1 flx pb fdc" hidden=move || current_chat.with(Option::is_none)>
-                <div class="fg1 flx fdc sc pr oys fy" on:scroll=on_scroll node_ref=message_scroll><div class="fg1 flx fdc bp sc fsc fy boa" node_ref=messages>
-                </div></div>
-                <div class="fg0 flx bm bp pc">
-                    <input class="fg1 sc hov" type="text" placeholder="mesg..." node_ref=message_input on:keyup=on_input />
+                <div class="fg0 flx bm jcfe">
+                    <button class="fg0 hov pc" on:click=on_open_mi>+</button>
                 </div>
+                <div class="fg1 flx fdc sc pr oys fy" on:scroll=on_scroll node_ref=message_scroll>
+                    <div class="fg1 flx fdc bp sc fsc fy boa" node_ref=messages>
+                    </div>
+                </div>
+                <input class="fg0 flx bm bp pc sf" type="text" placeholder="mesg..." node_ref=message_input on:keyup=on_input />
             </div>
             <div class="sc fg1 flx pb fdc" hidden=move || current_chat.with(Option::is_some)>
                 <div class="ma">"no chat selected"</div>
             </div>
         </main>
-
-        <div class="fsc flx blr sb" hidden=hidden>
+        <div class="fsc flx blr sb" hidden=cc_hidden>
             <div class="sc flx fdc bp ma bsha">
-                <input class="pc hov bp" type="text" placeholder="chat name..." maxlength=32 required node_ref=name_input />
-                <input class="pc hov bp tbm" type="button" value="create" disabled=bts_disabled on:click=on_create  />
-                <input class="pc hov bp tbm" type="button" value="cancel" disabled=bts_disabled on:click=on_close />
+                <input class="pc hov bp" type="text" placeholder="chat name..." maxlength=32 required node_ref=cc_name_input />
+                <input class="pc hov bp tbm" type="button" value="create" disabled=cc_bts_disabled on:click=on_cc  />
+                <input class="pc hov bp tbm" type="button" value="cancel" disabled=cc_bts_disabled on:click=on_close_cc />
+            </div>
+        </div>
+        <div class="fsc flx blr sb" hidden=mi_hidden>
+            <div class="sc flx fdc bp ma bsha">
+                <input class="pc hov bp" type="text" placeholder="user to invite..." maxlength=32 required node_ref=mi_name_input />
+                <input class="pc hov bp tbm" type="button" value="invite" disabled=cc_bts_disabled on:click=on_mi  />
+                <input class="pc hov bp tbm" type="button" value="cancel" disabled=cc_bts_disabled on:click=on_close_mi />
             </div>
         </div>
     }.into_view()

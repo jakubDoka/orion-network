@@ -242,6 +242,7 @@ impl Miner {
             PutRecord::Message(msg) => self.handle_put_record_message(record.key.as_ref(), msg),
             PutRecord::Mail(msg) => {
                 let Ok(mail_id) = Identity::try_from(record.key.as_ref()) else {
+                    log::warn!("failed to decode mail id");
                     return;
                 };
 
@@ -261,12 +262,15 @@ impl Miner {
                     .iter_mut()
                     .find(|c| c.state.is_this_profile(&mail_id))
                 {
+                    log::info!("sending mail to client");
                     send_response(
                         ProfileResponse::Mail(msg),
                         &mut stream.inner,
                         &mut self.buffer,
                     );
                 }
+
+                log::info!("wrote mail in {}", self.swarm.local_peer_id());
             }
             PutRecord::WriteData(wd) => {
                 debug_assert_eq!(wd.proof.pk.to_bytes(), record.key.as_ref());
@@ -345,7 +349,7 @@ impl Miner {
 
     fn handle_profile_client_message(&mut self, id: usize, req: Vec<u8>, ident: Identity) {
         let Some(req) = ProfileRequest::decode(&mut req.as_slice()) else {
-            log::error!("failed to decode request");
+            log::error!("failed to decode profile request");
             return;
         };
 
@@ -403,17 +407,23 @@ impl Miner {
                 send_response(req, &mut stream.inner, &mut self.buffer);
             }
             ProfileRequest::SendMail(SendMail { id, data }) => {
-                if let Err(e) = self
+                let res = self
                     .swarm
                     .behaviour_mut()
                     .kad
                     .store_mut()
-                    .write_mail(id, data)
-                {
-                    log::error!("failed to write mail: {e:?}");
+                    .write_mail(id, data);
+
+                let success = res.is_ok();
+                let resp = match res {
+                    Ok(()) => ProfileResponse::MailWritten,
+                    Err(e) => ProfileResponse::MailWriteFailed(e),
+                };
+                send_response(resp, &mut stream.inner, &mut self.buffer);
+
+                if !success {
                     return;
                 }
-
                 self.swarm
                     .behaviour_mut()
                     .kad
@@ -427,6 +437,19 @@ impl Miner {
                         Quorum::N(protocols::chat::QUORUM),
                     )
                     .unwrap();
+
+                for client in self
+                    .clients
+                    .iter_mut()
+                    .filter(|c| c.state.is_this_profile(&id))
+                {
+                    log::info!("sending mail to client");
+                    send_response(
+                        ProfileResponse::Mail(data),
+                        &mut client.inner,
+                        &mut self.buffer,
+                    );
+                }
             }
             ProfileRequest::KeepAlive => todo!(),
         }
@@ -434,7 +457,7 @@ impl Miner {
 
     fn handle_undecided_client_message(&mut self, id: usize, req: Vec<u8>) {
         let Some(req) = InitRequest::decode(&mut req.as_slice()) else {
-            log::error!("failed to decode request");
+            log::error!("failed to decode init request");
             return;
         };
 
@@ -518,7 +541,7 @@ impl Miner {
 
     fn handle_chat_request(&mut self, id: usize, req: Vec<u8>) {
         let Some(req) = ChatRequest::decode(&mut req.as_slice()) else {
-            log::error!("failed to decode request");
+            log::error!("failed to decode chat request");
             return;
         };
 
@@ -647,15 +670,15 @@ struct ChatStore {
 }
 
 impl ChatStore {
-    fn write_mail(&mut self, id: Identity, msg: &[u8]) -> Result<(), PutMailError> {
+    fn write_mail(&mut self, id: Identity, msg: &[u8]) -> Result<(), WriteMailError> {
         if msg.len() > protocols::chat::MAX_MAIL_SIZE {
-            return Err(PutMailError::MailTooBig);
+            return Err(WriteMailError::MailTooBig);
         }
 
         let mail = self.mail_boxes.entry(id).or_default();
 
         if !mail.messages.push(msg.iter().copied()) {
-            return Err(PutMailError::MailboxFull);
+            return Err(WriteMailError::MailboxFull);
         }
 
         Ok(())
@@ -745,7 +768,7 @@ impl ChatStore {
                     return Ok(());
                 };
 
-                if member.perm <= issuer_perm {
+                if member.perm < issuer_perm {
                     return Err(PutMessageError::NotPermitted);
                 }
 

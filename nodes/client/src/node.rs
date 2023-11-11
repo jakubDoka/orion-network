@@ -114,6 +114,7 @@ gen_theme! {
 }
 
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     NewMessage {
         chat: ChatName,
@@ -125,8 +126,11 @@ pub enum Event {
         messages: Vec<(UserName, MessageContent)>,
         end: bool,
     },
+    AddedMember(AddMember),
     ChatCreated(ChatName),
     CannotCreateChat(CreateChatErrorData),
+    MailWritten,
+    MailWriteError(WriteMailError),
     None,
 }
 
@@ -236,8 +240,8 @@ impl Node {
             .try_into()
             .unwrap();
 
+        swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
         use libp2p::core::multiaddr::Protocol;
-        swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
         swarm
             .dial(
                 Multiaddr::empty()
@@ -303,6 +307,7 @@ impl Node {
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
+                    _,
                 ))) if id == pid => break stream,
                 _ => {}
             }
@@ -326,6 +331,8 @@ impl Node {
         if key != profile.sign {
             todo!("error handling");
         }
+
+        log::debug!("members: {members:#?}");
 
         let Some(pick) = members
             .into_iter()
@@ -373,6 +380,7 @@ impl Node {
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
+                    _,
                 ))) if id == pid => break stream,
                 _ => {}
             }
@@ -392,16 +400,37 @@ impl Node {
             Vault::decode(&mut &*vault).unwrap()
         };
 
+        debug_assert!(vault.chats.iter().enumerate().all(|(i, c)| vault
+            .chats
+            .iter()
+            .skip(i + 1)
+            .all(|d| c.name != d.name)));
+
         let _ = vault.theme.apply();
 
-        send_request(
-            ProfileRequest::Subscribe(ActionProof::for_profile(&mut vault.action_no, &keys.sign)),
-            &mut profile_stream,
-            &mut buffer,
-        );
-        let mail = profile_stream.next().await.unwrap().unwrap();
-        let Some(ProfileSubscribeResponse::Success(bytes)) = <_>::decode(&mut &*mail) else {
-            todo!("error handling");
+        let mut mail;
+        let bytes = loop {
+            send_request(
+                ProfileRequest::Subscribe(ActionProof::for_profile(
+                    &mut vault.action_no,
+                    &keys.sign,
+                )),
+                &mut profile_stream,
+                &mut buffer,
+            );
+            mail = profile_stream.next().await.unwrap().unwrap();
+            let Some(resp) = <_>::decode(&mut &*mail) else {
+                todo!("error handling");
+            };
+            break match resp {
+                ProfileSubscribeResponse::Success(b) => b,
+                ProfileSubscribeResponse::Failure(ReadMailError::NotPermitted) => {
+                    continue;
+                }
+                ProfileSubscribeResponse::Failure(e) => {
+                    todo!("error handling: {e}");
+                }
+            };
         };
 
         wboot_phase(Some(BootPhase::ChatSearch));
@@ -459,8 +488,9 @@ impl Node {
         let mut to_connect = vec![];
         let mut seen = HashSet::new();
         while seen.len() < discovered {
-            let (peer, chats) = topology.pop().unwrap();
-            if !chats.iter().fold(false, |acc, &ch| acc | seen.insert(ch)) {
+            let (peer, mut chats) = topology.pop().unwrap();
+            chats.retain(|&c| seen.insert(c));
+            if chats.is_empty() {
                 continue;
             }
             to_connect.push((peer, chats));
@@ -495,6 +525,7 @@ impl Node {
                         .onion
                         .open_path(route.map(|(ud, p)| (ud.enc.into(), p)))
                         .unwrap(),
+                    pick,
                     set,
                 )
             })
@@ -502,30 +533,32 @@ impl Node {
 
         let mut subscriptions = futures::stream::SelectAll::new();
         while !awaiting.is_empty() {
-            let (mut stream, subs, id) = loop {
-                match swarm.select_next_some().await {
-                    SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(
-                        to,
-                    ))) => {
-                        component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
-                    }
-                    SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
-                        if component_utils::try_handle_conn_response(
-                            &e,
-                            &mut swarm,
-                            &mut peer_search,
-                        ) => {}
-                    SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
-                        stream,
-                        id,
-                    ))) => {
-                        if let Some(i) = awaiting.iter().position(|&(i, ..)| i == id) {
-                            break (stream, awaiting.swap_remove(i).1, id);
+            let (mut stream, subs, peer_id, id) =
+                loop {
+                    match swarm.select_next_some().await {
+                        SwarmEvent::Behaviour(BehaviourEvent::Onion(
+                            onion::Event::ConnectRequest(to),
+                        )) => {
+                            component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
                         }
+                        SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
+                            if component_utils::try_handle_conn_response(
+                                &e,
+                                &mut swarm,
+                                &mut peer_search,
+                            ) => {}
+                        SwarmEvent::Behaviour(BehaviourEvent::Onion(
+                            onion::Event::OutboundStream(stream, id, pid),
+                        )) => {
+                            if let Some(i) = awaiting.iter().position(|&(i, ..)| i == id) {
+                                let (.., peer_id, subs) = awaiting.swap_remove(i);
+                                debug_assert!(peer_id == pid);
+                                break (stream, subs, peer_id, id);
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                }
-            };
+                };
 
             send_request(
                 InitRequest::Subscribe(ChatSubs {
@@ -538,6 +571,7 @@ impl Node {
 
             subscriptions.push(Subscription {
                 id,
+                peer_id,
                 subs,
                 stream,
                 cursor: protocols::chat::NO_CURSOR,
@@ -591,6 +625,11 @@ impl Node {
 
         match mail {
             Mail::ChatInvite(invite) => {
+                if self.vault.chats.iter().any(|c| c.name == invite.chat) {
+                    log::error!("chat already exists");
+                    return;
+                }
+
                 let chat = ChatMeta {
                     name: invite.chat,
                     secret: self
@@ -686,6 +725,8 @@ impl Node {
 
                 self.pending_subscriptions.push((quid, intent));
             }
+            ProfileResponse::MailWritten => (self.events)(Event::MailWritten),
+            ProfileResponse::MailWriteFailed(e) => (self.events)(Event::MailWriteError(e)),
         }
     }
 
@@ -703,6 +744,7 @@ impl Node {
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                 mut stream,
                 id,
+                peer_id,
             ))) => {
                 if let Some(index) = self
                     .pending_subscriptions
@@ -719,6 +761,7 @@ impl Node {
                             );
                             self.subscriptions.push(Subscription {
                                 id,
+                                peer_id,
                                 subs: [name].into_iter().collect(),
                                 stream,
                                 cursor: NO_CURSOR,
@@ -908,34 +951,41 @@ impl Node {
                     return;
                 }
 
-                let Some(MessagePayload::Arbitrary(content)) = <_>::decode(&mut &*msg.content)
-                else {
+                let Some(payload) = MessagePayload::decode(&mut &*msg.content) else {
                     log::warn!("message content is malformed");
                     return;
                 };
 
-                let mut content = content.to_vec();
-                let Some(decrypted) = crypto::decrypt(&mut content, meta.secret) else {
-                    log::warn!("message content is malformed, cannot decrypt");
-                    return;
-                };
+                match payload {
+                    MessagePayload::Arbitrary(content) => {
+                        let mut content = content.to_vec();
+                        let Some(decrypted) = crypto::decrypt(&mut content, meta.secret) else {
+                            log::warn!("message content is malformed, cannot decrypt");
+                            return;
+                        };
 
-                let Some(RawChatMessage { user, content }) = <_>::decode(&mut &*decrypted) else {
-                    log::warn!("message is decriptable but still malformed");
-                    return;
-                };
+                        let Some(RawChatMessage { user, content }) = <_>::decode(&mut &*decrypted)
+                        else {
+                            log::warn!("message is decriptable but still malformed");
+                            return;
+                        };
 
-                (self.events)(Event::NewMessage {
-                    chat: msg.chat,
-                    name: user,
-                    content: content.into(),
-                });
+                        (self.events)(Event::NewMessage {
+                            chat: msg.chat,
+                            name: user,
+                            content: content.into(),
+                        });
+                    }
+                    MessagePayload::AddMember(a) => (self.events)(Event::AddedMember(a)),
+                    MessagePayload::RemoveMember(_) => todo!(),
+                }
             }
             ChatResponse::Subscribed(Subscribed { chat, no }) => {
                 let Some(meta) = self.vault.chats.iter_mut().find(|c| c.name == chat) else {
                     log::warn!("message chat does not match subscription");
                     return;
                 };
+                log::debug!("subscribed to {chat} {no}");
                 meta.action_no = no + 1;
                 if no == 0 {
                     (self.events)(Event::ChatCreated(chat));
@@ -988,6 +1038,7 @@ impl Node {
             }
             ChatResponse::Created(ch) => {
                 self.save_vault();
+                log::debug!("created chat {ch}");
                 (self.events)(Event::ChatCreated(ch))
             }
 
@@ -1059,7 +1110,8 @@ fn node_data_to_path_seg(data: NodeData) -> (PeerId, NodeData) {
 }
 
 struct Subscription {
-    id: PathId,
+    id: PathId, // we still keep if for faster comparison
+    peer_id: PeerId,
     subs: HashSet<ChatName>,
     stream: EncryptedStream,
     cursor: protocols::chat::Cursor,

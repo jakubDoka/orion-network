@@ -11,12 +11,11 @@ pub const CHAT_CAP: usize = 1024 * 1024;
 pub const MAIL_CAP: usize = 1024 * 1024;
 pub const USER_DATA_CAP: usize = 1024 * 1024;
 pub const MAX_MESSAGE_SIZE: usize = 1024;
-pub const MAX_MAIL_SIZE: usize = 512;
+pub const MAX_MAIL_SIZE: usize = mem::size_of::<Mail>();
 pub const MESSAGE_FETCH_LIMIT: usize = 20;
 pub const NO_CURSOR: Cursor = Cursor::MAX;
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(2) };
-pub const QUORUM: NonZeroUsize =
-    unsafe { NonZeroUsize::new_unchecked(REPLICATION_FACTOR.get() - 1) };
+pub const QUORUM: NonZeroUsize = REPLICATION_FACTOR;
 pub const SALT_SIZE: usize = 32;
 pub const NO_SIZE: usize = 4;
 
@@ -111,7 +110,7 @@ gen_simple_error! {
         MessageTooBig => "message is too big",
     }
 
-    error PutMailError {
+    error WriteMailError {
         MailboxFull => "user's mail box is full (they don't care about you)",
         MailTooBig => "one mail has limmited size ({MAX_MAIL_SIZE}), you excided it",
     }
@@ -317,7 +316,9 @@ component_utils::protocol! { 'a:
         Mail: &'a [u8] => 0,
         DataWritten => 1,
         DataWriteFailed: WriteDataError => 2,
-        Search: ChatSearchResult => 4,
+        MailWritten => 3,
+        MailWriteFailed: WriteMailError => 4,
+        Search: ChatSearchResult => 5,
     }
 
     enum ProfileSubscribeResponse<'a> {
