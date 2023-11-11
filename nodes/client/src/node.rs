@@ -592,17 +592,40 @@ impl Node {
             ProfileResponse::DataWritten => log::debug!("vault written"),
             ProfileResponse::DataWriteFailed(e) => log::error!("vault write failed: {e}"),
             ProfileResponse::Search(ChatSearchResult { members, key }) => {
+                let Some(meta) = self.vault.chats.get_mut(&key) else {
+                    log::error!("search to unexistent chat");
+                    return;
+                };
+
+                if let Some(sub) = self
+                    .subscriptions
+                    .iter_mut()
+                    .find(|s| members.contains(&s.peer_id))
+                {
+                    let req = if meta.action_no == 0 {
+                        InitRequest::Create(CreateChat {
+                            name: key,
+                            proof: ActionProof::for_chat(&mut meta.action_no, &self.keys.sign, key),
+                        })
+                    } else if meta.action_no == ActionNo::MAX {
+                        InitRequest::Subscribe(ChatSubs {
+                            chats: [key].into(),
+                            identity: self.keys.sign.public_key().into(),
+                        })
+                    } else {
+                        panic!("{key}");
+                    };
+                    send_request(req, &mut sub.stream, &mut self.buffer);
+                    sub.subs.insert(key);
+                    return;
+                };
+
                 let Some(pick) = members.into_iter().choose(&mut rand::thread_rng()) else {
                     todo!("error handling")
                 };
 
                 let route = pick_route(&self.nodes, pick);
                 let quid = self.swarm.behaviour_mut().onion.open_path(route).unwrap();
-
-                let Some(meta) = self.vault.chats.get_mut(&key) else {
-                    log::error!("search to unexistent chat");
-                    return;
-                };
 
                 let intent = if meta.action_no == 0 {
                     SubIntent::Create(
@@ -645,31 +668,24 @@ impl Node {
                     .position(|&(pid, ..)| pid == id)
                 {
                     let (.., intent) = self.pending_subscriptions.swap_remove(index);
-                    match intent {
+                    let req = match intent {
                         SubIntent::Create(name, proof) => {
-                            send_request(
-                                InitRequest::Create(CreateChat { name, proof }),
-                                &mut stream,
-                                &mut self.buffer,
-                            );
-                            self.subscriptions.push(Subscription {
-                                id,
-                                peer_id,
-                                subs: [name].into_iter().collect(),
-                                stream,
-                                cursor: NO_CURSOR,
-                            });
+                            InitRequest::Create(CreateChat { name, proof })
                         }
-                        SubIntent::Invited(name) => {
-                            send_request(
-                                InitRequest::Subscribe(ChatSubs {
-                                    chats: [name].into_iter().collect(),
-                                    identity: self.keys.sign.public_key().into(),
-                                }),
-                                &mut stream,
-                                &mut self.buffer,
-                            );
-                        }
+                        SubIntent::Invited(name) => InitRequest::Subscribe(ChatSubs {
+                            chats: [name].into(),
+                            identity: self.keys.sign.public_key().into(),
+                        }),
+                    };
+                    send_request(req, &mut stream, &mut self.buffer);
+                    if let SubIntent::Create(name, ..) = intent {
+                        self.subscriptions.push(Subscription {
+                            id,
+                            peer_id,
+                            subs: [name].into(),
+                            stream,
+                            cursor: NO_CURSOR,
+                        });
                     }
                 }
             }

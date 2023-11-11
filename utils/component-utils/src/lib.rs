@@ -101,6 +101,10 @@ impl<K: Eq, V> LinearMap<K, V> {
             .find(|(k, _)| k == key)
             .map(|(_, v)| v)
     }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.values.iter_mut().map(|(_, v)| v)
+    }
 }
 
 impl<K, V> Default for LinearMap<K, V> {
