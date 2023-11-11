@@ -17,7 +17,7 @@ use libp2p::{
     futures::{self, StreamExt},
     kad,
     swarm::{NetworkBehaviour, SwarmEvent},
-    Multiaddr, PeerId, Transport,
+    Multiaddr, PeerId, Swarm, Transport,
 };
 use onion::EncryptedStream;
 use protocols::chat::*;
@@ -379,20 +379,7 @@ impl Miner {
                     return;
                 }
 
-                self.swarm
-                    .behaviour_mut()
-                    .kad
-                    .put_record(
-                        // todo we send identity twice
-                        kad::Record {
-                            key: wd.proof.pk.to_bytes().into(),
-                            value: PutRecord::WriteData(wd).to_bytes(),
-                            publisher: None,
-                            expires: None,
-                        },
-                        Quorum::N(protocols::chat::QUORUM),
-                    )
-                    .unwrap();
+                Self::put_record(&mut self.swarm, wd.proof.pk, PutRecord::WriteData(wd));
             }
             ProfileRequest::Subscribe(req) => {
                 if ident != req.pk {
@@ -424,19 +411,8 @@ impl Miner {
                 if !success {
                     return;
                 }
-                self.swarm
-                    .behaviour_mut()
-                    .kad
-                    .put_record(
-                        kad::Record {
-                            key: id.to_bytes().into(),
-                            value: PutRecord::Mail(data).to_bytes(),
-                            publisher: None,
-                            expires: None,
-                        },
-                        Quorum::N(protocols::chat::QUORUM),
-                    )
-                    .unwrap();
+
+                Self::put_record(&mut self.swarm, id, PutRecord::Mail(data));
 
                 for client in self
                     .clients
@@ -453,6 +429,22 @@ impl Miner {
             }
             ProfileRequest::KeepAlive => todo!(),
         }
+    }
+
+    fn put_record<'a>(swarm: &mut Swarm<Behaviour>, key: impl Codec<'a>, value: impl Codec<'a>) {
+        swarm
+            .behaviour_mut()
+            .kad
+            .put_record(
+                kad::Record {
+                    key: key.to_bytes().into(),
+                    value: value.to_bytes(),
+                    publisher: None,
+                    expires: None,
+                },
+                Quorum::N(protocols::chat::QUORUM),
+            )
+            .unwrap();
     }
 
     fn handle_undecided_client_message(&mut self, id: usize, req: Vec<u8>) {
@@ -521,19 +513,11 @@ impl Miner {
                     return;
                 }
 
-                self.swarm
-                    .behaviour_mut()
-                    .kad
-                    .put_record(
-                        kad::Record {
-                            key: name.to_bytes().into(),
-                            value: PutRecord::CreateChat(CreateChat { name, proof }).to_bytes(),
-                            publisher: None,
-                            expires: None,
-                        },
-                        Quorum::N(protocols::chat::QUORUM),
-                    )
-                    .unwrap();
+                Self::put_record(
+                    &mut self.swarm,
+                    name,
+                    PutRecord::CreateChat(CreateChat { name, proof }),
+                );
                 stream.state = StreamState::Chats([name].into_iter().collect());
             }
         }
@@ -554,19 +538,11 @@ impl Miner {
                     return;
                 }
 
-                self.swarm
-                    .behaviour_mut()
-                    .kad
-                    .put_record(
-                        kad::Record {
-                            key: m.chat.to_bytes().into(),
-                            value: PutRecord::Message(m.to_replicate()).to_bytes(),
-                            publisher: None,
-                            expires: None,
-                        },
-                        Quorum::N(protocols::chat::QUORUM),
-                    )
-                    .unwrap();
+                Self::put_record(
+                    &mut self.swarm,
+                    m.chat,
+                    PutRecord::Message(m.to_replicate()),
+                );
             }
             ChatRequest::Fetch(fm) => {
                 let mut messages = vec![];
