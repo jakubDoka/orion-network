@@ -86,6 +86,21 @@ impl<K: Eq, V> LinearMap<K, V> {
         #[allow(clippy::map_identity)]
         self.values.iter().map(|(k, v)| (k, v))
     }
+
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.values.iter().map(|(k, _)| k)
+    }
+
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.values.iter().any(|(k, _)| k == key)
+    }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.values
+            .iter_mut()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v)
+    }
 }
 
 impl<K, V> Default for LinearMap<K, V> {

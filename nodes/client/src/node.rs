@@ -1,8 +1,9 @@
+use crate::BootPhase;
 use chain_api::{NodeData, UserData};
-use component_utils::futures;
 use component_utils::futures::stream::Fuse;
 use component_utils::kad::KadPeerSearch;
 use component_utils::Codec;
+use component_utils::{futures, LinearMap};
 use crypto::decrypt;
 use leptos::signal_prelude::*;
 use libp2p::core::upgrade::Version;
@@ -13,29 +14,25 @@ use libp2p::*;
 use libp2p::{PeerId, Swarm};
 use onion::{EncryptedStream, PathId};
 use protocols::chat::*;
-use std::collections::hash_map::RandomState;
+use rand::seq::IteratorRandom;
 use std::collections::{HashMap, HashSet};
-use std::hash::BuildHasher;
 use std::task::Poll;
 use std::time::Duration;
+use std::u8;
 use std::{io, mem, pin::Pin, usize};
-use std::{iter, u8};
 use web_sys::wasm_bindgen::JsValue;
-
-use crate::BootPhase;
 
 pub type MessageContent = std::rc::Rc<str>;
 
 component_utils::protocol! { 'a:
     #[derive(Default)]
     struct Vault {
-        chats: Vec<ChatMeta>,
+        chats: LinearMap<ChatName, ChatMeta>,
         theme: Theme,
         action_no: ActionNo,
     }
 
     struct ChatMeta {
-        name: ChatName,
         secret: crypto::SharedSecret,
         action_no: ActionNo,
         permission: Permission,
@@ -232,7 +229,7 @@ impl Node {
             libp2p::swarm::Config::with_wasm_executor().with_idle_connection_timeout(Duration::MAX), // TODO: please, dont
         );
 
-        let route @ [(enter_node, ..), ..]: [_; 3] = nodes
+        let route @ [(enter_node, ..), _, _] = nodes
             .iter()
             .map(|(a, b)| (*b, *a))
             .take(3)
@@ -277,39 +274,14 @@ impl Node {
             .open_path(route.map(|(u, p)| (u.enc.into(), p)))
             .unwrap();
         let mut init_stream = loop {
-            let e = swarm.select_next_some().await;
-            log::error!("{:?}", e);
-            match e {
-                SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
-                    peer_id,
-                    info,
-                })) => {
-                    if let Some(addr) = info.listen_addrs.first() {
-                        swarm
-                            .behaviour_mut()
-                            .kad
-                            .add_address(&peer_id, addr.clone());
-                    }
-                }
-                SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
-                    log::debug!("connect request {to:?}");
-                    component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
-                }
-                SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
-                    if component_utils::try_handle_conn_response(
-                        &e,
-                        &mut swarm,
-                        &mut peer_search,
-                    ) =>
-                {
-                    log::debug!("kad event {e:?}");
-                }
+            match swarm.select_next_some().await {
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
                     _,
                 ))) if id == pid => break stream,
-                _ => {}
+                e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
+                e => log::error!("{:?}", e),
             }
         };
 
@@ -334,55 +306,23 @@ impl Node {
 
         log::debug!("members: {members:#?}");
 
-        let Some(pick) = members
-            .into_iter()
-            .collect::<HashSet<_>>() // kind of a suffle
-            .into_iter()
-            .find_map(|m| Some((*nodes.get(&m)?, m)))
-        else {
+        let Some(pick) = members.into_iter().choose(&mut rand::thread_rng()) else {
             todo!("error handling")
         };
 
         wboot_phase(Some(BootPhase::ProfileLoad));
 
-        let hash = RandomState::new().hash_one(key) as usize;
-        let mut route: [_; 3] = nodes
-            .iter()
-            .map(|(a, b)| (*b, *a))
-            .cycle()
-            .skip(hash % nodes.len())
-            .filter(|(_, p)| *p != pick.1)
-            .take(2)
-            .chain(iter::once(pick))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-
-        route.reverse();
-
-        let pid = swarm
-            .behaviour_mut()
-            .onion
-            .open_path(route.map(|(ud, p)| (ud.enc.into(), p)))
-            .unwrap();
-
+        let route = pick_route(&nodes, pick);
+        let pid = swarm.behaviour_mut().onion.open_path(route).unwrap();
         let mut profile_stream = loop {
             match swarm.select_next_some().await {
-                SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
-                    component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
-                }
-                SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
-                    if component_utils::try_handle_conn_response(
-                        &e,
-                        &mut swarm,
-                        &mut peer_search,
-                    ) => {}
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
                     _,
                 ))) if id == pid => break stream,
-                _ => {}
+                e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
+                e => log::error!("{:?}", e),
             }
         };
 
@@ -399,12 +339,6 @@ impl Node {
             let vault = decrypt(&mut resp, keys.vault).unwrap();
             Vault::decode(&mut &*vault).unwrap()
         };
-
-        debug_assert!(vault.chats.iter().enumerate().all(|(i, c)| vault
-            .chats
-            .iter()
-            .skip(i + 1)
-            .all(|d| c.name != d.name)));
 
         let _ = vault.theme.apply();
 
@@ -435,9 +369,9 @@ impl Node {
 
         wboot_phase(Some(BootPhase::ChatSearch));
 
-        for chat in vault.chats.iter() {
+        for &chat in vault.chats.keys() {
             send_request(
-                ProfileRequest::Search(chat.name),
+                ProfileRequest::Search(chat),
                 &mut profile_stream,
                 &mut buffer,
             );
@@ -466,7 +400,7 @@ impl Node {
             };
 
             log::debug!("search response: {key} {members:#?}");
-            if vault.chats.iter().all(|c| c.name != key) {
+            if !vault.chats.contains_key(&key) {
                 log::error!("search to unexistent chat");
                 continue;
             }
@@ -482,9 +416,6 @@ impl Node {
 
         let mut topology = topology.into_iter().collect::<Vec<_>>();
         topology.sort_by_key(|(_, v)| v.len());
-
-        log::debug!("topology: {topology:#?}");
-
         let mut to_connect = vec![];
         let mut seen = HashSet::new();
         while seen.len() < discovered {
@@ -496,38 +427,12 @@ impl Node {
             to_connect.push((peer, chats));
         }
 
-        log::debug!("to_connect: {to_connect:#?}");
-
         to_connect
             .into_iter()
             .map(|(pick, set)| {
-                let hash = RandomState::new().hash_one(pick) as usize;
-
-                let nd = *nodes.get(&pick).unwrap();
-
-                let mut route: [_; 3] = nodes
-                    .iter()
-                    .map(|(a, b)| (*b, *a))
-                    .cycle()
-                    .skip(hash % nodes.len())
-                    .filter(|(_, p)| *p != pick)
-                    .take(2)
-                    .chain(iter::once((nd, pick)))
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap();
-
-                route.reverse();
-
-                (
-                    swarm
-                        .behaviour_mut()
-                        .onion
-                        .open_path(route.map(|(ud, p)| (ud.enc.into(), p)))
-                        .unwrap(),
-                    pick,
-                    set,
-                )
+                let route = pick_route(&nodes, pick);
+                let pid = swarm.behaviour_mut().onion.open_path(route).unwrap();
+                (pid, pick, set)
             })
             .collect_into(&mut awaiting);
 
@@ -537,17 +442,6 @@ impl Node {
                 loop {
                     match swarm.select_next_some().await {
                         SwarmEvent::Behaviour(BehaviourEvent::Onion(
-                            onion::Event::ConnectRequest(to),
-                        )) => {
-                            component_utils::handle_conn_request(to, &mut swarm, &mut peer_search);
-                        }
-                        SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
-                            if component_utils::try_handle_conn_response(
-                                &e,
-                                &mut swarm,
-                                &mut peer_search,
-                            ) => {}
-                        SwarmEvent::Behaviour(BehaviourEvent::Onion(
                             onion::Event::OutboundStream(stream, id, pid),
                         )) => {
                             if let Some(i) = awaiting.iter().position(|&(i, ..)| i == id) {
@@ -556,7 +450,8 @@ impl Node {
                                 break (stream, subs, peer_id, id);
                             }
                         }
-                        _ => {}
+                        e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
+                        e => log::debug!("{:?}", e),
                     }
                 };
 
@@ -603,6 +498,31 @@ impl Node {
         Ok(s)
     }
 
+    fn try_handle_common_event(
+        ev: &SE,
+        swarm: &mut Swarm<Behaviour>,
+        peer_search: &mut KadPeerSearch,
+    ) -> bool {
+        match ev {
+            SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
+                peer_id,
+                info,
+            })) => {
+                if let Some(addr) = info.listen_addrs.first() {
+                    swarm.behaviour_mut().kad.add_address(peer_id, addr.clone());
+                }
+            }
+            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
+                component_utils::handle_conn_request(*to, swarm, peer_search);
+            }
+            SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
+                if component_utils::try_handle_conn_response(e, swarm, peer_search) => {}
+            _ => return false,
+        }
+
+        true
+    }
+
     pub async fn run(mut self) {
         loop {
             futures::select! {
@@ -625,13 +545,12 @@ impl Node {
 
         match mail {
             Mail::ChatInvite(invite) => {
-                if self.vault.chats.iter().any(|c| c.name == invite.chat) {
+                if self.vault.chats.contains_key(&invite.chat) {
                     log::error!("chat already exists");
                     return;
                 }
 
                 let chat = ChatMeta {
-                    name: invite.chat,
                     secret: self
                         .keys
                         .enc
@@ -641,7 +560,7 @@ impl Node {
                     permission: Permission::default(),
                 };
 
-                self.vault.chats.push(chat);
+                self.vault.chats.insert(invite.chat, chat);
 
                 send_request(
                     ProfileRequest::Search(invite.chat),
@@ -673,40 +592,14 @@ impl Node {
             ProfileResponse::DataWritten => log::debug!("vault written"),
             ProfileResponse::DataWriteFailed(e) => log::error!("vault write failed: {e}"),
             ProfileResponse::Search(ChatSearchResult { members, key }) => {
-                let hash = RandomState::new().hash_one(key) as usize;
-
-                let Some(pick) = members
-                    .into_iter()
-                    .collect::<HashSet<_>>() // kind of a suffle
-                    .into_iter()
-                    .find_map(|m| Some((*self.nodes.get(&m)?, m)))
-                else {
+                let Some(pick) = members.into_iter().choose(&mut rand::thread_rng()) else {
                     todo!("error handling")
                 };
 
-                let mut route: [_; 3] = self
-                    .nodes
-                    .iter()
-                    .map(|(a, b)| (*b, *a))
-                    .cycle()
-                    .skip(hash % self.nodes.len())
-                    .filter(|(_, p)| *p != pick.1)
-                    .take(2)
-                    .chain(iter::once(pick))
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap();
+                let route = pick_route(&self.nodes, pick);
+                let quid = self.swarm.behaviour_mut().onion.open_path(route).unwrap();
 
-                route.reverse();
-
-                let quid = self
-                    .swarm
-                    .behaviour_mut()
-                    .onion
-                    .open_path(route.map(|(ud, p)| (ud.enc.into(), p)))
-                    .unwrap();
-
-                let Some(meta) = self.vault.chats.iter_mut().find(|c| c.name == key) else {
+                let Some(meta) = self.vault.chats.get_mut(&key) else {
                     log::error!("search to unexistent chat");
                     return;
                 };
@@ -796,7 +689,7 @@ impl Node {
                     return;
                 };
 
-                let Some(meta) = self.vault.chats.iter_mut().find(|s| s.name == chat) else {
+                let Some(meta) = self.vault.chats.get_mut(&chat) else {
                     log::error!("chat meta not found when sending messxge");
                     return;
                 };
@@ -832,7 +725,7 @@ impl Node {
                     return;
                 };
 
-                let Some(meta) = self.vault.chats.iter_mut().find(|s| s.name == chat) else {
+                let Some(meta) = self.vault.chats.get_mut(&chat) else {
                     log::error!("chat meta not found when sending messxge");
                     return;
                 };
@@ -878,13 +771,12 @@ impl Node {
             }
             Command::CreateChat(name) => {
                 let meta = ChatMeta {
-                    name,
                     secret: crypto::new_secret(),
                     action_no: 0,
                     permission: 0,
                 };
 
-                self.vault.chats.push(meta);
+                self.vault.chats.insert(name, meta);
 
                 send_request(
                     ProfileRequest::Search(name),
@@ -911,22 +803,19 @@ impl Node {
                     &mut self.buffer,
                 );
             }
-            Command::SetTheme(theme) if self.vault.theme == theme => {}
             Command::SetTheme(theme) => {
-                self.vault.theme = theme;
-                self.save_vault();
+                if self.vault.theme != theme {
+                    self.vault.theme = theme;
+                    self.save_vault();
+                }
             }
             Command::None => {}
         }
     }
 
     fn handle_subscription_response(&mut self, id: PathId, request: io::Result<Vec<u8>>) {
-        let msg = match request {
-            Ok(m) => m,
-            Err(e) => {
-                log::error!("chat subscription error: {e}");
-                return;
-            }
+        let Ok(msg) = request.inspect_err(|e| log::error!("chat subscription error: {e}")) else {
+            return;
         };
 
         let Some(pckt) = ChatResponse::decode(&mut msg.as_slice()) else {
@@ -941,7 +830,7 @@ impl Node {
 
         match pckt {
             ChatResponse::New(msg) => {
-                let Some(meta) = self.vault.chats.iter().find(|c| c.name == msg.chat) else {
+                let Some(meta) = self.vault.chats.get(&msg.chat) else {
                     log::warn!("message chat does not match subscription");
                     return;
                 };
@@ -981,7 +870,7 @@ impl Node {
                 }
             }
             ChatResponse::Subscribed(Subscribed { chat, no }) => {
-                let Some(meta) = self.vault.chats.iter_mut().find(|c| c.name == chat) else {
+                let Some(meta) = self.vault.chats.get_mut(&chat) else {
                     log::warn!("message chat does not match subscription");
                     return;
                 };
@@ -996,7 +885,7 @@ impl Node {
                 cursor,
                 messages,
             }) => {
-                let Some(meta) = self.vault.chats.iter_mut().find(|c| c.name == chat) else {
+                let Some(meta) = self.vault.chats.get_mut(&chat) else {
                     log::warn!("message chat does not match subscription");
                     return;
                 };
@@ -1069,8 +958,22 @@ impl Node {
     }
 
     pub fn chats(&self) -> impl Iterator<Item = ChatName> + '_ {
-        self.vault.chats.iter().map(|c| c.name)
+        self.vault.chats.keys().copied()
     }
+}
+
+fn pick_route(
+    nodes: &HashMap<PeerId, NodeData>,
+    target: PeerId,
+) -> [(onion::PublicKey, PeerId); 3] {
+    assert!(nodes.len() >= 2);
+    let mut rng = rand::thread_rng();
+    let mut picked = nodes
+        .iter()
+        .map(|(p, ud)| (ud.enc.into(), *p))
+        .choose_multiple(&mut rng, 2);
+    picked.insert(0, (nodes.get(&target).unwrap().enc.into(), target));
+    picked.try_into().unwrap()
 }
 
 pub fn send_request<'a, T: Codec<'a>>(resp: T, stream: &mut EncryptedStream, buffer: &mut Vec<u8>) {

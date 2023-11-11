@@ -1,4 +1,5 @@
 #![feature(iter_collect_into)]
+#![feature(result_option_inspect)]
 #![allow(non_snake_case)]
 #![feature(mem_copy_fn)]
 

@@ -7,6 +7,8 @@ use libp2p::core::multihash::Multihash;
 #[cfg(feature = "libp2p")]
 use libp2p::identity::PeerId;
 
+use crate::LinearMap;
+
 pub fn encode_len(len: usize) -> [u8; 4] {
     (len as u32).to_be_bytes()
 }
@@ -398,6 +400,43 @@ impl<'a, T: Codec<'a>> Codec<'a> for Option<T> {
             Some(<T>::decode(buffer)?)
         } else {
             None
+        })
+    }
+}
+
+macro_rules! derive_tuples {
+    ($($($t:ident),*;)*) => {$(
+        #[allow(non_snake_case)]
+        impl<'a, $($t: Codec<'a>),*> Codec<'a> for ($($t,)*) {
+            fn encode(&self, buffer: &mut Vec<u8>) {
+                let ($($t,)*) = self;
+                $($t.encode(buffer);)*
+            }
+
+            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+                Some(($(<$t>::decode(buffer)?,)*))
+            }
+        }
+    )*};
+}
+
+derive_tuples! {
+    A;
+    A, B;
+    A, B, C;
+    A, B, C, D;
+    A, B, C, D, E;
+    A, B, C, D, E, F;
+}
+
+impl<'a, K: Codec<'a>, V: Codec<'a>> Codec<'a> for LinearMap<K, V> {
+    fn encode(&self, buf: &mut Vec<u8>) {
+        self.values.encode(buf)
+    }
+
+    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
+        Some(Self {
+            values: Vec::decode(buf)?,
         })
     }
 }

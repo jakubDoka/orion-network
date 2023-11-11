@@ -18,6 +18,7 @@ libp2p = { version = "0.53.0", features = ["noise", "kad", "macros", "yamux", "w
 log = "0.4.20"
 onion = { version = "0.1.0", path = "../../utils/onion", features = ["wasm"] }
 protocols = { version = "0.1.0", path = "../../utils/protocols" }
+rand = "0.8.5"
 thiserror = "1.0.50"
 websocket-websys = { version = "0.1.0", path = "../../utils/websocket-websys" }
 
