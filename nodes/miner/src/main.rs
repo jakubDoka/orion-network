@@ -133,7 +133,7 @@ impl Miner {
 
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
-        if let Some(back_ref) = port.checked_sub(8801) {
+        for back_ref in (0..5).filter_map(|i| port.checked_sub(8800 + i)) {
             swarm
                 .dial(
                     Multiaddr::empty()
@@ -491,6 +491,8 @@ impl Miner {
                         log::warn!("client tried to subscribe to a chat it's not a member of");
                         continue;
                     };
+
+                    log::info!("client subscribed to chat {chat}");
                     send_response(
                         ChatResponse::Subscribed(Subscribed {
                             chat,

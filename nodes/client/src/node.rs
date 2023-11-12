@@ -633,7 +633,6 @@ impl Node {
                         ActionProof::for_chat(&mut meta.action_no, &self.keys.sign, key),
                     )
                 } else if meta.action_no == ActionNo::MAX {
-                    meta.action_no = 0;
                     SubIntent::Invited(key)
                 } else {
                     panic!("{key}");
@@ -648,47 +647,42 @@ impl Node {
 
     fn handle_swarm_event(&mut self, event: SE) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
-                component_utils::handle_conn_request(to, &mut self.swarm, &mut self.peer_search);
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
-                if component_utils::try_handle_conn_response(
-                    &e,
-                    &mut self.swarm,
-                    &mut self.peer_search,
-                ) => {}
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                 mut stream,
                 id,
                 peer_id,
             ))) => {
-                if let Some(index) = self
+                let Some(index) = self
                     .pending_subscriptions
                     .iter()
                     .position(|&(pid, ..)| pid == id)
-                {
-                    let (.., intent) = self.pending_subscriptions.swap_remove(index);
-                    let req = match intent {
-                        SubIntent::Create(name, proof) => {
-                            InitRequest::Create(CreateChat { name, proof })
-                        }
-                        SubIntent::Invited(name) => InitRequest::Subscribe(ChatSubs {
+                else {
+                    return;
+                };
+                let (.., intent) = self.pending_subscriptions.swap_remove(index);
+
+                let (req, name) = match intent {
+                    SubIntent::Create(name, proof) => {
+                        (InitRequest::Create(CreateChat { name, proof }), name)
+                    }
+                    SubIntent::Invited(name) => (
+                        InitRequest::Subscribe(ChatSubs {
                             chats: [name].into(),
                             identity: self.keys.sign.public_key().into(),
                         }),
-                    };
-                    send_request(req, &mut stream, &mut self.buffer);
-                    if let SubIntent::Create(name, ..) = intent {
-                        self.subscriptions.push(Subscription {
-                            id,
-                            peer_id,
-                            subs: [name].into(),
-                            stream,
-                            cursor: NO_CURSOR,
-                        });
-                    }
-                }
+                        name,
+                    ),
+                };
+                send_request(req, &mut stream, &mut self.buffer);
+                self.subscriptions.push(Subscription {
+                    id,
+                    peer_id,
+                    subs: [name].into(),
+                    stream,
+                    cursor: NO_CURSOR,
+                });
             }
+            e if Self::try_handle_common_event(&e, &mut self.swarm, &mut self.peer_search) => {}
             e => log::debug!("{:?}", e),
         }
     }
@@ -891,10 +885,10 @@ impl Node {
                     return;
                 };
                 log::debug!("subscribed to {chat} {no}");
-                meta.action_no = no + 1;
-                if no == 0 {
+                if meta.action_no == ActionNo::MAX {
                     (self.events)(Event::ChatCreated(chat));
                 }
+                meta.action_no = no + 1;
             }
             ChatResponse::Fetched(FetchedMessages {
                 chat,
@@ -986,6 +980,7 @@ fn pick_route(
     let mut rng = rand::thread_rng();
     let mut picked = nodes
         .iter()
+        .filter(|(p, _)| **p != target)
         .map(|(p, ud)| (ud.enc.into(), *p))
         .choose_multiple(&mut rng, 2);
     picked.insert(0, (nodes.get(&target).unwrap().enc.into(), target));

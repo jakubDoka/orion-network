@@ -127,6 +127,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     };
 
     create_effect(move |_| match revents() {
+        node::Event::ChatCreated(chat) if chats.with_untracked(|chats| chats.contains(&chat)) => {}
         node::Event::ChatCreated(chat) => {
             chats.update(|chats| chats.push(chat));
             cc_hidden.set(true);
