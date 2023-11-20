@@ -167,7 +167,7 @@ impl KadRandomPeerSearch {
         };
         self.discovery_queries.swap_remove_front(index).unwrap();
 
-        std::mem::take(&mut closest_peers.peers)
+        core::mem::take(&mut closest_peers.peers)
     }
 }
 

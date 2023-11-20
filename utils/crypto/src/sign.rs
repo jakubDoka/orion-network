@@ -1,5 +1,7 @@
+#[cfg(feature = "getrandom")]
 use aes_gcm::aead::OsRng;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
+#[cfg(feature = "std")]
 use thiserror::Error;
 
 impl_transmute! {
@@ -21,6 +23,7 @@ pub struct KeyPair {
 }
 
 impl KeyPair {
+    #[cfg(feature = "getrandom")]
     pub fn new() -> Self {
         let dili = pqc_dilithium::Keypair::generate();
         let ed = SigningKey::generate(&mut OsRng).to_bytes();
@@ -43,6 +46,7 @@ impl KeyPair {
     }
 }
 
+#[cfg(feature = "getrandom")]
 impl Default for KeyPair {
     fn default() -> Self {
         Self::new()
@@ -57,25 +61,43 @@ pub struct PublicKey {
 
 impl PublicKey {
     pub fn verify(&self, data: &[u8], signature: &Signature) -> Result<(), SignatureError> {
-        VerifyingKey::from_bytes(&self.ed).and_then(|vk| vk.verify_strict(data, &signature.ed))?;
-        pqc_dilithium::verify(&signature.dili, data, &self.dili).map_err(DiliSignError::from)?;
+        VerifyingKey::from_bytes(&self.ed)
+            .and_then(|vk| vk.verify_strict(data, &signature.ed))
+            .map_err(SignatureError::Ed)?;
+        pqc_dilithium::verify(&signature.dili, data, &self.dili)
+            .map_err(DiliSignError::from)
+            .map_err(SignatureError::Dili)?;
         Ok(())
     }
 }
 
+#[cfg(feature = "std")]
 #[derive(Debug, Error)]
 pub enum SignatureError {
     #[error("dilithium signature failsed: {0}")]
-    Dili(#[from] DiliSignError),
+    Dili(DiliSignError),
     #[error("ed25519 signature failed: {0}")]
-    Ed(#[from] ed25519_dalek::SignatureError),
+    Ed(ed25519_dalek::SignatureError),
 }
 
+#[cfg(not(feature = "std"))]
+pub enum SignatureError {
+    Dili(DiliSignError),
+    Ed(ed25519_dalek::SignatureError),
+}
+
+#[cfg(feature = "std")]
 #[derive(Debug, Error)]
 pub enum DiliSignError {
     #[error("dilithium public key is invalid")]
     Input,
     #[error("yep")]
+    Verify,
+}
+
+#[cfg(not(feature = "std"))]
+pub enum DiliSignError {
+    Input,
     Verify,
 }
 

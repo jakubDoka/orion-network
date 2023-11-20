@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "std"), no_std)]
 #![feature(array_chunks)]
 #[macro_export]
 macro_rules! gen_config {
@@ -36,111 +37,24 @@ macro_rules! gen_config {
     };
 }
 
+#[cfg(feature = "std")]
 pub mod codec;
-#[cfg(feature = "libp2p")]
+#[cfg(feature = "std")]
 pub mod kad;
+#[cfg(feature = "std")]
 pub mod stream;
 
-pub use {arrayvec, codec::*, futures, stream::*};
+pub use arrayvec;
 
-#[cfg(feature = "libp2p")]
-pub use kad::*;
+#[cfg(feature = "std")]
+pub use {codec::*, futures, kad::*, libp2p, stream::*};
 
-#[cfg(feature = "libp2p")]
-pub use libp2p;
-
-#[derive(Debug)]
-pub struct LinearMap<K, V> {
-    values: Vec<(K, V)>,
-}
-
-impl<K: Eq, V> LinearMap<K, V> {
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        if let Some((_, current)) = self.values.iter_mut().find(|(k, _)| k == &key) {
-            return Some(std::mem::replace(current, value));
-        }
-        self.values.push((key, value));
-        None
-    }
-
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        if let Some(index) = self.values.iter().position(|(k, _)| k == key) {
-            return Some(self.values.swap_remove(index).1);
-        }
-        None
-    }
-
-    pub fn get(&self, key: &K) -> Option<&V> {
-        self.values.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-    }
-
-    pub fn len(&self) -> usize {
-        self.values.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
-        #[allow(clippy::map_identity)]
-        self.values.iter().map(|(k, v)| (k, v))
-    }
-
-    pub fn keys(&self) -> impl Iterator<Item = &K> {
-        self.values.iter().map(|(k, _)| k)
-    }
-
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.values.iter().any(|(k, _)| k == key)
-    }
-
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.values
-            .iter_mut()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v)
-    }
-
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
-        self.values.iter_mut().map(|(_, v)| v)
-    }
-}
-
-impl<K, V> Default for LinearMap<K, V> {
-    fn default() -> Self {
-        Self { values: Vec::new() }
-    }
-}
-
-fn fnv_hash(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in bytes {
-        hash = hash.wrapping_mul(0x100000001b3);
-        hash ^= *byte as u64;
-    }
-    hash
-}
-
-pub struct Rng(u64);
-
-impl Rng {
-    pub fn new(seed: &[u8]) -> Self {
-        Self(fnv_hash(seed))
-    }
-
-    pub fn next_u64(&mut self) -> u64 {
-        let Self(seed) = self;
-        *seed = fnv_hash(&seed.to_le_bytes());
-        *seed
-    }
-}
-
+#[cfg(feature = "std")]
 pub fn drain_filter<'a, T>(
     v: &'a mut Vec<T>,
     pred: impl FnMut(&mut T) -> bool + 'a,
 ) -> impl Iterator<Item = T> + 'a {
-    use std::ptr;
+    use core::ptr;
     struct Iter<'a, F, T>
     where
         F: FnMut(&mut T) -> bool,
@@ -224,30 +138,6 @@ impl<F: FnOnce()> DropFn<F> {
 impl<F: FnOnce()> Drop for DropFn<F> {
     fn drop(&mut self) {
         self.0.take().unwrap()()
-    }
-}
-
-pub struct AsocStream<A, S> {
-    pub inner: S,
-    pub assoc: A,
-}
-
-impl<A, S> AsocStream<A, S> {
-    pub fn new(inner: S, assoc: A) -> Self {
-        Self { inner, assoc }
-    }
-}
-
-impl<A: Clone, S: futures::Stream> futures::Stream for AsocStream<A, S> {
-    type Item = (A, S::Item);
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        unsafe { self.as_mut().map_unchecked_mut(|s| &mut s.inner) }
-            .poll_next(cx)
-            .map(|opt| opt.map(|item| (self.assoc.clone(), item)))
     }
 }
 

@@ -1,17 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
+#![feature(ip_in_core)]
 
 #[ink::contract]
 mod node_staker {
+    use core::net::Ipv4Addr;
     use core::u32;
     use ink::prelude::vec::Vec;
-
-    const STAKE_AMOUNT: Balance = 1000000;
-    const INIT_VOTE_POOL: u32 = 3;
-    const STAKE_DURATION_MILIS: Timestamp = 1000 * 60 * 60 * 24 * 30;
-    const BASE_SLASH: Balance = 2;
-    const SLASH_FACTOR: u32 = 1;
-
-    type Identity = [u8; 32];
+    use protocols::contracts::*;
 
     #[derive(scale::Decode, scale::Encode)]
     #[cfg_attr(
@@ -33,6 +28,21 @@ mod node_staker {
     }
 
     #[derive(scale::Decode, scale::Encode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    struct EncKey(crypto::enc::SerializedPublicKey);
+
+    #[cfg(feature = "std")]
+    impl ink::storage::traits::StorageLayout for EncKey {
+        fn layout(key: &ink::primitives::Key) -> ink::metadata::layout::Layout {
+            ink::metadata::layout::Layout::Array(ink::metadata::layout::ArrayLayout::new(
+                key,
+                crypto::enc::PUBLIC_KEY_SIZE as u32,
+                <u8 as ink::storage::traits::StorageLayout>::layout(&key),
+            ))
+        }
+    }
+
+    #[derive(scale::Decode, scale::Encode)]
     #[cfg_attr(
         feature = "std",
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
@@ -42,6 +52,9 @@ mod node_staker {
         amount: Balance,
         created_at: Timestamp,
         votes: Votes,
+        enc_key: EncKey,
+        ip: [u8; 4],
+        port: u16,
     }
 
     impl Stake {
@@ -78,20 +91,26 @@ mod node_staker {
         }
 
         #[ink(message, payable)]
-        pub fn join(&mut self, identity: Identity) {
+        pub fn join(&mut self, identity: SerializedNodeData) {
             let amount = self.env().transferred_value();
             assert!(amount == STAKE_AMOUNT, "wrong amount");
+            let identity = NodeData::from(identity);
             let stake = Stake {
                 amount,
                 owner: Self::env().caller(),
                 created_at: Self::env().block_timestamp(),
                 votes: Votes::default(),
+                enc_key: EncKey(identity.enc.into()),
+                ip: identity.ip.octets(),
+                port: identity.port,
             };
             assert!(
-                self.stakes.insert(identity, &stake).is_none(),
+                self.stakes
+                    .insert(Identity::from(identity.sign), &stake)
+                    .is_none(),
                 "already joined"
             );
-            self.stake_list.push(identity);
+            self.stake_list.push(identity.sign.into());
         }
 
         #[ink(message)]
@@ -118,8 +137,20 @@ mod node_staker {
         }
 
         #[ink(message)]
-        pub fn list(&self) -> Vec<Identity> {
-            self.stake_list.clone()
+        pub fn list(&self) -> Vec<SerializedNodeData> {
+            self.stake_list
+                .iter()
+                .map(|&x| {
+                    let stake = self.stakes.get(&x).expect("stake");
+                    let identity = NodeData {
+                        sign: x.into(),
+                        enc: stake.enc_key.0.into(),
+                        ip: Ipv4Addr::from(stake.ip),
+                        port: stake.port,
+                    };
+                    identity.into()
+                })
+                .collect()
         }
 
         #[ink(message)]
@@ -159,14 +190,25 @@ mod node_staker {
         }
 
         fn identities() -> [Identity; 2] {
-            [[0x01; 32], [0x02; 32]]
+            [
+                [0x01; crypto::sign::PUBLIC_KEY_SIZE],
+                [0x02; crypto::sign::PUBLIC_KEY_SIZE],
+            ]
         }
 
         fn join(staker: &mut NodeStaker, amount: Balance, identity: Identity, to: AccountId) {
             ink_env::set_caller::<Env>(to);
             ink_env::set_value_transferred::<Env>(amount);
             ink_env::set_block_timestamp::<Env>(0);
-            staker.join(identity);
+            staker.join(
+                NodeData {
+                    sign: identity.into(),
+                    enc: [0x01; crypto::enc::PUBLIC_KEY_SIZE].into(),
+                    ip: Ipv4Addr::new(127, 0, 0, 1),
+                    port: 8080,
+                }
+                .into(),
+            );
             ink_env::set_account_balance::<Env>(
                 ink_env::callee::<Env>(),
                 ink_env::get_account_balance::<Env>(ink_env::callee::<Env>()).unwrap() + amount,

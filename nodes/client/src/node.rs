@@ -1,5 +1,4 @@
 use crate::BootPhase;
-use chain_api::{NodeData, UserData};
 use component_utils::futures::stream::Fuse;
 use component_utils::kad::KadPeerSearch;
 use component_utils::Codec;
@@ -14,6 +13,7 @@ use libp2p::*;
 use libp2p::{PeerId, Swarm};
 use onion::{EncryptedStream, PathId};
 use protocols::chat::*;
+use protocols::contracts::{NodeData, UserData};
 use rand::seq::IteratorRandom;
 use std::collections::{HashMap, HashSet};
 use std::task::Poll;
@@ -181,8 +181,15 @@ impl Node {
         wboot_phase: WriteSignal<Option<BootPhase>>,
     ) -> Result<Self, BootError> {
         wboot_phase(Some(BootPhase::FetchTopology));
-        let node_request = chain_api::nodes(chain_bootstrap_node);
-        let profile_request = chain_api::user_by_sign(chain_bootstrap_node, keys.identity().sign);
+
+        let chain_api = chain_api::Client::default().await.unwrap();
+
+        const NODE_CONTRACT: &str = "";
+
+        use std::str::FromStr;
+
+        let node_request = chain_api.list(chain_api::ContractId::from_str(NODE_CONTRACT).unwrap());
+        let profile_request = std::future::pending::<Result<UserData, chain_api::Error>>();
         let (node_data, profile) = futures::join!(node_request, profile_request);
         let (node_data, profile) = (
             node_data.map_err(BootError::FetchNodes)?,
@@ -191,6 +198,7 @@ impl Node {
 
         let nodes = node_data
             .into_iter()
+            .map(NodeData::from)
             .map(node_data_to_path_seg)
             .collect::<HashMap<_, _>>();
 
@@ -1005,9 +1013,9 @@ pub enum BootError {
     #[error(transparent)]
     Encapsulation(#[from] crypto::enc::EncapsulationError),
     #[error("failed to fetch nodes: {0}")]
-    FetchNodes(chain_api::NodesError),
+    FetchNodes(chain_api::Error),
     #[error("failed to fetch profile: {0}")]
-    FetchProfile(chain_api::GetUserError),
+    FetchProfile(chain_api::Error),
     #[error("failed to search for chat (stream broken): {0}")]
     ChatSearch(io::Error),
 }

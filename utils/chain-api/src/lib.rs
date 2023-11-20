@@ -1,34 +1,38 @@
 #![feature(lazy_cell)]
-use std::net::Ipv4Addr;
-use std::ops::Deref;
-use std::path::Path;
 use std::str::FromStr;
-use std::sync::LazyLock;
 use std::u64;
 
-use blake2::{Blake2s256, Digest};
-use contract_transcode::ContractMessageTranscoder;
 use parity_scale_codec::{Decode, Encode as _};
 use polkadot::contracts::calls::types::Call;
 use polkadot::runtime_types::pallet_contracts_primitives::{ContractResult, ExecReturnValue};
 use polkadot::runtime_types::sp_runtime::DispatchError;
 use polkadot::runtime_types::sp_weights::weight_v2::Weight;
-use polkadot::system::events::ExtrinsicFailed;
-use protocols::contracts::NodeData;
+use protocols::contracts::{Identity, NodeData, SerializedNodeData};
 use subxt::backend::legacy::LegacyRpcMethods;
 use subxt::backend::rpc::RpcClient;
 use subxt::tx::{Payload, Signer};
-use subxt::utils::AccountId32;
 use subxt::{OnlineClient, PolkadotConfig};
-use subxt_signer::sr25519::{dev, Keypair};
+use subxt_signer::bip39::Mnemonic;
+use subxt_signer::sr25519::dev;
 
-pub const NODES: &str = "/nodes";
+pub type Config = PolkadotConfig;
+pub type Balance = u128;
+pub type ContractId = <Config as subxt::Config>::AccountId;
+pub type AccountId = <Config as subxt::Config>::AccountId;
+pub type Error = subxt::Error;
+pub type Keypair = subxt_signer::sr25519::Keypair;
 
-pub const USER_BY_NAME: &str = "/user/name/:id";
-pub const USER_BY_SIGN: &str = "/user/sign/:id";
-pub const CREATE_USER: &str = "/user";
+#[track_caller]
+pub fn dev_keypair(name: &str) -> Keypair {
+    subxt_signer::sr25519::Keypair::from_uri(&subxt_signer::SecretUri::from_str(name).unwrap())
+        .unwrap()
+}
 
-pub type ContractId = AccountId32;
+#[track_caller]
+pub fn mnemonic_keypair(mnemonic: &str) -> Keypair {
+    subxt_signer::sr25519::Keypair::from_phrase(&Mnemonic::from_str(mnemonic).unwrap(), None)
+        .unwrap()
+}
 
 /// Trait implemented by [`smart_bench_macro::contract`] for all contract constructors.
 pub trait InkConstructor: parity_scale_codec::Encode {
@@ -60,12 +64,12 @@ mod contracts {
 
 //struct MySigner(pub subxt_signer::sr25519::Keypair);
 //
-//impl Signer<PolkadotConfig> for MySigner {
-//    fn account_id(&self) -> AccountId32 {
+//impl Signer<Config> for MySigner {
+//    fn account_id(&self) -> AccountId {
 //        self.0.public_key().into()
 //    }
 //
-//    fn address(&self) -> MultiAddress<AccountId32, ()> {
+//    fn address(&self) -> MultiAddress<AccountId, ()> {
 //        self.0.public_key().into()
 //    }
 //
@@ -74,34 +78,16 @@ mod contracts {
 //    }
 //}
 
-async fn get_account_nonce(
-    client: &OnlineClient<PolkadotConfig>,
-    rpc: &LegacyRpcMethods<PolkadotConfig>,
-    account_id: &AccountId32,
-) -> core::result::Result<u64, subxt::Error> {
-    let best_block = rpc
-        .chain_get_block_hash(None)
-        .await?
-        .ok_or(subxt::Error::Other("Best block not found".into()))?;
-    let account_nonce = client
-        .blocks()
-        .at(best_block)
-        .await?
-        .account_nonce(account_id)
-        .await?;
-    Ok(account_nonce)
-}
-
 pub struct Client {
     account: Keypair,
-    client: OnlineClient<PolkadotConfig>,
-    legacy: LegacyRpcMethods<PolkadotConfig>,
+    client: OnlineClient<Config>,
+    legacy: LegacyRpcMethods<Config>,
 }
 
 impl Client {
     pub async fn new(url: &str, account: Keypair) -> Result<Self, subxt::Error> {
         let rpc = RpcClient::from_url(url).await?;
-        let client = OnlineClient::<PolkadotConfig>::from_rpc_client(rpc.clone()).await?;
+        let client = OnlineClient::<Config>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::new(rpc);
 
         Ok(Self {
@@ -109,6 +95,12 @@ impl Client {
             client,
             legacy,
         })
+    }
+
+    pub async fn default() -> Result<Self, subxt::Error> {
+        let url = "ws://localhost:9944";
+        let account = dev::alice();
+        Self::new(url, account).await
     }
 
     async fn get_nonce(&self) -> Result<u64, subxt::Error> {
@@ -122,30 +114,23 @@ impl Client {
             .blocks()
             .at(best_block)
             .await?
-            .account_nonce(&Signer::<PolkadotConfig>::account_id(&self.account))
+            .account_nonce(&Signer::<Config>::account_id(&self.account))
             .await?;
         Ok(account_nonce)
     }
 
-    pub async fn join(&self, addr: ContractId, data: NodeData) -> Result<(), subxt::Error> {
-        let res = polkadot::tx().contracts().call(
-            addr.into(),
+    pub async fn join(&self, dest: ContractId, data: NodeData) -> Result<(), subxt::Error> {
+        self.call_auto_witght(
             1000000,
-            Weight {
-                ref_time: 1000000000,
-                proof_size: 1000000,
-            },
-            None,
-            contracts::node_staker::messages::join(crypto::sign::PublicKey::from(data.sign).ed)
-                .to_bytes(),
-        );
-
-        self.make_call(res).await
+            dest,
+            contracts::node_staker::messages::join(data.into()),
+        )
+        .await
     }
 
-    pub async fn list(&self, addr: ContractId) -> Result<Result<Vec<[u8; 32]>, ()>, subxt::Error> {
-        self.make_dry_call(CallRequest {
-            origin: Signer::<PolkadotConfig>::account_id(&self.account),
+    pub async fn list(&self, addr: ContractId) -> Result<Vec<SerializedNodeData>, subxt::Error> {
+        self.make_dry_call::<Result<_, _>>(CallRequest {
+            origin: Signer::<Config>::account_id(&self.account),
             dest: addr,
             value: 0,
             gas_limit: None,
@@ -153,29 +138,77 @@ impl Client {
             input_data: contracts::node_staker::messages::list().to_bytes(),
         })
         .await
+        .and_then(|(res, _)| {
+            res.map_err(|()| subxt::Error::Other(format!("Contract call returned error")))
+        })
+    }
+
+    pub async fn vote(
+        &self,
+        dest: ContractId,
+        me: protocols::contracts::Identity,
+        target: protocols::contracts::Identity,
+        weight: i32,
+    ) -> Result<(), subxt::Error> {
+        let call = contracts::node_staker::messages::vote(me, target, weight);
+        self.call_auto_witght(0, dest, call).await
+    }
+
+    pub async fn reclaim(&self, dest: ContractId, me: Identity) -> Result<(), subxt::Error> {
+        self.call_auto_witght(0, dest, contracts::node_staker::messages::reclaim(me))
+            .await
+    }
+
+    async fn call_auto_witght<T: parity_scale_codec::Decode>(
+        &self,
+        value: Balance,
+        dest: ContractId,
+        call_data: impl InkMessage,
+    ) -> Result<T, subxt::Error> {
+        let (res, weight) = self
+            .make_dry_call(CallRequest {
+                origin: Signer::<Config>::account_id(&self.account),
+                dest: dest.clone(),
+                value,
+                gas_limit: None,
+                storage_deposit_limit: None,
+                input_data: call_data.to_bytes(),
+            })
+            .await?;
+
+        self.make_call(polkadot::tx().contracts().call(
+            dest.into(),
+            value,
+            weight,
+            None,
+            call_data.to_bytes(),
+        ))
+        .await?;
+
+        Ok(res)
     }
 
     async fn make_dry_call<T: parity_scale_codec::Decode>(
         &self,
         call: CallRequest,
-    ) -> Result<T, subxt::Error> {
+    ) -> Result<(T, Weight), subxt::Error> {
         let bytes = call.encode();
         self.legacy
             .state_call("ContractsApi_call", Some(&bytes), None)
             .await
             .and_then(|r| {
-                <ContractResult<Result<ExecReturnValue, DispatchError>, u128, ()>>::decode(
+                <ContractResult<Result<ExecReturnValue, DispatchError>, Balance, ()>>::decode(
                     &mut r.as_slice(),
                 )
                 .map_err(|e| subxt::Error::Decode(subxt::error::DecodeError::custom(e)))
             })
             .and_then(|r| {
-                r.result
-                    .map_err(|e| subxt::Error::Other(format!("Contract error: {:?}", e)))
-            })
-            .and_then(|r| {
-                T::decode(&mut r.data.as_slice())
-                    .map_err(|e| subxt::Error::Decode(subxt::error::DecodeError::custom(e)))
+                let res = r
+                    .result
+                    .map_err(|e| subxt::Error::Other(format!("Contract error: {:?}", e)))?;
+                let res = T::decode(&mut res.data.as_slice())
+                    .map_err(|e| subxt::Error::Decode(subxt::error::DecodeError::custom(e)))?;
+                Ok((res, r.gas_consumed))
             })
     }
 
@@ -191,29 +224,7 @@ impl Client {
             .await?
             .wait_for_success()
             .await
-            .map(|e| {
-                for e in e.iter() {
-                    let e = e.unwrap();
-                    // dbg!(e.event_metadata().pallet);
-
-                    if let Ok(Some(e)) =
-                        e.as_event::<polkadot::contracts::events::ContractEmitted>()
-                    {
-                        dbg!(e.contract);
-                        dbg!(e.data);
-                    } else if let Ok(Some(e)) = e.as_event::<polkadot::contracts::events::Called>()
-                    {
-                        dbg!(e.contract);
-                        dbg!(e.caller);
-                    } else if let Ok(Some(e)) =
-                        e.as_event::<polkadot::system::events::ExtrinsicSuccess>()
-                    {
-                        dbg!(e.dispatch_info);
-                    } else {
-                        dbg!(e.event_metadata().variant);
-                    }
-                }
-            })
+            .map(drop)
     }
 }
 
@@ -222,31 +233,12 @@ impl Client {
 /// Copied from `pallet-contracts-rpc-runtime-api`.
 #[derive(parity_scale_codec::Encode)]
 struct CallRequest {
-    origin: AccountId32,
-    dest: AccountId32,
-    value: u128,
+    origin: AccountId,
+    dest: AccountId,
+    value: Balance,
     gas_limit: Option<Weight>,
-    storage_deposit_limit: Option<u128>,
+    storage_deposit_limit: Option<Balance>,
     input_data: Vec<u8>,
-}
-
-#[tokio::test]
-async fn test() {
-    let cid = AccountId32::from_str("5HkkPTgt6JYUfVKuoBmamXbctXQTpwCH4WqX8FtEdNapWrXK").unwrap();
-
-    let data = NodeData {
-        sign: [6; 1984],
-        enc: [0; 1600],
-        ip: Ipv4Addr::LOCALHOST,
-        port: Default::default(),
-    };
-
-    let client = Client::new("ws://localhost:9944", dev::alice())
-        .await
-        .unwrap();
-
-    //client.join(cid, data).await.unwrap();
-    dbg!(client.list(cid).await.unwrap());
 }
 
 //

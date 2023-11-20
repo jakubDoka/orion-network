@@ -5,6 +5,7 @@ members = [
 	"utils/*",
 	"tests/*",
 	"contracts/*",
+	"forked/*",
 ]
 
 [profile.release]

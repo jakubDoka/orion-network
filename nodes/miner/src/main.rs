@@ -2,7 +2,7 @@
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
 
-use chain_api::NodeData;
+use chain_api::{AccountId, ContractId, Keypair};
 use component_utils::{
     codec::Codec,
     kad::KadPeerSearch,
@@ -21,12 +21,14 @@ use libp2p::{
 };
 use onion::EncryptedStream;
 use protocols::chat::*;
+use protocols::contracts::NodeData;
 use std::{
     borrow::Cow,
     collections::{hash_map::Entry, HashMap, HashSet},
     mem,
     net::Ipv4Addr,
     pin::Pin,
+    str::FromStr,
     time::Duration,
     usize,
 };
@@ -42,23 +44,32 @@ struct Miner {
 }
 
 impl Miner {
-    async fn new(port: u16, chain_port: u16) -> Self {
+    async fn new(
+        port: u16,
+        boot_chain_node: String,
+        node_account: chain_api::Keypair,
+        node_contract: chain_api::ContractId,
+    ) -> Self {
         let enc_keys = crypto::enc::KeyPair::new();
         let sig_keys = crypto::sign::KeyPair::new();
         let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sig_keys.ed).unwrap();
         let peer_id = local_key.public().to_peer_id();
 
-        chain_api::register_node(
-            format_args!("http://{}:{chain_port}", Ipv4Addr::LOCALHOST),
-            NodeData {
-                sign: sig_keys.public_key().into(),
-                enc: enc_keys.public_key().into(),
-                ip: [127, 0, 0, 1],
-                port,
-            },
-        )
-        .await
-        .unwrap();
+        let client = chain_api::Client::new(&boot_chain_node, node_account)
+            .await
+            .unwrap();
+        client
+            .join(
+                node_contract,
+                NodeData {
+                    sign: sig_keys.public_key().into(),
+                    enc: enc_keys.public_key().into(),
+                    ip: Ipv4Addr::LOCALHOST,
+                    port,
+                },
+            )
+            .await
+            .unwrap();
 
         let behaviour = Behaviour {
             onion: onion::Behaviour::new(
@@ -604,7 +615,6 @@ pub fn send_response<'a, T: Codec<'a>>(
     stream.write(buffer);
 }
 
-#[allow(deprecated)]
 type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 
 #[tokio::main(flavor = "current_thread")]
@@ -613,10 +623,21 @@ async fn main() {
 
     config::env_config! {
         PORT: u16,
-        CHAIN_PORT: u16,
+        BOOT_CHAIN_NODE: String,
+        NODE_ACCOUNT: String,
+        NODE_CONTRACT: ContractId,
     }
 
-    Miner::new(PORT, CHAIN_PORT).await.run().await;
+    let account = if NODE_ACCOUNT.starts_with("//") {
+        chain_api::dev_keypair(&NODE_ACCOUNT)
+    } else {
+        chain_api::mnemonic_keypair(&NODE_ACCOUNT)
+    };
+
+    Miner::new(PORT, BOOT_CHAIN_NODE, account, NODE_CONTRACT)
+        .await
+        .run()
+        .await;
 }
 
 #[derive(NetworkBehaviour)]

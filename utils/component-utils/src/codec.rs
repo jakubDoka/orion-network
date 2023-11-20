@@ -1,13 +1,10 @@
-use std::{io, sync::Arc, u32, usize};
+use std::{sync::Arc, u32, usize};
 
 use arrayvec::{ArrayString, ArrayVec};
-use futures::{AsyncRead, AsyncReadExt};
-#[cfg(feature = "libp2p")]
+#[cfg(feature = "std")]
 use libp2p::core::multihash::Multihash;
-#[cfg(feature = "libp2p")]
+#[cfg(feature = "std")]
 use libp2p::identity::PeerId;
-
-use crate::LinearMap;
 
 pub fn encode_len(len: usize) -> [u8; 4] {
     (len as u32).to_be_bytes()
@@ -100,20 +97,24 @@ pub trait Codec<'a>: Sized {
     }
 }
 
+#[cfg(feature = "futures")]
+use futures::{AsyncRead, AsyncReadExt};
+#[cfg(feature = "futures")]
 pub trait CodecExt: Codec<'static> {
     #[allow(async_fn_in_trait)]
-    async fn from_stream(stream: &mut (impl AsyncRead + Unpin)) -> io::Result<Self> {
+    async fn from_stream(stream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<Self> {
         let mut len = [0; 4];
         stream.read_exact(&mut len).await?;
         let len = decode_len(len);
         let mut buffer = vec![0; len];
         stream.read_exact(&mut buffer).await?;
         // SAFETY: compiler is stupid, we implement Codec<'static>
-        Self::decode(&mut unsafe { std::mem::transmute(buffer.as_slice()) })
-            .ok_or_else(|| io::ErrorKind::InvalidData.into())
+        Self::decode(&mut unsafe { core::mem::transmute(buffer.as_slice()) })
+            .ok_or_else(|| std::io::ErrorKind::InvalidData.into())
     }
 }
 
+#[cfg(feature = "futures")]
 impl<T: Codec<'static>> CodecExt for T {}
 
 impl Codec<'_> for () {
@@ -136,7 +137,7 @@ impl Iterator for Base128Bytes {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !std::mem::take(&mut self.1) && self.0 == 0 {
+        if !core::mem::take(&mut self.1) && self.0 == 0 {
             return None;
         }
 
@@ -231,7 +232,7 @@ impl<'a> Codec<'a> for Reminder<'a> {
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-        Some(Self(std::mem::take(buffer)))
+        Some(Self(core::mem::take(buffer)))
     }
 }
 
@@ -245,7 +246,7 @@ impl<'a> Codec<'a> for Unbound<Vec<u8>> {
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-        Some(Self(std::mem::take(buffer).to_vec()))
+        Some(Self(core::mem::take(buffer).to_vec()))
     }
 }
 
@@ -267,7 +268,7 @@ impl<'a> Codec<'a> for &'a str {
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
         let bytes = <&[u8]>::decode(buffer)?;
-        std::str::from_utf8(bytes).ok()
+        core::str::from_utf8(bytes).ok()
     }
 }
 
@@ -299,7 +300,7 @@ impl<'a, const LEN: usize> Codec<'a> for ArrayString<LEN> {
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
         let bytes = <&[u8]>::decode(buffer)?;
-        let str = std::str::from_utf8(bytes).ok()?;
+        let str = core::str::from_utf8(bytes).ok()?;
         Self::from(str).ok()
     }
 }
@@ -427,16 +428,4 @@ derive_tuples! {
     A, B, C, D;
     A, B, C, D, E;
     A, B, C, D, E, F;
-}
-
-impl<'a, K: Codec<'a>, V: Codec<'a>> Codec<'a> for LinearMap<K, V> {
-    fn encode(&self, buf: &mut Vec<u8>) {
-        self.values.encode(buf)
-    }
-
-    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
-        Some(Self {
-            values: Vec::decode(buf)?,
-        })
-    }
 }

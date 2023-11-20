@@ -1,9 +1,11 @@
+#![cfg_attr(not(feature = "std"), no_std)]
 #![feature(iter_next_chunk)]
 #![feature(iter_advance_by)]
+#![feature(ip_in_core)]
 
 use component_utils::arrayvec::ArrayString;
 
-#[cfg(feature = "libp2p")]
+#[cfg(feature = "std")]
 pub mod chat;
 pub mod contracts;
 

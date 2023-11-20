@@ -1,5 +1,7 @@
+#[cfg(feature = "getrandom")]
 use aes_gcm::aead::OsRng;
 use pqc_kyber::KyberError;
+#[cfg(feature = "std")]
 use thiserror::Error;
 
 use crate::{FixedAesPayload, SharedSecret, SHARED_SECRET_SIZE};
@@ -20,7 +22,7 @@ pub type Ciphertext = FixedAesPayload<{ pqc_kyber::KYBER_CIPHERTEXTBYTES }>;
 type EncriptedKey = FixedAesPayload<{ SHARED_SECRET_SIZE }>;
 
 pub struct ChoosenCiphertext {
-    pl: FixedAesPayload<{ std::mem::size_of::<ChoosenPayload>() }>,
+    pl: FixedAesPayload<{ core::mem::size_of::<ChoosenPayload>() }>,
     x: x25519_dalek::PublicKey,
 }
 
@@ -43,6 +45,7 @@ impl PartialEq for KeyPair {
 
 impl Eq for KeyPair {}
 
+#[cfg(feature = "getrandom")]
 impl Default for KeyPair {
     fn default() -> Self {
         Self::new()
@@ -50,6 +53,7 @@ impl Default for KeyPair {
 }
 
 impl KeyPair {
+    #[cfg(feature = "getrandom")]
     pub fn new() -> Self {
         let kyb = pqc_kyber::Keypair::generate(&mut OsRng).expect("might as well");
         let x = x25519_dalek::StaticSecret::random_from_rng(OsRng);
@@ -63,6 +67,7 @@ impl KeyPair {
         }
     }
 
+    #[cfg(feature = "getrandom")]
     pub fn encapsulate(
         &self,
         public_key: &PublicKey,
@@ -75,6 +80,7 @@ impl KeyPair {
         ))
     }
 
+    #[cfg(feature = "getrandom")]
     pub fn encapsulate_choosen(
         &self,
         public_key: &PublicKey,
@@ -96,8 +102,10 @@ impl KeyPair {
         public_key: &PublicKey,
     ) -> Result<SharedSecret, DecapsulationError> {
         let x_secret = self.x.diffie_hellman(&public_key.x);
-        let data = ciphertext.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
-        pqc_kyber::decapsulate(data.as_ref(), &self.kyb.secret).map_err(Into::into)
+        let data = ciphertext
+            .decrypt(x_secret.to_bytes(), ASOC_DATA)
+            .map_err(DecapsulationError::Aes)?;
+        pqc_kyber::decapsulate(data.as_ref(), &self.kyb.secret).map_err(DecapsulationError::Kyber)
     }
 
     pub fn decapsulate_choosen(
@@ -105,24 +113,38 @@ impl KeyPair {
         ciphertext: ChoosenCiphertext,
     ) -> Result<SharedSecret, DecapsulationError> {
         let x_secret = self.x.diffie_hellman(&ciphertext.x);
-        let data = ciphertext.pl.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
+        let data = ciphertext
+            .pl
+            .decrypt(x_secret.to_bytes(), ASOC_DATA)
+            .map_err(DecapsulationError::Aes)?;
         let payload: ChoosenPayload = data.into();
-        let secret = pqc_kyber::decapsulate(&payload.kyb, &self.kyb.secret)?;
-        let secret = payload.key.decrypt(secret, ASOC_DATA)?;
-        Ok(secret)
+        let secret = pqc_kyber::decapsulate(&payload.kyb, &self.kyb.secret)
+            .map_err(DecapsulationError::Kyber)?;
+        payload
+            .key
+            .decrypt(secret, ASOC_DATA)
+            .map_err(DecapsulationError::Aes)
     }
 }
 
+#[cfg(feature = "std")]
 #[derive(Debug, Error)]
 pub enum DecapsulationError {
     #[error("kyber decapsulation failed: {0}")]
-    Kyber(#[from] KyberError),
+    Kyber(KyberError),
     #[error("aes decapsulation failed: {0}")]
-    Aes(#[from] aes_gcm::Error),
+    Aes(aes_gcm::Error),
+}
+
+#[cfg(not(feature = "std"))]
+pub enum DecapsulationError {
+    Kyber(KyberError),
+    Aes(aes_gcm::Error),
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct PublicKey {
+    #[allow(dead_code)]
     kyb: pqc_kyber::PublicKey,
     x: x25519_dalek::PublicKey,
 }
