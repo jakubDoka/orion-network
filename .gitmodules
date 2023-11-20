@@ -1,0 +1,6 @@
+[submodule "forked/dilithium"]
+	path = forked/dilithium
+	url = git@github.com:jakubDoka/dilithium.git
+[submodule "forked/kyber"]
+	path = forked/kyber
+	url = git@github.com:jakubDoka/kyber.git
