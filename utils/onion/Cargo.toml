@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 aes-gcm = "0.10.3"
-component-utils = { version = "0.1.0", path = "../component-utils", no-default-features = true }
+component-utils = { version = "0.1.0", path = "../component-utils" }
 crypto = { version = "0.1.0", path = "../crypto" }
 futures = "0.3.28"
 instant = "0.1.12"

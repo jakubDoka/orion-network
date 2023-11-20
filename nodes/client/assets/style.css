@@ -207,7 +207,7 @@
 
 * {
 	color: var(--font-color);
-	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+	font-family: Hack, monospace;
 	border-radius: 5px;
 	font-size: var(--small-font-size);
 	transition: color var(--color-transition), background-color var(--color-transition);

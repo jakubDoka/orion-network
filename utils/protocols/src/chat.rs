@@ -6,7 +6,6 @@ use component_utils::Reminder;
 use component_utils::{libp2p::identity::PeerId, Codec};
 
 pub const CHAT_NAME_CAP: usize = 32;
-pub const USER_NAME_CAP: usize = 32;
 pub const CHAT_CAP: usize = 1024 * 1024;
 pub const MAIL_CAP: usize = 1024 * 1024;
 pub const USER_DATA_CAP: usize = 1024 * 1024;
@@ -25,7 +24,8 @@ pub type MemberId = u32;
 pub type ActionNo = u32;
 pub type Identity = crypto::sign::SerializedPublicKey;
 pub type ChatName = ArrayString<CHAT_NAME_CAP>;
-pub type UserName = ArrayString<USER_NAME_CAP>;
+
+pub use crate::{UserName, USER_NAME_CAP};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct UserKeys {

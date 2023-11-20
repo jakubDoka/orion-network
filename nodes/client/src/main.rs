@@ -1,5 +1,4 @@
 #![feature(iter_collect_into)]
-#![feature(result_option_inspect)]
 #![allow(non_snake_case)]
 #![feature(mem_copy_fn)]
 
@@ -138,7 +137,10 @@ fn Boot(rboot_phase: ReadSignal<Option<BootPhase>>) -> impl IntoView {
         .collect_view();
     let message = move || match rboot_phase() {
         Some(s) => format!("{s}"),
-        None => "confused".to_string(),
+        None => {
+            navigate_to("/login");
+            "confused".to_string()
+        }
     };
 
     view! {

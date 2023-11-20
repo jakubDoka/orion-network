@@ -116,30 +116,22 @@ impl KadPeerSearch {
             return KadSearchResult::Ignored;
         };
 
-        log::error!("kad event matches");
-
         let Some(index) = self.discovery_queries.iter().position(|(q, _)| q == id) else {
             return KadSearchResult::Ignored;
         };
         let (_, target) = self.discovery_queries.swap_remove_front(index).unwrap();
 
-        log::error!("kad event matches 2");
-
         if closest_peers.peers.contains(&target) {
             if let Some(mut q) = kad.query_mut(id) {
                 q.finish();
             }
-            log::error!("kad event matches 3");
             return KadSearchResult::Discovered(target);
         }
 
         if !step.last {
-            log::error!("kad event matches 4");
             self.discovery_queries.push_back((*id, target));
             return KadSearchResult::Pending;
         }
-
-        log::error!("kad event matches 5");
 
         KadSearchResult::Failed(target)
     }

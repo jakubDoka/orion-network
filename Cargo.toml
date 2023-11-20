@@ -3,10 +3,8 @@ resolver = "2"
 members = [
 	"nodes/*",
 	"utils/*",
-	"tests/*"
-]
-exclude = [
-	"rust-libp2p",
+	"tests/*",
+	"contracts/*",
 ]
 
 [profile.release]
