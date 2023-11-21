@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chain-api = { version = "0.1.0", path = "../../utils/chain-api" }
+chain-api = { version = "0.1.0", path = "../../utils/chain-api", features = ["native"] }
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 config = { version = "0.1.0", path = "../../utils/config" }
 crypto = { version = "0.1.0", path = "../../utils/crypto" }

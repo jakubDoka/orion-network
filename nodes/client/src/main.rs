@@ -7,6 +7,7 @@ use crate::chat::Chat;
 use crate::login::{Login, Register};
 use crate::node::Node;
 use crate::profile::Profile;
+use chain_api::{AsyncSigner, ContractId};
 use leptos::html::Input;
 use leptos::signal_prelude::*;
 use leptos::*;
@@ -15,6 +16,8 @@ use protocols::chat::{ChatName, UserKeys, UserName};
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::future::Future;
+use std::str::FromStr;
+use web_sys::js_sys::wasm_bindgen;
 
 mod chat;
 mod login;
@@ -27,7 +30,66 @@ pub fn main() {
     mount_to_body(App)
 }
 
+async fn sig_with_wallet(data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    #[wasm_bindgen::prelude::wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(catch, js_namespace = integration)]
+        async fn sign(data: &[u8]) -> Result<JsValue, JsValue>;
+    }
+
+    let sig = sign(data).await?;
+    let sig = sig.as_string().ok_or("user did something very wrong")?;
+    hex::decode(sig).map_err(|e| e.to_string().into())
+}
+
+async fn get_account_id() -> Result<String, JsValue> {
+    #[wasm_bindgen::prelude::wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(catch, js_namespace = integration)]
+        async fn get() -> Result<JsValue, JsValue>;
+    }
+
+    let id = get().await?;
+    id.as_string().ok_or("user, pleas stop").map_err(Into::into)
+}
+
+struct WebSigner;
+
+impl AsyncSigner for WebSigner {
+    async fn sign_async(
+        &self,
+        signer_payload: &[u8],
+    ) -> Result<chain_api::Signature, chain_api::Error> {
+        let signature = sig_with_wallet(signer_payload)
+            .await
+            .map_err(|e| chain_api::Error::Other(format!("{e:?}")))?;
+        signature
+            .try_into()
+            .ok()
+            .ok_or(chain_api::Error::Other("invalid signature".to_string()))
+            .map(chain_api::new_signature)
+    }
+
+    async fn account_id_async(&self) -> Result<chain_api::AccountId, chain_api::Error> {
+        let id = get_account_id()
+            .await
+            .map_err(|e| chain_api::Error::Other(format!("{e:?}")))?;
+        chain_api::AccountId::from_str(&id)
+            .map_err(|e| chain_api::Error::Other(format!("invalid id received: {e}")))
+    }
+}
+
 const CHAIN_BOOTSTRAP_NODE: &str = "http://localhost:8700";
+
+fn user_contract() -> ContractId {
+    const USER_CONTRACT: Option<&str> = option_env!("USER_CONTRACT");
+    ContractId::from_str(USER_CONTRACT.unwrap()).unwrap()
+}
+
+fn node_contract() -> ContractId {
+    const NODE_CONTRACT: Option<&str> = option_env!("NODE_CONTRACT");
+    ContractId::from_str(NODE_CONTRACT.unwrap()).unwrap()
+}
 
 #[derive(Clone, Copy)]
 struct LoggedState {
@@ -53,9 +115,7 @@ fn App() -> impl IntoView {
 
         spawn_local(async move {
             navigate_to("/");
-            let n = match Node::new(keys, CHAIN_BOOTSTRAP_NODE, wevents, rcommands, wboot_phase)
-                .await
-            {
+            let n = match Node::new(keys, wevents, rcommands, wboot_phase).await {
                 Ok(n) => n,
                 Err(e) => {
                     log::error!("failed to create node: {e}");

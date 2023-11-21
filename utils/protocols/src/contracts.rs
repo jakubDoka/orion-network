@@ -1,8 +1,8 @@
-use core::{net::Ipv4Addr, str::FromStr, u128};
+use core::{net::Ipv4Addr, u128};
 
 use crypto::impl_transmute;
 
-use crate::{UserName, USER_NAME_CAP};
+use crate::{username_from_raw, RawUserName, UserName};
 
 type Balance = u128;
 type Timestamp = u64;
@@ -16,20 +16,17 @@ pub const SLASH_FACTOR: u32 = 1;
 
 #[derive(Debug, Clone)]
 pub struct RawUserData {
-    name: [u8; USER_NAME_CAP],
-    sign: crypto::sign::SerializedPublicKey,
-    enc: crypto::enc::SerializedPublicKey,
+    pub name: RawUserName,
+    pub sign: crypto::sign::SerializedPublicKey,
+    pub enc: crypto::enc::SerializedPublicKey,
 }
 
 impl TryFrom<RawUserData> for UserData {
     type Error = ();
 
     fn try_from(RawUserData { name, sign, enc }: RawUserData) -> Result<Self, Self::Error> {
-        let len = name.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
-        let name = &name[..len];
         Ok(UserData {
-            name: UserName::from_str(core::str::from_utf8(&name).map_err(|_| ())?)
-                .map_err(|_| ())?,
+            name: username_from_raw(name).ok_or(())?,
             sign: sign.into(),
             enc: enc.into(),
         })
@@ -43,6 +40,31 @@ pub struct UserData {
     pub enc: crypto::enc::SerializedPublicKey,
 }
 
+impl UserData {
+    pub fn to_identity(self) -> UserIdentity {
+        UserIdentity {
+            sign: self.sign,
+            enc: self.enc,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct UserIdentity {
+    pub sign: crypto::sign::SerializedPublicKey,
+    pub enc: crypto::enc::SerializedPublicKey,
+}
+
+impl UserIdentity {
+    pub fn to_data(self, name: UserName) -> UserData {
+        UserData {
+            name,
+            sign: self.sign,
+            enc: self.enc,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct NodeData {
     pub sign: crypto::sign::SerializedPublicKey,
@@ -53,5 +75,6 @@ pub struct NodeData {
 
 impl_transmute! {
     NodeData, NODE_DATA_SIZE, SerializedNodeData;
-    UserData, USER_DATA_SIZE, SerializedUserData;
+    RawUserData, USER_DATA_SIZE, SerializedUserData;
+    UserIdentity, USER_IDENTITY_SIZE, SerializedUserIdentity;
 }

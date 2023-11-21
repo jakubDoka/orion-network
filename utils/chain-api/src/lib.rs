@@ -7,13 +7,14 @@ use polkadot::contracts::calls::types::Call;
 use polkadot::runtime_types::pallet_contracts_primitives::{ContractResult, ExecReturnValue};
 use polkadot::runtime_types::sp_runtime::DispatchError;
 use polkadot::runtime_types::sp_weights::weight_v2::Weight;
+use protocols::contracts::SerializedUserIdentity;
 use protocols::contracts::{Identity, NodeData, SerializedNodeData};
+use protocols::UserName;
 use subxt::backend::legacy::LegacyRpcMethods;
 use subxt::backend::rpc::RpcClient;
-use subxt::tx::{Payload, Signer};
+use subxt::tx::Payload;
 use subxt::{OnlineClient, PolkadotConfig};
 use subxt_signer::bip39::Mnemonic;
-use subxt_signer::sr25519::dev;
 
 pub type Config = PolkadotConfig;
 pub type Balance = u128;
@@ -21,6 +22,7 @@ pub type ContractId = <Config as subxt::Config>::AccountId;
 pub type AccountId = <Config as subxt::Config>::AccountId;
 pub type Error = subxt::Error;
 pub type Keypair = subxt_signer::sr25519::Keypair;
+pub type Signature = subxt_signer::sr25519::Signature;
 
 #[track_caller]
 pub fn dev_keypair(name: &str) -> Keypair {
@@ -32,6 +34,10 @@ pub fn dev_keypair(name: &str) -> Keypair {
 pub fn mnemonic_keypair(mnemonic: &str) -> Keypair {
     subxt_signer::sr25519::Keypair::from_phrase(&Mnemonic::from_str(mnemonic).unwrap(), None)
         .unwrap()
+}
+
+pub fn new_signature(sig: [u8; 64]) -> Signature {
+    subxt_signer::sr25519::Signature(sig)
 }
 
 /// Trait implemented by [`smart_bench_macro::contract`] for all contract constructors.
@@ -60,6 +66,7 @@ pub trait InkMessage: parity_scale_codec::Encode {
 mod polkadot {}
 mod contracts {
     contract_macro::contract!("../../target/ink/node_staker/node_staker.contract");
+    contract_macro::contract!("../../target/ink/user_manager/user_manager.contract");
 }
 
 //struct MySigner(pub subxt_signer::sr25519::Keypair);
@@ -78,49 +85,71 @@ mod contracts {
 //    }
 //}
 
-pub struct Client {
-    account: Keypair,
+#[allow(async_fn_in_trait)]
+pub trait AsyncSigner {
+    async fn sign_async(&self, signer_payload: &[u8]) -> Result<Signature, Error>;
+    async fn account_id_async(&self) -> Result<AccountId, Error>;
+}
+
+impl AsyncSigner for Keypair {
+    async fn sign_async(&self, signer_payload: &[u8]) -> Result<Signature, Error> {
+        Ok(self.sign(signer_payload))
+    }
+
+    async fn account_id_async(&self) -> Result<AccountId, Error> {
+        Ok(self.public_key().into())
+    }
+}
+
+pub struct UnreachableSigner;
+
+impl AsyncSigner for UnreachableSigner {
+    async fn sign_async(&self, _: &[u8]) -> Result<Signature, Error> {
+        unreachable!()
+    }
+
+    async fn account_id_async(&self) -> Result<AccountId, Error> {
+        unreachable!()
+    }
+}
+
+pub struct Client<S: AsyncSigner> {
+    signer: S,
     client: OnlineClient<Config>,
     legacy: LegacyRpcMethods<Config>,
 }
 
-impl Client {
-    pub async fn new(url: &str, account: Keypair) -> Result<Self, subxt::Error> {
+impl<S: AsyncSigner> Client<S> {
+    pub async fn with_signer(url: &str, account: S) -> Result<Self, Error> {
         let rpc = RpcClient::from_url(url).await?;
         let client = OnlineClient::<Config>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::new(rpc);
 
         Ok(Self {
-            account,
+            signer: account,
             client,
             legacy,
         })
     }
 
-    pub async fn default() -> Result<Self, subxt::Error> {
-        let url = "ws://localhost:9944";
-        let account = dev::alice();
-        Self::new(url, account).await
-    }
-
-    async fn get_nonce(&self) -> Result<u64, subxt::Error> {
+    async fn get_nonce(&self) -> Result<u64, Error> {
         let best_block = self
             .legacy
             .chain_get_block_hash(None)
             .await?
-            .ok_or(subxt::Error::Other("Best block not found".into()))?;
+            .ok_or(Error::Other("Best block not found".into()))?;
         let account_nonce = self
             .client
             .blocks()
             .at(best_block)
             .await?
-            .account_nonce(&Signer::<Config>::account_id(&self.account))
+            .account_nonce(&self.signer.account_id_async().await?)
             .await?;
         Ok(account_nonce)
     }
 
-    pub async fn join(&self, dest: ContractId, data: NodeData) -> Result<(), subxt::Error> {
-        self.call_auto_witght(
+    pub async fn join(&self, dest: ContractId, data: NodeData) -> Result<(), Error> {
+        self.call_auto_weight(
             1000000,
             dest,
             contracts::node_staker::messages::join(data.into()),
@@ -128,19 +157,9 @@ impl Client {
         .await
     }
 
-    pub async fn list(&self, addr: ContractId) -> Result<Vec<SerializedNodeData>, subxt::Error> {
-        self.make_dry_call::<Result<_, _>>(CallRequest {
-            origin: Signer::<Config>::account_id(&self.account),
-            dest: addr,
-            value: 0,
-            gas_limit: None,
-            storage_deposit_limit: None,
-            input_data: contracts::node_staker::messages::list().to_bytes(),
-        })
-        .await
-        .and_then(|(res, _)| {
-            res.map_err(|()| subxt::Error::Other(format!("Contract call returned error")))
-        })
+    pub async fn list(&self, addr: ContractId) -> Result<Vec<SerializedNodeData>, Error> {
+        self.call_dry(0, addr, contracts::node_staker::messages::list())
+            .await
     }
 
     pub async fn vote(
@@ -149,31 +168,56 @@ impl Client {
         me: protocols::contracts::Identity,
         target: protocols::contracts::Identity,
         weight: i32,
-    ) -> Result<(), subxt::Error> {
+    ) -> Result<(), Error> {
         let call = contracts::node_staker::messages::vote(me, target, weight);
-        self.call_auto_witght(0, dest, call).await
+        self.call_auto_weight(0, dest, call).await
     }
 
-    pub async fn reclaim(&self, dest: ContractId, me: Identity) -> Result<(), subxt::Error> {
-        self.call_auto_witght(0, dest, contracts::node_staker::messages::reclaim(me))
+    pub async fn reclaim(&self, dest: ContractId, me: Identity) -> Result<(), Error> {
+        self.call_auto_weight(0, dest, contracts::node_staker::messages::reclaim(me))
             .await
     }
 
-    async fn call_auto_witght<T: parity_scale_codec::Decode>(
+    pub async fn register(
+        &self,
+        dest: ContractId,
+        data: protocols::contracts::UserData,
+    ) -> Result<(), Error> {
+        self.call_auto_weight(
+            0,
+            dest,
+            contracts::user_manager::messages::register_with_name(
+                protocols::username_to_raw(data.name),
+                data.to_identity().into(),
+            ),
+        )
+        .await
+    }
+
+    pub async fn get_profile_by_name(
+        &self,
+        dest: ContractId,
+        name: UserName,
+    ) -> Result<SerializedUserIdentity, Error> {
+        let call =
+            contracts::user_manager::messages::profile_by_name(protocols::username_to_raw(name));
+        self.call_dry(0, dest, call).await
+    }
+
+    pub async fn user_exists(&self, dest: ContractId, name: UserName) -> Result<bool, Error> {
+        self.get_profile_by_name(dest, name)
+            .await
+            .map(|p| p.iter().any(|&b| b != 0))
+    }
+
+    async fn call_auto_weight<T: parity_scale_codec::Decode>(
         &self,
         value: Balance,
         dest: ContractId,
         call_data: impl InkMessage,
-    ) -> Result<T, subxt::Error> {
+    ) -> Result<T, Error> {
         let (res, weight) = self
-            .make_dry_call(CallRequest {
-                origin: Signer::<Config>::account_id(&self.account),
-                dest: dest.clone(),
-                value,
-                gas_limit: None,
-                storage_deposit_limit: None,
-                input_data: call_data.to_bytes(),
-            })
+            .call_dry_low(value, dest.clone(), call_data.to_bytes())
             .await?;
 
         self.make_call(polkadot::tx().contracts().call(
@@ -188,10 +232,42 @@ impl Client {
         Ok(res)
     }
 
+    async fn call_dry<T: parity_scale_codec::Decode>(
+        &self,
+        value: Balance,
+        dest: ContractId,
+        call_data: impl InkMessage,
+    ) -> Result<T, Error> {
+        self.call_dry_low(value, dest, call_data.to_bytes())
+            .await
+            .map(|(t, ..)| t)
+    }
+
+    async fn call_dry_low<T: parity_scale_codec::Decode>(
+        &self,
+        value: Balance,
+        dest: ContractId,
+        call_data: Vec<u8>,
+    ) -> Result<(T, Weight), Error> {
+        self.make_dry_call::<Result<T, ()>>(CallRequest {
+            origin: self.signer.account_id_async().await?,
+            dest: dest.clone(),
+            value,
+            gas_limit: None,
+            storage_deposit_limit: None,
+            input_data: call_data,
+        })
+        .await
+        .and_then(|(e, w)| {
+            let e = e.map_err(|_| Error::Other("contract returned `Err`".into()))?;
+            Ok((e, w))
+        })
+    }
+
     async fn make_dry_call<T: parity_scale_codec::Decode>(
         &self,
         call: CallRequest,
-    ) -> Result<(T, Weight), subxt::Error> {
+    ) -> Result<(T, Weight), Error> {
         let bytes = call.encode();
         self.legacy
             .state_call("ContractsApi_call", Some(&bytes), None)
@@ -200,24 +276,32 @@ impl Client {
                 <ContractResult<Result<ExecReturnValue, DispatchError>, Balance, ()>>::decode(
                     &mut r.as_slice(),
                 )
-                .map_err(|e| subxt::Error::Decode(subxt::error::DecodeError::custom(e)))
+                .map_err(|e| Error::Decode(subxt::error::DecodeError::custom(e)))
             })
             .and_then(|r| {
                 let res = r
                     .result
-                    .map_err(|e| subxt::Error::Other(format!("Contract error: {:?}", e)))?;
+                    .map_err(|e| Error::Other(format!("Contract error: {:?}", e)))?;
                 let res = T::decode(&mut res.data.as_slice())
-                    .map_err(|e| subxt::Error::Decode(subxt::error::DecodeError::custom(e)))?;
+                    .map_err(|e| Error::Decode(subxt::error::DecodeError::custom(e)))?;
                 Ok((res, r.gas_consumed))
             })
     }
 
-    async fn make_call(&self, call: Payload<Call>) -> Result<(), subxt::Error> {
+    async fn make_call(&self, call: Payload<Call>) -> Result<(), Error> {
         let nonce = self.get_nonce().await?;
 
-        self.client
-            .tx()
-            .create_signed_with_nonce(&call, &self.account, nonce, Default::default())?
+        let tx = self.client.tx();
+        tx.validate(&call)?;
+        let partial_signed =
+            tx.create_partial_signed_with_nonce(&call, nonce, Default::default())?;
+        let sp = partial_signed.signer_payload();
+        let signature = self.signer.sign_async(&sp.encode()).await?;
+        let address = self.signer.account_id_async().await?;
+        let signed =
+            partial_signed.sign_with_address_and_signature(&address.into(), &signature.into());
+
+        signed
             .submit_and_watch()
             .await?
             .wait_for_in_block()

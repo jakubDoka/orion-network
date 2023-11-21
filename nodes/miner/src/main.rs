@@ -2,7 +2,7 @@
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
 
-use chain_api::{AccountId, ContractId, Keypair};
+use chain_api::ContractId;
 use component_utils::{
     codec::Codec,
     kad::KadPeerSearch,
@@ -28,7 +28,6 @@ use std::{
     mem,
     net::Ipv4Addr,
     pin::Pin,
-    str::FromStr,
     time::Duration,
     usize,
 };
@@ -55,7 +54,7 @@ impl Miner {
         let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sig_keys.ed).unwrap();
         let peer_id = local_key.public().to_peer_id();
 
-        let client = chain_api::Client::new(&boot_chain_node, node_account)
+        let client = chain_api::Client::with_signer(&boot_chain_node, node_account)
             .await
             .unwrap();
         client

@@ -1,11 +1,11 @@
-use chain_api::UserData;
 use leptos::html::Input;
 use leptos::*;
 use leptos_router::A;
 use protocols::chat::{SerializedUserKeys, UserKeys, UserName, USER_KEYS_SIZE};
+use protocols::contracts::UserData;
 use web_sys::js_sys::{Array, Uint8Array};
 
-use crate::CHAIN_BOOTSTRAP_NODE;
+use crate::{WebSigner, CHAIN_BOOTSTRAP_NODE};
 
 #[component]
 pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
@@ -61,16 +61,21 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
     let download_link = create_node_ref::<leptos::html::A>();
 
     let on_register = move |_| {
-        let key = UserKeys::new();
         let username = username.get_untracked().expect("universe to work");
         let Ok(username_content) = UserName::try_from(username.value().as_str()) else {
             return;
         };
+        let key = UserKeys::new(username_content);
 
         spawn_local(async move {
-            if chain_api::user_by_name(CHAIN_BOOTSTRAP_NODE, username_content)
+            let client = chain_api::Client::with_signer(CHAIN_BOOTSTRAP_NODE, WebSigner)
                 .await
-                .is_ok()
+                .unwrap();
+
+            if client
+                .user_exists(crate::user_contract(), username_content)
+                .await
+                .unwrap()
             {
                 username.set_custom_validity("username already exists");
                 username.report_validity();
@@ -99,7 +104,7 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
             link.set_download(&format!("{}.keys", username_content));
             link.click();
 
-            if let Err(e) = chain_api::create_user(CHAIN_BOOTSTRAP_NODE, data).await {
+            if let Err(e) = client.register(crate::user_contract(), data).await {
                 username.set_custom_validity(&format!("failed to create user: {e:?}"));
                 username.report_validity();
                 return;

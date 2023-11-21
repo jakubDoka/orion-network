@@ -25,18 +25,21 @@ pub type ActionNo = u32;
 pub type Identity = crypto::sign::SerializedPublicKey;
 pub type ChatName = ArrayString<CHAT_NAME_CAP>;
 
+use crate::contracts::UserIdentity;
 pub use crate::{UserName, USER_NAME_CAP};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct UserKeys {
+    pub name: UserName,
     pub sign: crypto::sign::KeyPair,
     pub enc: crypto::enc::KeyPair,
     pub vault: crypto::SharedSecret,
 }
 
 impl UserKeys {
-    pub fn new() -> Self {
+    pub fn new(name: UserName) -> Self {
         Self {
+            name,
             sign: crypto::sign::KeyPair::new(),
             enc: crypto::enc::KeyPair::new(),
             vault: crypto::new_secret(),
@@ -45,26 +48,14 @@ impl UserKeys {
 
     pub fn identity(&self) -> UserIdentity {
         UserIdentity {
-            sign: self.sign.public_key(),
-            enc: self.enc.public_key(),
+            sign: self.sign.public_key().into(),
+            enc: self.enc.public_key().into(),
         }
     }
 }
 
-impl Default for UserKeys {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub struct UserIdentity {
-    pub sign: crypto::sign::PublicKey,
-    pub enc: crypto::enc::PublicKey,
-}
-
 crypto::impl_transmute! {
     UserKeys, USER_KEYS_SIZE, SerializedUserKeys;
-    UserIdentity, USER_IDENTITY_SIZE, SerializedUserIdentity;
 }
 
 macro_rules! gen_simple_error {

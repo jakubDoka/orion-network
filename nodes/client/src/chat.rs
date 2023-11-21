@@ -1,7 +1,9 @@
+use chain_api::UnreachableSigner;
 use leptos::html::Input;
 use leptos::*;
 use leptos_router::Redirect;
 use protocols::chat::{AddMember, ChatName, CreateChatErrorData, UserName};
+use protocols::contracts::UserIdentity;
 
 use crate::node::MessageContent;
 use crate::{get_value, navigate_to, node, report_validity, CHAIN_BOOTSTRAP_NODE};
@@ -105,7 +107,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     let on_open_mi = move |_| mi_hidden.set(false);
     let on_close_mi = move |_| mi_hidden.set(true);
     let on_mi = move |_| {
-        let Ok(user) = UserName::try_from(get_value(mi_name_input).as_str()) else {
+        let Ok(name) = UserName::try_from(get_value(mi_name_input).as_str()) else {
             return;
         };
 
@@ -115,8 +117,14 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
 
         mi_bts_disabled.set(true);
         spawn_local(async move {
-            let user = match chain_api::user_by_name(CHAIN_BOOTSTRAP_NODE, user).await {
-                Ok(u) => u,
+            let client = chain_api::Client::with_signer(CHAIN_BOOTSTRAP_NODE, UnreachableSigner)
+                .await
+                .unwrap();
+            let user = match client
+                .get_profile_by_name(crate::user_contract(), name)
+                .await
+            {
+                Ok(u) => UserIdentity::from(u).to_data(name),
                 Err(e) => {
                     report_validity(mi_name_input, format_args!("failed to fetch user: {e}"));
                     return;

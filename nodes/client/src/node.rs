@@ -1,4 +1,4 @@
-use crate::BootPhase;
+use crate::{BootPhase, CHAIN_BOOTSTRAP_NODE};
 use component_utils::futures::stream::Fuse;
 use component_utils::kad::KadPeerSearch;
 use component_utils::Codec;
@@ -175,20 +175,18 @@ pub enum SubIntent {
 impl Node {
     pub async fn new(
         keys: UserKeys,
-        chain_bootstrap_node: &str,
         events: WriteSignal<Event>,
         commands: ReadSignal<Command>,
         wboot_phase: WriteSignal<Option<BootPhase>>,
     ) -> Result<Self, BootError> {
         wboot_phase(Some(BootPhase::FetchTopology));
 
-        let chain_api = chain_api::Client::default().await.unwrap();
+        let chain_api =
+            chain_api::Client::with_signer(CHAIN_BOOTSTRAP_NODE, chain_api::UnreachableSigner)
+                .await
+                .unwrap();
 
-        const NODE_CONTRACT: &str = "";
-
-        use std::str::FromStr;
-
-        let node_request = chain_api.list(chain_api::ContractId::from_str(NODE_CONTRACT).unwrap());
+        let node_request = chain_api.list(crate::node_contract());
         let profile_request = std::future::pending::<Result<UserData, chain_api::Error>>();
         let (node_data, profile) = futures::join!(node_request, profile_request);
         let (node_data, profile) = (

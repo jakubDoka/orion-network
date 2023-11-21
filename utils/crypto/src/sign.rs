@@ -37,6 +37,7 @@ impl KeyPair {
         }
     }
 
+    #[cfg(feature = "getrandom")]
     pub fn sign(&self, data: &[u8]) -> Signature {
         let dili = self.dili.sign(data);
         let ed = SigningKey::from(&self.ed)
