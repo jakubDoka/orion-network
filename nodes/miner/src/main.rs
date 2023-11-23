@@ -32,6 +32,31 @@ use std::{
     usize,
 };
 
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    env_logger::init();
+
+    config::env_config! {
+        PORT: u16,
+        BOOTSTRAP_NODE: String,
+        NODE_ACCOUNT: String,
+        NODE_CONTRACT: ContractId,
+    }
+
+    let account = if NODE_ACCOUNT.starts_with("//") {
+        chain_api::dev_keypair(&NODE_ACCOUNT)
+    } else {
+        chain_api::mnemonic_keypair(&NODE_ACCOUNT)
+    };
+
+    log::info!("booting up node");
+
+    Miner::new(PORT, BOOTSTRAP_NODE, account, NODE_CONTRACT)
+        .await
+        .run()
+        .await;
+}
+
 struct Miner {
     swarm: libp2p::swarm::Swarm<Behaviour>,
     client_counter: usize,
@@ -54,9 +79,11 @@ impl Miner {
         let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sig_keys.ed).unwrap();
         let peer_id = local_key.public().to_peer_id();
 
+        log::info!("peer id: {}", peer_id);
         let client = chain_api::Client::with_signer(&boot_chain_node, node_account)
             .await
             .unwrap();
+        log::info!("joined chain");
         client
             .join(
                 node_contract,
@@ -69,6 +96,7 @@ impl Miner {
             )
             .await
             .unwrap();
+        log::info!("registered on chain");
 
         let behaviour = Behaviour {
             onion: onion::Behaviour::new(
@@ -615,29 +643,6 @@ pub fn send_response<'a, T: Codec<'a>>(
 }
 
 type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    env_logger::init();
-
-    config::env_config! {
-        PORT: u16,
-        BOOT_CHAIN_NODE: String,
-        NODE_ACCOUNT: String,
-        NODE_CONTRACT: ContractId,
-    }
-
-    let account = if NODE_ACCOUNT.starts_with("//") {
-        chain_api::dev_keypair(&NODE_ACCOUNT)
-    } else {
-        chain_api::mnemonic_keypair(&NODE_ACCOUNT)
-    };
-
-    Miner::new(PORT, BOOT_CHAIN_NODE, account, NODE_CONTRACT)
-        .await
-        .run()
-        .await;
-}
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {

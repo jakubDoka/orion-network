@@ -126,11 +126,13 @@ impl ActionProof {
     fn new(no: &mut ActionNo, sk: &crypto::sign::KeyPair, salt: [u8; SALT_SIZE]) -> Self {
         *no += 1;
         let sig = sk.sign(&Self::build_salt(salt, *no - 1)).into();
-        Self {
+        let s = Self {
             pk: sk.public_key().into(),
             no: *no - 1,
             sig,
-        }
+        };
+        assert!(s.is_valid(salt));
+        s
     }
 
     pub fn for_profile(no: &mut ActionNo, sk: &crypto::sign::KeyPair) -> Self {
@@ -147,6 +149,7 @@ impl ActionProof {
         let Self { pk, no, sig } = self;
         crypto::sign::PublicKey::from(pk)
             .verify(&Self::build_salt(salt, no), &sig.into())
+            .inspect_err(|e| log::warn!("invalid proof, {}", e))
             .is_ok()
     }
 

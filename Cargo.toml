@@ -7,6 +7,10 @@ members = [
 	"contracts/*",
 	"forked/*",
 ]
+exclude = [
+	"forked/substrate-contracts-node",
+	"forked/substrate-node-template",
+]
 
 [profile.release]
 panic = "abort"

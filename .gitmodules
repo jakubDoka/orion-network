@@ -4,3 +4,9 @@
 [submodule "forked/kyber"]
 	path = forked/kyber
 	url = git@github.com:jakubDoka/kyber.git
+[submodule "forked/substrate-contracts-node"]
+	path = forked/substrate-contracts-node
+	url = git@github.com:jakubDoka/substrate-contracts-node.git
+[submodule "forked/substrate-node-template"]
+	path = forked/substrate-node-template
+	url = git@github.com:jakubDoka/minimal-contract-chain.git

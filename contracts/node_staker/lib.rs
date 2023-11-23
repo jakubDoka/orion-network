@@ -1,9 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
-#![feature(ip_in_core)]
 
 #[ink::contract]
 mod node_staker {
-    use core::net::Ipv4Addr;
     use core::u32;
     use ink::prelude::vec::Vec;
     use protocols::contracts::*;
@@ -29,7 +27,7 @@ mod node_staker {
 
     #[derive(scale::Decode, scale::Encode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    struct EncKey(crypto::enc::SerializedPublicKey);
+    struct EncKey(SerializedNodeData);
 
     #[cfg(feature = "std")]
     impl ink::storage::traits::StorageLayout for EncKey {
@@ -53,8 +51,6 @@ mod node_staker {
         created_at: Timestamp,
         votes: Votes,
         enc_key: EncKey,
-        ip: [u8; 4],
-        port: u16,
     }
 
     impl Stake {
@@ -76,8 +72,8 @@ mod node_staker {
     /// to add new static storage fields to your contract.
     #[ink(storage)]
     pub struct NodeStaker {
-        stakes: ink::storage::Mapping<Identity, Stake>,
-        stake_list: Vec<Identity>,
+        stakes: ink::storage::Mapping<EdIdentity, Stake>,
+        stake_list: Vec<EdIdentity>,
     }
 
     impl NodeStaker {
@@ -100,21 +96,20 @@ mod node_staker {
                 owner: Self::env().caller(),
                 created_at: Self::env().block_timestamp(),
                 votes: Votes::default(),
-                enc_key: EncKey(identity.enc.into()),
-                ip: identity.ip.octets(),
-                port: identity.port,
+                enc_key: EncKey(identity.into()),
             };
             assert!(
                 self.stakes
-                    .insert(Identity::from(identity.sign), &stake)
+                    .insert(crypto::sign::PublicKey::from(identity.sign).ed, &stake)
                     .is_none(),
                 "already joined"
             );
-            self.stake_list.push(identity.sign.into());
+            self.stake_list
+                .push(crypto::sign::PublicKey::from(identity.sign).ed);
         }
 
         #[ink(message)]
-        pub fn vote(&mut self, identity: Identity, target: Identity, rating: i32) {
+        pub fn vote(&mut self, identity: EdIdentity, target: EdIdentity, rating: i32) {
             let mut stake = self.stakes.get(&identity).expect("no stake to wote with");
             assert!(stake.owner == self.env().caller(), "not owner");
             let mut target_stake = self.stakes.get(&target).expect("target does not exist");
@@ -137,24 +132,17 @@ mod node_staker {
         }
 
         #[ink(message)]
-        pub fn list(&self) -> Vec<SerializedNodeData> {
-            self.stake_list
-                .iter()
-                .map(|&x| {
-                    let stake = self.stakes.get(&x).expect("stake");
-                    let identity = NodeData {
-                        sign: x.into(),
-                        enc: stake.enc_key.0.into(),
-                        ip: Ipv4Addr::from(stake.ip),
-                        port: stake.port,
-                    };
-                    identity.into()
-                })
-                .collect()
+        pub fn list(&self) -> Vec<EdIdentity> {
+            self.stake_list.clone()
         }
 
         #[ink(message)]
-        pub fn reclaim(&mut self, identity: Identity) {
+        pub fn get_by_identity(&self, identity: EdIdentity) -> SerializedNodeData {
+            self.stakes.get(&identity).expect("not joined").enc_key.0
+        }
+
+        #[ink(message)]
+        pub fn reclaim(&mut self, identity: EdIdentity) {
             let stake = self.stakes.get(&identity).expect("not joined");
             assert!(stake.owner == self.env().caller(), "not owner");
             assert!(
@@ -176,6 +164,8 @@ mod node_staker {
 
     #[cfg(test)]
     mod tests {
+        use std::net::Ipv4Addr;
+
         use super::*;
         use ink::{env::test as ink_env, env::DefaultEnvironment as Env, primitives::AccountId};
 
@@ -189,20 +179,21 @@ mod node_staker {
             [accounts.alice, accounts.bob]
         }
 
-        fn identities() -> [Identity; 2] {
-            [
-                [0x01; crypto::sign::PUBLIC_KEY_SIZE],
-                [0x02; crypto::sign::PUBLIC_KEY_SIZE],
-            ]
+        fn identities() -> [EdIdentity; 2] {
+            [[0x01; 32], [0x02; 32]]
         }
 
-        fn join(staker: &mut NodeStaker, amount: Balance, identity: Identity, to: AccountId) {
+        fn join(staker: &mut NodeStaker, amount: Balance, identity: EdIdentity, to: AccountId) {
             ink_env::set_caller::<Env>(to);
             ink_env::set_value_transferred::<Env>(amount);
             ink_env::set_block_timestamp::<Env>(0);
             staker.join(
                 NodeData {
-                    sign: identity.into(),
+                    sign: crypto::sign::PublicKey {
+                        ed: identity,
+                        dili: [0x01; crypto::sign::PUBLIC_KEY_SIZE - 32],
+                    }
+                    .into(),
                     enc: [0x01; crypto::enc::PUBLIC_KEY_SIZE].into(),
                     ip: Ipv4Addr::new(127, 0, 0, 1),
                     port: 8080,
@@ -217,8 +208,8 @@ mod node_staker {
 
         fn vote(
             staker: &mut NodeStaker,
-            identity: Identity,
-            target: Identity,
+            identity: EdIdentity,
+            target: EdIdentity,
             rating: i32,
             to: AccountId,
         ) {
@@ -228,7 +219,7 @@ mod node_staker {
 
         fn reclaim(
             staker: &mut NodeStaker,
-            identity: Identity,
+            identity: EdIdentity,
             block_timestamp: Timestamp,
             to: AccountId,
         ) {

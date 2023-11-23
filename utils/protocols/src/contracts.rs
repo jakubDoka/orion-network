@@ -7,6 +7,7 @@ use crate::{username_from_raw, RawUserName, UserName};
 type Balance = u128;
 type Timestamp = u64;
 pub type Identity = crypto::sign::SerializedPublicKey;
+pub type EdIdentity = [u8; 32];
 
 pub const STAKE_AMOUNT: Balance = 1000000;
 pub const INIT_VOTE_POOL: u32 = 3;

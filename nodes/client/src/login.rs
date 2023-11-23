@@ -5,8 +5,6 @@ use protocols::chat::{SerializedUserKeys, UserKeys, UserName, USER_KEYS_SIZE};
 use protocols::contracts::UserData;
 use web_sys::js_sys::{Array, Uint8Array};
 
-use crate::{WebSigner, CHAIN_BOOTSTRAP_NODE};
-
 #[component]
 pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
     let key_file = create_node_ref::<Input>();
@@ -68,14 +66,12 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
         let key = UserKeys::new(username_content);
 
         spawn_local(async move {
-            let client = chain_api::Client::with_signer(CHAIN_BOOTSTRAP_NODE, WebSigner)
-                .await
-                .unwrap();
+            let client = crate::chain_node(username_content).await.unwrap();
 
             if client
-                .user_exists(crate::user_contract(), username_content)
+                .get_profile_by_name(crate::user_contract(), username_content)
                 .await
-                .unwrap()
+                .is_ok()
             {
                 username.set_custom_validity("username already exists");
                 username.report_validity();

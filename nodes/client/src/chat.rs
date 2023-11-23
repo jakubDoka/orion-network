@@ -1,12 +1,11 @@
-use chain_api::UnreachableSigner;
 use leptos::html::Input;
 use leptos::*;
 use leptos_router::Redirect;
 use protocols::chat::{AddMember, ChatName, CreateChatErrorData, UserName};
 use protocols::contracts::UserIdentity;
 
+use crate::node;
 use crate::node::MessageContent;
-use crate::{get_value, navigate_to, node, report_validity, CHAIN_BOOTSTRAP_NODE};
 
 fn is_at_bottom(messages_div: HtmlElement<leptos::html::Div>) -> bool {
     let scroll_bottom = messages_div.scroll_top();
@@ -71,7 +70,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     let side_chat = move |chat: ChatName| {
         let select_chat = move |_| {
             current_chat.set(Some(chat));
-            navigate_to(format_args!("/chat/{chat}"));
+            crate::navigate_to(format_args!("/chat/{chat}"));
             let messages = messages.get_untracked().expect("universe to work");
             messages.set_inner_html("");
             wcommands(node::Command::FetchMessages(chat, true));
@@ -87,11 +86,11 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     let on_open_cc = move |_| cc_hidden.set(false);
     let on_close_cc = move |_| cc_hidden.set(true);
     let on_cc = move |_| {
-        let Ok(chat) = ChatName::try_from(get_value(cc_name_input).as_str()) else {
+        let Ok(chat) = ChatName::try_from(crate::get_value(cc_name_input).as_str()) else {
             return;
         };
         if chats.with(|chats| chats.contains(&chat)) {
-            report_validity(
+            crate::report_validity(
                 cc_name_input,
                 format_args!("chat '{chat}' already exists and you have it"),
             );
@@ -107,7 +106,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     let on_open_mi = move |_| mi_hidden.set(false);
     let on_close_mi = move |_| mi_hidden.set(true);
     let on_mi = move |_| {
-        let Ok(name) = UserName::try_from(get_value(mi_name_input).as_str()) else {
+        let Ok(name) = UserName::try_from(crate::get_value(mi_name_input).as_str()) else {
             return;
         };
 
@@ -117,16 +116,17 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
 
         mi_bts_disabled.set(true);
         spawn_local(async move {
-            let client = chain_api::Client::with_signer(CHAIN_BOOTSTRAP_NODE, UnreachableSigner)
-                .await
-                .unwrap();
+            let client = crate::chain_node(rusername.get_untracked()).await.unwrap();
             let user = match client
                 .get_profile_by_name(crate::user_contract(), name)
                 .await
             {
                 Ok(u) => UserIdentity::from(u).to_data(name),
                 Err(e) => {
-                    report_validity(mi_name_input, format_args!("failed to fetch user: {e}"));
+                    crate::report_validity(
+                        mi_name_input,
+                        format_args!("failed to fetch user: {e}"),
+                    );
                     return;
                 }
             };
@@ -142,7 +142,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             cc_bts_disabled.set(false);
         }
         node::Event::CannotCreateChat(CreateChatErrorData { err, name }) => {
-            report_validity(
+            crate::report_validity(
                 cc_name_input,
                 format_args!("failed to create '{name}': {err}"),
             );
@@ -171,7 +171,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             mi_bts_disabled.set(false);
         }
         node::Event::MailWriteError(e) => {
-            report_validity(mi_name_input, format_args!("failed to write mail: {e}"));
+            crate::report_validity(mi_name_input, format_args!("failed to write mail: {e}"));
             mi_bts_disabled.set(false);
         }
         node::Event::AddedMember(AddMember { .. }) => {
@@ -190,7 +190,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
         let chat = current_chat.get_untracked().expect("universe to work");
         log::info!("sending message to {chat}");
 
-        let content = get_value(message_input);
+        let content = crate::get_value(message_input);
         if content.is_empty() {
             return;
         }

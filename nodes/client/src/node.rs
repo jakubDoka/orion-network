@@ -1,4 +1,4 @@
-use crate::{BootPhase, CHAIN_BOOTSTRAP_NODE};
+use crate::BootPhase;
 use component_utils::futures::stream::Fuse;
 use component_utils::kad::KadPeerSearch;
 use component_utils::Codec;
@@ -13,7 +13,7 @@ use libp2p::*;
 use libp2p::{PeerId, Swarm};
 use onion::{EncryptedStream, PathId};
 use protocols::chat::*;
-use protocols::contracts::{NodeData, UserData};
+use protocols::contracts::{NodeData, UserData, UserIdentity};
 use rand::seq::IteratorRandom;
 use std::collections::{HashMap, HashSet};
 use std::task::Poll;
@@ -153,7 +153,6 @@ pub enum Command {
 pub struct Node {
     events: WriteSignal<Event>,
     commands: Fuse<Pin<Box<dyn futures::Stream<Item = Command>>>>,
-    username: UserName,
     keys: UserKeys,
     swarm: Swarm<Behaviour>,
     peer_search: KadPeerSearch,
@@ -181,20 +180,29 @@ impl Node {
     ) -> Result<Self, BootError> {
         wboot_phase(Some(BootPhase::FetchTopology));
 
-        let chain_api =
-            chain_api::Client::with_signer(CHAIN_BOOTSTRAP_NODE, chain_api::UnreachableSigner)
-                .await
-                .unwrap();
-
+        let chain_api = crate::chain_node(keys.name).await.unwrap();
         let node_request = chain_api.list(crate::node_contract());
-        let profile_request = std::future::pending::<Result<UserData, chain_api::Error>>();
+        let profile_request = chain_api.get_profile_by_name(crate::user_contract(), keys.name);
+        log::debug!("{:?}", keys.name);
         let (node_data, profile) = futures::join!(node_request, profile_request);
         let (node_data, profile) = (
             node_data.map_err(BootError::FetchNodes)?,
             profile.map_err(BootError::FetchProfile)?,
         );
+        let profile = UserIdentity::from(profile);
+
+        assert_eq!(
+            profile.sign,
+            crypto::sign::SerializedPublicKey::from(keys.sign.public_key())
+        );
 
         let nodes = node_data
+            .into_iter()
+            .map(|n| chain_api.get_by_identity(crate::node_contract(), n))
+            .collect::<futures::stream::FuturesUnordered<_>>()
+            .filter_map(|n| async move { n.ok() })
+            .collect::<Vec<_>>()
+            .await
             .into_iter()
             .map(NodeData::from)
             .map(node_data_to_path_seg)
@@ -340,7 +348,10 @@ impl Node {
 
         let mut resp = profile_stream.next().await.unwrap().unwrap();
         let mut vault = if resp.is_empty() {
-            Vault::default()
+            Vault {
+                action_no: 1,
+                ..Default::default()
+            }
         } else {
             let vault = decrypt(&mut resp, keys.vault).unwrap();
             Vault::decode(&mut &*vault).unwrap()
@@ -493,7 +504,6 @@ impl Node {
             pending_subscriptions: vec![],
             buffer,
             buffer2: vec![],
-            username: profile.name,
             vault,
         };
 
@@ -712,7 +722,7 @@ impl Node {
 
                 self.buffer.clear();
                 RawChatMessage {
-                    user: self.username,
+                    user: self.keys.name,
                     content: &content,
                 }
                 .encode(&mut self.buffer);
@@ -970,7 +980,7 @@ impl Node {
     }
 
     pub fn username(&self) -> UserName {
-        self.username
+        self.keys.name
     }
 
     pub fn chats(&self) -> impl Iterator<Item = ChatName> + '_ {

@@ -7,14 +7,17 @@ use polkadot::contracts::calls::types::Call;
 use polkadot::runtime_types::pallet_contracts_primitives::{ContractResult, ExecReturnValue};
 use polkadot::runtime_types::sp_runtime::DispatchError;
 use polkadot::runtime_types::sp_weights::weight_v2::Weight;
-use protocols::contracts::SerializedUserIdentity;
-use protocols::contracts::{Identity, NodeData, SerializedNodeData};
+use protocols::contracts::{EdIdentity, SerializedUserIdentity};
+use protocols::contracts::{NodeData, SerializedNodeData};
 use protocols::UserName;
 use subxt::backend::legacy::LegacyRpcMethods;
 use subxt::backend::rpc::RpcClient;
-use subxt::tx::Payload;
+use subxt::tx::{Payload, Signer};
 use subxt::{OnlineClient, PolkadotConfig};
 use subxt_signer::bip39::Mnemonic;
+
+pub use serde_json::json;
+pub use subxt::tx::TxPayload;
 
 pub type Config = PolkadotConfig;
 pub type Balance = u128;
@@ -23,6 +26,23 @@ pub type AccountId = <Config as subxt::Config>::AccountId;
 pub type Error = subxt::Error;
 pub type Keypair = subxt_signer::sr25519::Keypair;
 pub type Signature = subxt_signer::sr25519::Signature;
+pub type CallPayload = Payload<Call>;
+
+pub fn immortal_era() -> String {
+    encode_then_hex(&subxt::utils::Era::Immortal)
+}
+
+pub fn to_hex(bytes: impl AsRef<[u8]>) -> String {
+    format!("0x{}", hex::encode(bytes.as_ref()))
+}
+
+pub fn encode_then_hex<E: parity_scale_codec::Encode>(input: &E) -> String {
+    format!("0x{}", hex::encode(input.encode()))
+}
+
+pub fn encode_tip(value: u128) -> String {
+    encode_then_hex(&parity_scale_codec::Compact(value))
+}
 
 #[track_caller]
 pub fn dev_keypair(name: &str) -> Keypair {
@@ -86,53 +106,40 @@ mod contracts {
 //}
 
 #[allow(async_fn_in_trait)]
-pub trait AsyncSigner {
-    async fn sign_async(&self, signer_payload: &[u8]) -> Result<Signature, Error>;
+pub trait TransactionHandler {
     async fn account_id_async(&self) -> Result<AccountId, Error>;
+    async fn handle(&self, client: &InnerClient, call: impl TxPayload) -> Result<(), Error>;
 }
 
-impl AsyncSigner for Keypair {
-    async fn sign_async(&self, signer_payload: &[u8]) -> Result<Signature, Error> {
-        Ok(self.sign(signer_payload))
-    }
-
+impl TransactionHandler for Keypair {
     async fn account_id_async(&self) -> Result<AccountId, Error> {
         Ok(self.public_key().into())
     }
+
+    async fn handle(&self, inner: &InnerClient, call: impl TxPayload) -> Result<(), Error> {
+        let nonce = inner.get_nonce(&Signer::<Config>::account_id(self)).await?;
+
+        inner
+            .client
+            .tx()
+            .create_signed_with_nonce(&call, self, nonce, Default::default())?
+            .submit_and_watch()
+            .await?
+            .wait_for_in_block()
+            .await?
+            .wait_for_success()
+            .await
+            .map(drop)
+    }
 }
 
-pub struct UnreachableSigner;
-
-impl AsyncSigner for UnreachableSigner {
-    async fn sign_async(&self, _: &[u8]) -> Result<Signature, Error> {
-        unreachable!()
-    }
-
-    async fn account_id_async(&self) -> Result<AccountId, Error> {
-        unreachable!()
-    }
+pub struct InnerClient {
+    pub client: OnlineClient<Config>,
+    pub legacy: LegacyRpcMethods<Config>,
 }
 
-pub struct Client<S: AsyncSigner> {
-    signer: S,
-    client: OnlineClient<Config>,
-    legacy: LegacyRpcMethods<Config>,
-}
-
-impl<S: AsyncSigner> Client<S> {
-    pub async fn with_signer(url: &str, account: S) -> Result<Self, Error> {
-        let rpc = RpcClient::from_url(url).await?;
-        let client = OnlineClient::<Config>::from_rpc_client(rpc.clone()).await?;
-        let legacy = LegacyRpcMethods::new(rpc);
-
-        Ok(Self {
-            signer: account,
-            client,
-            legacy,
-        })
-    }
-
-    async fn get_nonce(&self) -> Result<u64, Error> {
+impl InnerClient {
+    pub async fn get_nonce(&self, account: &AccountId) -> Result<u64, Error> {
         let best_block = self
             .legacy
             .chain_get_block_hash(None)
@@ -143,9 +150,28 @@ impl<S: AsyncSigner> Client<S> {
             .blocks()
             .at(best_block)
             .await?
-            .account_nonce(&self.signer.account_id_async().await?)
+            .account_nonce(account)
             .await?;
         Ok(account_nonce)
+    }
+}
+
+pub struct Client<S: TransactionHandler> {
+    signer: S,
+    inner: InnerClient,
+}
+
+impl<S: TransactionHandler> Client<S> {
+    pub async fn with_signer(url: &str, account: S) -> Result<Self, Error> {
+        let rpc = RpcClient::from_url(url).await?;
+        let client = OnlineClient::<Config>::from_rpc_client(rpc.clone()).await?;
+        let legacy = LegacyRpcMethods::new(rpc);
+
+        Ok(Self {
+            signer: account,
+
+            inner: InnerClient { client, legacy },
+        })
     }
 
     pub async fn join(&self, dest: ContractId, data: NodeData) -> Result<(), Error> {
@@ -157,23 +183,40 @@ impl<S: AsyncSigner> Client<S> {
         .await
     }
 
-    pub async fn list(&self, addr: ContractId) -> Result<Vec<SerializedNodeData>, Error> {
+    pub async fn list(&self, addr: ContractId) -> Result<Vec<EdIdentity>, Error> {
         self.call_dry(0, addr, contracts::node_staker::messages::list())
             .await
+    }
+
+    pub async fn get_by_identity(
+        &self,
+        addr: ContractId,
+        id: protocols::contracts::EdIdentity,
+    ) -> Result<SerializedNodeData, Error> {
+        self.call_dry(
+            0,
+            addr,
+            contracts::node_staker::messages::get_by_identity(id),
+        )
+        .await
     }
 
     pub async fn vote(
         &self,
         dest: ContractId,
-        me: protocols::contracts::Identity,
-        target: protocols::contracts::Identity,
+        me: protocols::contracts::EdIdentity,
+        target: protocols::contracts::EdIdentity,
         weight: i32,
     ) -> Result<(), Error> {
         let call = contracts::node_staker::messages::vote(me, target, weight);
         self.call_auto_weight(0, dest, call).await
     }
 
-    pub async fn reclaim(&self, dest: ContractId, me: Identity) -> Result<(), Error> {
+    pub async fn reclaim(
+        &self,
+        dest: ContractId,
+        me: protocols::contracts::EdIdentity,
+    ) -> Result<(), Error> {
         self.call_auto_weight(0, dest, contracts::node_staker::messages::reclaim(me))
             .await
     }
@@ -199,9 +242,18 @@ impl<S: AsyncSigner> Client<S> {
         dest: ContractId,
         name: UserName,
     ) -> Result<SerializedUserIdentity, Error> {
-        let call =
-            contracts::user_manager::messages::profile_by_name(protocols::username_to_raw(name));
-        self.call_dry(0, dest, call).await
+        let call = contracts::user_manager::messages::get_profile_by_name(
+            protocols::username_to_raw(name),
+        );
+        self.call_dry(0, dest, call)
+            .await
+            .and_then(|r: SerializedUserIdentity| {
+                if r.iter().any(|&b| b != 0) {
+                    Ok(r)
+                } else {
+                    Err(Error::Other("user not found".into()))
+                }
+            })
     }
 
     pub async fn user_exists(&self, dest: ContractId, name: UserName) -> Result<bool, Error> {
@@ -216,18 +268,25 @@ impl<S: AsyncSigner> Client<S> {
         dest: ContractId,
         call_data: impl InkMessage,
     ) -> Result<T, Error> {
-        let (res, weight) = self
+        let (res, mut weight) = self
             .call_dry_low(value, dest.clone(), call_data.to_bytes())
             .await?;
 
-        self.make_call(polkadot::tx().contracts().call(
-            dest.into(),
-            value,
-            weight,
-            None,
-            call_data.to_bytes(),
-        ))
-        .await?;
+        weight.ref_time = weight.ref_time * 10;
+        weight.proof_size = weight.proof_size * 10;
+
+        self.signer
+            .handle(
+                &self.inner,
+                polkadot::tx().contracts().call(
+                    dest.into(),
+                    value,
+                    weight,
+                    None,
+                    call_data.to_bytes(),
+                ),
+            )
+            .await?;
 
         Ok(res)
     }
@@ -249,19 +308,18 @@ impl<S: AsyncSigner> Client<S> {
         dest: ContractId,
         call_data: Vec<u8>,
     ) -> Result<(T, Weight), Error> {
-        self.make_dry_call::<Result<T, ()>>(CallRequest {
-            origin: self.signer.account_id_async().await?,
-            dest: dest.clone(),
-            value,
-            gas_limit: None,
-            storage_deposit_limit: None,
-            input_data: call_data,
-        })
-        .await
-        .and_then(|(e, w)| {
-            let e = e.map_err(|_| Error::Other("contract returned `Err`".into()))?;
-            Ok((e, w))
-        })
+        let (e, w) = self
+            .make_dry_call::<Result<T, ()>>(CallRequest {
+                origin: self.signer.account_id_async().await?,
+                dest: dest.clone(),
+                value,
+                gas_limit: None,
+                storage_deposit_limit: None,
+                input_data: call_data,
+            })
+            .await?;
+        let e = e.map_err(|_| Error::Other("contract returned `Err`".into()))?;
+        Ok((e, w))
     }
 
     async fn make_dry_call<T: parity_scale_codec::Decode>(
@@ -269,46 +327,29 @@ impl<S: AsyncSigner> Client<S> {
         call: CallRequest,
     ) -> Result<(T, Weight), Error> {
         let bytes = call.encode();
-        self.legacy
+        let r = self
+            .inner
+            .legacy
             .state_call("ContractsApi_call", Some(&bytes), None)
-            .await
-            .and_then(|r| {
-                <ContractResult<Result<ExecReturnValue, DispatchError>, Balance, ()>>::decode(
-                    &mut r.as_slice(),
-                )
-                .map_err(|e| Error::Decode(subxt::error::DecodeError::custom(e)))
-            })
-            .and_then(|r| {
-                let res = r
-                    .result
-                    .map_err(|e| Error::Other(format!("Contract error: {:?}", e)))?;
-                let res = T::decode(&mut res.data.as_slice())
-                    .map_err(|e| Error::Decode(subxt::error::DecodeError::custom(e)))?;
-                Ok((res, r.gas_consumed))
-            })
-    }
+            .await?;
 
-    async fn make_call(&self, call: Payload<Call>) -> Result<(), Error> {
-        let nonce = self.get_nonce().await?;
+        let r = <ContractResult<Result<ExecReturnValue, DispatchError>, Balance, ()>>::decode(
+            &mut r.as_slice(),
+        )
+        .map_err(|e| Error::Decode(subxt::error::DecodeError::custom(e)))?;
 
-        let tx = self.client.tx();
-        tx.validate(&call)?;
-        let partial_signed =
-            tx.create_partial_signed_with_nonce(&call, nonce, Default::default())?;
-        let sp = partial_signed.signer_payload();
-        let signature = self.signer.sign_async(&sp.encode()).await?;
-        let address = self.signer.account_id_async().await?;
-        let signed =
-            partial_signed.sign_with_address_and_signature(&address.into(), &signature.into());
-
-        signed
-            .submit_and_watch()
-            .await?
-            .wait_for_in_block()
-            .await?
-            .wait_for_success()
-            .await
-            .map(drop)
+        let res = r.result.map_err(|e| match e {
+            DispatchError::Module(me) => {
+                let meta = self.inner.client.metadata();
+                let pallet = meta.pallet_by_index(me.index).unwrap();
+                let error = pallet.error_variant_by_index(me.error[0]).unwrap();
+                Error::Other(format!("dispatch error: {}.{}", pallet.name(), error.name))
+            }
+            e => Error::Other(format!("dispatch error: {:?}", e)),
+        })?;
+        let res = T::decode(&mut res.data.as_slice())
+            .map_err(|e| Error::Decode(subxt::error::DecodeError::custom(e)))?;
+        Ok((res, r.gas_consumed))
     }
 }
 
@@ -324,87 +365,3 @@ struct CallRequest {
     storage_deposit_limit: Option<Balance>,
     input_data: Vec<u8>,
 }
-
-//
-//#[derive(Debug, thiserror::Error)]
-//pub enum RegisterNodeError {
-//    #[error(transparent)]
-//    Reqwest(#[from] reqwest::Error),
-//    #[error("node already exists")]
-//    Conflict,
-//}
-//
-//pub async fn nodes(addr: impl fmt::Display) -> Result<Vec<NodeData>, NodesError> {
-//    let url = format!("{addr}{NODES}");
-//    let res = get_client().get(&url).send().await?;
-//    match res.status() {
-//        reqwest::StatusCode::OK => {}
-//        _ => return Err(res.error_for_status().unwrap_err().into()),
-//    }
-//    let data = res.bytes().await?;
-//    <Vec<NodeData>>::decode(&mut data.as_ref()).ok_or(NodesError::Codec)
-//}
-//
-//#[derive(Debug, thiserror::Error)]
-//pub enum NodesError {
-//    #[error(transparent)]
-//    Reqwest(#[from] reqwest::Error),
-//    #[error("failed to decode nodes data")]
-//    Codec,
-//}
-//
-//pub async fn create_user(addr: impl fmt::Display, data: UserData) -> Result<(), CreateUserError> {
-//    let url = format!("{addr}{CREATE_USER}");
-//    let res = get_client().post(&url).body(data.to_bytes()).send().await?;
-//    match res.status() {
-//        reqwest::StatusCode::OK => Ok(()),
-//        reqwest::StatusCode::CONFLICT => Err(CreateUserError::Conflict),
-//        _ => Err(res.error_for_status().unwrap_err().into()),
-//    }
-//}
-//
-//#[derive(Debug, thiserror::Error)]
-//pub enum CreateUserError {
-//    #[error(transparent)]
-//    Reqwest(#[from] reqwest::Error),
-//    #[error("user already exists")]
-//    Conflict,
-//}
-//
-//pub async fn user_by_name(
-//    addr: impl fmt::Display,
-//    name: UserName,
-//) -> Result<UserData, GetUserError> {
-//    let url = format!("{addr}{}", USER_BY_NAME.replace(":id", &name));
-//    get_user(url).await
-//}
-//
-//pub async fn user_by_sign(
-//    addr: impl fmt::Display,
-//    sign: crypto::sign::PublicKey,
-//) -> Result<UserData, GetUserError> {
-//    let hex_sign = hex::encode(sign.ed);
-//    let url = format!("{addr}{}", USER_BY_SIGN.replace(":id", &hex_sign));
-//    get_user(url).await
-//}
-//
-//async fn get_user(path: String) -> Result<UserData, GetUserError> {
-//    let res = get_client().get(&path).send().await?;
-//    match res.status() {
-//        reqwest::StatusCode::OK => {}
-//        reqwest::StatusCode::NOT_FOUND => return Err(GetUserError::NotFound),
-//        _ => return Err(GetUserError::Reqwest(res.error_for_status().unwrap_err())),
-//    }
-//    let data = res.bytes().await?;
-//    UserData::decode(&mut data.as_ref()).ok_or(GetUserError::Codec)
-//}
-//
-//#[derive(Debug, thiserror::Error)]
-//pub enum GetUserError {
-//    #[error(transparent)]
-//    Reqwest(#[from] reqwest::Error),
-//    #[error("failed to decode user data")]
-//    Codec,
-//    #[error("user not found")]
-//    NotFound,
-//}
