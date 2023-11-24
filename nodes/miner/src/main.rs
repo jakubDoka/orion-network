@@ -485,12 +485,7 @@ impl Miner {
             .unwrap();
     }
 
-    fn handle_undecided_client_message(&mut self, id: usize, req: Vec<u8>) {
-        let Some(req) = InitRequest::decode(&mut req.as_slice()) else {
-            log::error!("failed to decode init request");
-            return;
-        };
-
+    fn handle_undecided_client_message_low(&mut self, id: usize, req: InitRequest) {
         let stream = self.clients.iter_mut().find(|s| s.id == id).unwrap();
 
         let store = self.swarm.behaviour_mut().kad.store_mut();
@@ -540,7 +535,7 @@ impl Miner {
                         &mut self.buffer,
                     );
                 }
-                stream.state = StreamState::Chats(chats.into_iter().collect());
+                stream.state.add_subscriptions(chats);
             }
             InitRequest::Create(CreateChat { name, proof }) => {
                 let resp = match store.create_chat(name, proof) {
@@ -558,9 +553,17 @@ impl Miner {
                     name,
                     PutRecord::CreateChat(CreateChat { name, proof }),
                 );
-                stream.state = StreamState::Chats([name].into_iter().collect());
+                stream.state.add_subscriptions([name]);
             }
         }
+    }
+
+    fn handle_undecided_client_message(&mut self, id: usize, req: Vec<u8>) {
+        let Some(req) = InitRequest::decode(&mut req.as_slice()) else {
+            log::error!("failed to decode init request");
+            return;
+        };
+        self.handle_undecided_client_message_low(id, req);
     }
 
     fn handle_chat_request(&mut self, id: usize, req: Vec<u8>) {
@@ -598,6 +601,7 @@ impl Miner {
                 };
                 send_response(resp, &mut stream.inner, &mut self.buffer);
             }
+            ChatRequest::OtherInit(ir) => self.handle_undecided_client_message_low(id, ir),
             ChatRequest::KeepAlive => {}
         }
     }
@@ -881,6 +885,14 @@ impl StreamState {
 
     fn is_this_chat(&self, chats: &ChatName) -> bool {
         matches!(self, Self::Chats(other) if other.contains(chats))
+    }
+
+    fn add_subscriptions(&mut self, names: impl IntoIterator<Item = ChatName>) {
+        match self {
+            Self::Chats(chats) => chats.extend(names),
+            Self::Undecided => *self = Self::Chats(names.into_iter().collect()),
+            _ => log::error!("client tried to subscribe to channel contaning profile"),
+        }
     }
 }
 

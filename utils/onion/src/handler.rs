@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::{collections::VecDeque, fmt, io, iter, slice, task::Poll};
 
 use futures::{AsyncReadExt, AsyncWriteExt, Future};
@@ -110,7 +111,7 @@ impl ConnectionHandler for Handler {
                 protocol: ChannelMeta { from, to },
                 ..
             }) => match from {
-                ChannelSource::Stream(from) => ToBehaviour::NewChannel([from, to]),
+                ChannelSource::Relay(from) => ToBehaviour::NewChannel(to, from),
                 ChannelSource::ThisNode(key, id, from) => {
                     ToBehaviour::OutboundStream { to, key, id, from }
                 }
@@ -134,7 +135,7 @@ pub enum HError {
 
 #[derive(Debug)]
 pub enum ToBehaviour {
-    NewChannel([Stream; 2]),
+    NewChannel(Stream, PathId),
     OutboundStream {
         to: Stream,
         key: SharedSecret,
@@ -174,10 +175,9 @@ impl UpgradeInfo for IUpgrade {
 }
 
 #[derive(Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum IncomingOrRequest {
-    Incoming(IncomingStream),
-    Request(StreamRequest),
+    Incoming(IncomingStreamMeta),
+    Request(Arc<StreamRequest>),
 }
 
 #[derive(Debug)]
@@ -189,8 +189,14 @@ pub enum IncomingOrResponse {
 #[derive(Debug)]
 pub struct IncomingStream {
     pub(crate) stream: Stream,
+    pub(crate) meta: IncomingStreamMeta,
+}
+
+#[derive(Debug, Clone)]
+pub struct IncomingStreamMeta {
     pub(crate) to: PeerId,
     pub(crate) buffer: Vec<u8>,
+    pub(crate) path_id: PathId,
 }
 
 #[derive(Debug)]
@@ -254,8 +260,11 @@ impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
 
             Ok(Some(IncomingOrResponse::Incoming(IncomingStream {
                 stream: Stream::new(stream, buffer_cap),
-                to,
-                buffer: buffer[..new_len].to_vec(),
+                meta: IncomingStreamMeta {
+                    to,
+                    buffer: buffer[..new_len].to_vec(),
+                    path_id: PathId::new(),
+                },
             })))
         }
     }
@@ -302,7 +311,7 @@ impl UpgradeInfo for OUpgrade {
 
 #[derive(Debug)]
 pub enum ChannelSource {
-    Stream(Stream),
+    Relay(PathId),
     ThisNode(SharedSecret, PathId, PeerId),
 }
 
@@ -355,7 +364,7 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                 IncomingOrRequest::Incoming(i) => {
                     log::debug!("received incoming routable stream");
                     return Ok(ChannelMeta {
-                        from: ChannelSource::Stream(i.stream),
+                        from: ChannelSource::Relay(i.path_id),
                         to: Stream::new(stream, buffer_cap),
                     });
                 }

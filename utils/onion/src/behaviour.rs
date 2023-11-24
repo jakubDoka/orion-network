@@ -33,9 +33,8 @@ pub struct Behaviour {
     peer_to_connection: component_utils::LinearMap<PeerId, ConnectionId>,
     events: VecDeque<TS<Event, handler::FromBehaviour>>,
     pending_connections: Vec<IncomingStream>,
-    pending_requests: Vec<StreamRequest>,
+    pending_requests: Vec<Arc<StreamRequest>>,
     error_streams: FuturesUnordered<component_utils::ClosingStream<libp2p::swarm::Stream>>,
-    path_counter: usize,
     buffer: Arc<spin::Mutex<[u8; 1 << 16]>>,
 }
 
@@ -49,7 +48,6 @@ impl Behaviour {
             pending_connections: Default::default(),
             pending_requests: Default::default(),
             error_streams: Default::default(),
-            path_counter: 0,
             buffer: Arc::new(spin::Mutex::new([0; 1 << 16])),
         }
     }
@@ -71,8 +69,9 @@ impl Behaviour {
             .rev()
             .for_each(|(k, _)| mem::swap(k, &mut recipient));
 
-        let path_id = PathId(self.path_counter);
-        self.path_counter += 1;
+        let path_id = PathId::new();
+
+        log::info!("opening path to {}", to);
 
         self.push_stream_request(StreamRequest {
             to,
@@ -91,6 +90,8 @@ impl Behaviour {
             return;
         }
 
+        let sr = Arc::new(sr);
+        self.pending_requests.push(sr.clone());
         let Some(&conn_id) = self.peer_to_connection.get(&sr.to) else {
             log::debug!(
                 "queueing connection to {} from {}",
@@ -99,7 +100,6 @@ impl Behaviour {
             );
             self.events
                 .push_back(TS::GenerateEvent(Event::ConnectRequest(sr.to)));
-            self.pending_requests.push(sr);
             return;
         };
 
@@ -130,28 +130,29 @@ impl Behaviour {
             return;
         }
 
-        if is.to == self.config.current_peer_id {
+        if is.meta.to == self.config.current_peer_id {
             // most likely melisious since we check this in open_path
             log::warn!("melacious stream or self connection");
             return;
         }
 
-        let Some(&conn_id) = self.peer_to_connection.get(&is.to) else {
+        let meta = is.meta.clone();
+        self.pending_connections.push(is);
+        let Some(&conn_id) = self.peer_to_connection.get(&meta.to) else {
             log::debug!(
                 "queueing connection to {} from {}",
-                is.to,
+                meta.to,
                 self.config.current_peer_id
             );
             self.events
-                .push_back(TS::GenerateEvent(Event::ConnectRequest(is.to)));
-            self.pending_connections.push(is);
+                .push_back(TS::GenerateEvent(Event::ConnectRequest(meta.to)));
             return;
         };
 
         self.events.push_back(TS::NotifyHandler {
-            peer_id: is.to,
+            peer_id: meta.to,
             handler: NotifyHandler::One(conn_id),
-            event: handler::FromBehaviour::InitPacket(IncomingOrRequest::Incoming(is)),
+            event: handler::FromBehaviour::InitPacket(IncomingOrRequest::Incoming(meta)),
         });
     }
 
@@ -163,7 +164,11 @@ impl Behaviour {
 
         self.peer_to_connection.insert(to, to_id);
 
-        let incoming = component_utils::drain_filter(&mut self.pending_connections, |p| p.to != to)
+        let incoming = self
+            .pending_connections
+            .iter()
+            .filter(|p| p.meta.to == to)
+            .map(|p| p.meta.clone())
             .map(IncomingOrRequest::Incoming);
         let requests = component_utils::drain_filter(&mut self.pending_requests, |p| p.to != to)
             .map(IncomingOrRequest::Request);
@@ -186,7 +191,8 @@ impl Behaviour {
     /// Must be called when a peer cannot be found, otherwise a pending connection information is
     /// leaked for each `ConnectionRequest`.
     pub fn report_unreachable(&mut self, peer: PeerId) {
-        for mut p in component_utils::drain_filter(&mut self.pending_connections, |p| p.to != peer)
+        for mut p in
+            component_utils::drain_filter(&mut self.pending_connections, |p| p.meta.to != peer)
         {
             p.stream.write_error(MISSING_PEER);
             self.error_streams.push(p.stream.into_closing_stream());
@@ -202,7 +208,7 @@ impl Behaviour {
     /// behaviour it self is not aware of it.
     pub fn redail(&mut self, peer: PeerId) {
         if self.peer_to_connection.get(&peer).is_some() {
-            log::debug!("redail to already connected peer");
+            log::debug!("redail to already connected peer, {peer}");
             return;
         }
 
@@ -256,6 +262,15 @@ impl NetworkBehaviour for Behaviour {
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
         if let libp2p::swarm::FromSwarm::ConnectionClosed(c) = event {
+            if self.pending_requests.iter().any(|p| p.to == c.peer_id)
+                || self
+                    .pending_connections
+                    .iter()
+                    .any(|p| p.meta.to == c.peer_id)
+            {
+                self.events
+                    .push_back(TS::GenerateEvent(Event::ConnectRequest(c.peer_id)));
+            }
             log::debug!("connection closed to {}", c.peer_id);
             self.peer_to_connection.remove(&c.peer_id);
         }
@@ -269,9 +284,18 @@ impl NetworkBehaviour for Behaviour {
     ) {
         use crate::handler::ToBehaviour as HTB;
         match event {
-            HTB::NewChannel([from, to]) => {
+            HTB::NewChannel(to, path_id) => {
+                let Some(from) = self
+                    .pending_connections
+                    .iter()
+                    .position(|p| p.meta.path_id == path_id)
+                else {
+                    log::error!("no pending connection for path id {}", peer_id);
+                    return;
+                };
+                let from = self.pending_connections.swap_remove(from);
                 self.router
-                    .push(Channel::new(from, to, self.buffer.clone()))
+                    .push(Channel::new(from.stream, to, self.buffer.clone()))
             }
             HTB::IncomingStream(IncomingOrResponse::Incoming(s)) => self.push_incoming_stream(s),
             HTB::IncomingStream(IncomingOrResponse::Response(s)) => {
@@ -367,6 +391,13 @@ pub enum Error {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PathId(usize);
+
+impl PathId {
+    pub(crate) fn new() -> Self {
+        static CURSOR: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        Self(CURSOR.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
 
 #[derive(Debug)]
 pub struct EncryptedStream {

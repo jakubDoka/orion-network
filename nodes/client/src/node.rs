@@ -618,7 +618,7 @@ impl Node {
                     .iter_mut()
                     .find(|s| members.contains(&s.peer_id))
                 {
-                    let req = if meta.action_no == 0 {
+                    let req = ChatRequest::OtherInit(if meta.action_no == 0 {
                         InitRequest::Create(CreateChat {
                             name: key,
                             proof: ActionProof::for_chat(&mut meta.action_no, &self.keys.sign, key),
@@ -630,7 +630,7 @@ impl Node {
                         })
                     } else {
                         panic!("{key}");
-                    };
+                    });
                     send_request(req, &mut sub.stream, &mut self.buffer);
                     sub.subs.insert(key);
                     return;

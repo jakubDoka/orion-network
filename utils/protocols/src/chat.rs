@@ -197,10 +197,11 @@ impl<'a> ReplicateMessage<'a> {
 }
 
 component_utils::protocol! { 'a:
-    #[derive(Clone, Copy)]
+    #[derive(Clone)]
     enum ChatRequest<'a> {
         Send: Message<'a> => 0,
         Fetch: FetchMessages => 1,
+        OtherInit: InitRequest => 2,
         KeepAlive => 30,
     }
 
