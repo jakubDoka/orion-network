@@ -389,15 +389,7 @@ pub enum Error {
     Handler(#[from] handler::HError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PathId(usize);
-
-impl PathId {
-    pub(crate) fn new() -> Self {
-        static CURSOR: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        Self(CURSOR.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-    }
-}
+component_utils::gen_unique_id!(PathId);
 
 #[derive(Debug)]
 pub struct EncryptedStream {

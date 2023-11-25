@@ -37,6 +37,22 @@ macro_rules! gen_config {
     };
 }
 
+#[macro_export]
+macro_rules! gen_unique_id {
+    ($ty:ident) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct $ty(usize);
+
+        impl $ty {
+            pub fn new() -> Self {
+                static COUNTER: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+                Self(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+            }
+        }
+    };
+}
+
 #[cfg(feature = "std")]
 pub mod codec;
 #[cfg(feature = "std")]
