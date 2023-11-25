@@ -14,7 +14,7 @@ env_logger = "0.10.0"
 libp2p = { version = "0.53.0", features = ["tcp", "noise", "kad", "macros", "tokio", "yamux", "identify", "websocket", "dns"] }
 log = "0.4.20"
 onion = { version = "0.1.0", path = "../../utils/onion" }
-protocols = { version = "0.1.0", path = "../../utils/protocols", features = ["std"] }
+primitives = { version = "0.1.0", path = "../../utils/primitives", features = ["std"] }
 smallvec = "1.11.1"
 thiserror = "1.0.50"
 tokio = { version = "1.32.0", features = ["rt", "macros", "time"] }

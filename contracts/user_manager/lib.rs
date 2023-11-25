@@ -2,23 +2,36 @@
 
 #[ink::contract]
 mod user_manager {
-    use protocols::{
-        contracts::{SerializedUserIdentity, USER_IDENTITY_SIZE},
-        RawUserName,
-    };
+    use core::marker::PhantomData;
+
+    use crypto::{Serialized, TransmutationCircle};
+    use primitives::{contracts::StoredUserIdentity, RawUserName};
 
     #[derive(scale::Decode, scale::Encode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    struct Profile(SerializedUserIdentity);
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    struct Profile {
+        sign: crypto::AnyHash,
+        enc: crypto::AnyHash,
+    }
 
-    #[cfg(feature = "std")]
-    impl ink::storage::traits::StorageLayout for Profile {
-        fn layout(key: &ink::primitives::Key) -> ink::metadata::layout::Layout {
-            ink::metadata::layout::Layout::Array(ink::metadata::layout::ArrayLayout::new(
-                key,
-                USER_IDENTITY_SIZE as u32,
-                <u8 as ink::storage::traits::StorageLayout>::layout(&key),
-            ))
+    impl Profile {
+        fn from_bytes(bytes: Serialized<StoredUserIdentity>) -> Self {
+            let data = StoredUserIdentity::from_bytes(bytes);
+            Self {
+                sign: data.sign.0,
+                enc: data.enc.0,
+            }
+        }
+
+        fn to_bytes(&self) -> Serialized<StoredUserIdentity> {
+            StoredUserIdentity {
+                sign: (self.sign, PhantomData),
+                enc: (self.enc, PhantomData),
+            }
+            .into_bytes()
         }
     }
 
@@ -40,14 +53,19 @@ mod user_manager {
         }
 
         #[ink(message)]
-        pub fn register_with_name(&mut self, name: RawUserName, data: SerializedUserIdentity) {
+        pub fn register_with_name(
+            &mut self,
+            name: RawUserName,
+            data: Serialized<StoredUserIdentity>,
+        ) {
             self.register(data);
             self.pick_name(name);
         }
 
         #[ink(message)]
-        pub fn register(&mut self, data: SerializedUserIdentity) {
-            self.identities.insert(Self::env().caller(), &Profile(data));
+        pub fn register(&mut self, data: Serialized<StoredUserIdentity>) {
+            self.identities
+                .insert(Self::env().caller(), &Profile::from_bytes(data));
         }
 
         #[ink(message)]
@@ -70,18 +88,21 @@ mod user_manager {
         }
 
         #[ink(message)]
-        pub fn get_profile(&self, account: AccountId) -> SerializedUserIdentity {
+        pub fn get_profile(&self, account: AccountId) -> Option<Serialized<StoredUserIdentity>> {
             self.identities
                 .get(&account)
-                .map_or([0; USER_IDENTITY_SIZE], |profile| profile.0)
+                .map(|profile| profile.to_bytes())
         }
 
         #[ink(message)]
-        pub fn get_profile_by_name(&self, name: RawUserName) -> SerializedUserIdentity {
+        pub fn get_profile_by_name(
+            &self,
+            name: RawUserName,
+        ) -> Option<Serialized<StoredUserIdentity>> {
             self.usernames
                 .get(&name)
                 .and_then(|account| self.identities.get(account))
-                .map_or([0; USER_IDENTITY_SIZE], |profile| profile.0)
+                .map(|profile| profile.to_bytes())
         }
     }
 }

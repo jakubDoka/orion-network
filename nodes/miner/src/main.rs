@@ -12,6 +12,7 @@ use component_utils::{
     },
     Base128Bytes,
 };
+use crypto::TransmutationCircle;
 use libp2p::{
     core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
     futures::{self, StreamExt},
@@ -20,8 +21,8 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, Transport,
 };
 use onion::EncryptedStream;
-use protocols::chat::*;
-use protocols::contracts::NodeData;
+use primitives::chat::*;
+use primitives::contracts::NodeData;
 use std::{
     borrow::Cow,
     collections::{hash_map::Entry, HashMap, HashSet},
@@ -90,9 +91,8 @@ impl Miner {
                 NodeData {
                     sign: sig_keys.public_key().into(),
                     enc: enc_keys.public_key().into(),
-                    ip: Ipv4Addr::LOCALHOST,
-                    port,
-                },
+                }
+                .to_stored(),
             )
             .await
             .unwrap();
@@ -279,7 +279,7 @@ impl Miner {
         match pr {
             PutRecord::Message(msg) => self.handle_put_record_message(record.key.as_ref(), msg),
             PutRecord::Mail(msg) => {
-                let Ok(mail_id) = Identity::try_from(record.key.as_ref()) else {
+                let Some(mail_id) = crypto::hash::try_from_slice(record.key.as_ref()) else {
                     log::warn!("failed to decode mail id");
                     return;
                 };
@@ -420,7 +420,7 @@ impl Miner {
                 Self::put_record(&mut self.swarm, wd.proof.pk, PutRecord::WriteData(wd));
             }
             ProfileRequest::Subscribe(req) => {
-                if ident != req.pk {
+                if crypto::hash::verify(<_>::from_ref(&req.pk), ident) {
                     log::warn!("client tried to subscribe to a different profile");
                     return;
                 }
@@ -480,7 +480,7 @@ impl Miner {
                     publisher: None,
                     expires: None,
                 },
-                Quorum::N(protocols::chat::QUORUM),
+                Quorum::N(primitives::chat::QUORUM),
             )
             .unwrap();
     }
@@ -678,7 +678,7 @@ struct ChatStore {
 
 impl ChatStore {
     fn write_mail(&mut self, id: Identity, msg: &[u8]) -> Result<(), WriteMailError> {
-        if msg.len() > protocols::chat::MAX_MAIL_SIZE {
+        if msg.len() > primitives::chat::MAX_MAIL_SIZE {
             return Err(WriteMailError::MailTooBig);
         }
 
@@ -696,7 +696,10 @@ impl ChatStore {
             return Err(ReadMailError::InvalidProof);
         }
 
-        let mail = self.mail_boxes.entry(req.pk).or_default();
+        let mail = self
+            .mail_boxes
+            .entry(crypto::hash::new(<_>::from_ref(&req.pk)))
+            .or_default();
 
         if mail.action_no >= req.no {
             Err(ReadMailError::NotPermitted)
@@ -714,7 +717,10 @@ impl ChatStore {
     }
 
     fn write_data(&mut self, req: WriteData) -> Result<(), WriteDataError> {
-        let mail = self.mail_boxes.entry(req.proof.pk).or_default();
+        let mail = self
+            .mail_boxes
+            .entry(crypto::hash::new(<_>::from_ref(&req.proof.pk)))
+            .or_default();
 
         if !req.proof.is_profile_valid() {
             return Err(WriteDataError::InvalidProof);
@@ -739,7 +745,9 @@ impl ChatStore {
             return Err(PutMessageError::ChatNotFound);
         };
 
-        let Some(member) = chat.members.iter_mut().find(|m| m.identity == rm.proof.pk) else {
+        let proof_hash = crypto::hash::new(<_>::from_ref(&rm.proof.pk));
+
+        let Some(member) = chat.members.iter_mut().find(|m| m.identity == proof_hash) else {
             return Err(PutMessageError::NotMember);
         };
 
@@ -754,7 +762,7 @@ impl ChatStore {
 
         match msg {
             MessagePayload::Arbitrary(content)
-                if content.len() > protocols::chat::MAX_MESSAGE_SIZE =>
+                if content.len() > primitives::chat::MAX_MESSAGE_SIZE =>
             {
                 return Err(PutMessageError::MessageTooBig);
             }
@@ -812,7 +820,7 @@ impl ChatStore {
 
         chat.insert(ChatState::default()).members.push(Member {
             id: 0,
-            identity: proof.pk,
+            identity: crypto::hash::new(<_>::from_ref(&proof.pk)),
             perm: 0,
             action_no: 0,
         });
@@ -822,30 +830,21 @@ impl ChatStore {
 }
 
 impl RecordStore for ChatStore {
-    type RecordsIter<'a> = std::iter::Map<std::collections::hash_map::Iter<'a, ChatName, ChatState>,
-        fn((&ChatName, &ChatState)) -> Cow<'a, kad::Record>> where Self: 'a;
+    type RecordsIter<'a> = <MemoryStore as RecordStore>::RecordsIter<'a> where Self: 'a;
     type ProvidedIter<'a> = <MemoryStore as RecordStore>::ProvidedIter<'a> where Self: 'a;
 
-    fn get(&self, _: &kad::RecordKey) -> Option<std::borrow::Cow<'_, kad::Record>> {
-        None
+    fn get(&self, key: &kad::RecordKey) -> Option<std::borrow::Cow<'_, kad::Record>> {
+        self.mem.get(key)
     }
 
-    fn put(&mut self, _: kad::Record) -> kad::store::Result<()> {
-        Ok(())
+    fn put(&mut self, record: kad::Record) -> kad::store::Result<()> {
+        self.mem.put(record)
     }
 
     fn remove(&mut self, _: &kad::RecordKey) {}
 
     fn records(&self) -> Self::RecordsIter<'_> {
-        // TODO: replicate only keys and make nodes fetch the data from the sender if they dont have it
-        self.chats.iter().map(|(k, v)| {
-            Cow::Owned(kad::Record {
-                key: k.to_bytes().into(),
-                value: v.messages.as_vec(),
-                publisher: None,
-                expires: None,
-            })
-        })
+        self.mem.records()
     }
 
     fn add_provider(&mut self, r: kad::ProviderRecord) -> kad::store::Result<()> {

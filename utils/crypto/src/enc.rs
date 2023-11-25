@@ -4,14 +4,14 @@ use pqc_kyber::KyberError;
 #[cfg(feature = "std")]
 use thiserror::Error;
 
-use crate::{FixedAesPayload, SharedSecret, SHARED_SECRET_SIZE};
+use crate::{FixedAesPayload, SharedSecret, TransmutationCircle, SHARED_SECRET_SIZE};
 
 impl_transmute! {
-    KeyPair, KEY_PAIR_SIZE, SerializedKeyPair;
-    PublicKey, PUBLIC_KEY_SIZE, SerializedPublicKey;
-    Ciphertext, CIPHERTEXT_SIZE, SerializedCiphertext;
-    ChoosenPayload, CHOSEN_PAYLOAD_SIZE, SerializedChoosenPayload;
-    ChoosenCiphertext, CHOSEN_CIPHERTEXT_SIZE, SerializedChoosenCiphertext;
+    KeyPair,
+    PublicKey,
+    Ciphertext,
+    ChoosenPayload,
+    ChoosenCiphertext,
 }
 
 pub type EncapsulationError = KyberError;
@@ -91,7 +91,7 @@ impl KeyPair {
         let key = EncriptedKey::new(secret, ksecret, ASOC_DATA);
         let data = ChoosenPayload { key, kyb };
         Ok(ChoosenCiphertext {
-            pl: FixedAesPayload::new(data.into(), x_secret.to_bytes(), ASOC_DATA),
+            pl: FixedAesPayload::new(data.into_bytes(), x_secret.to_bytes(), ASOC_DATA),
             x: x25519_dalek::PublicKey::from(&self.x),
         })
     }
@@ -117,7 +117,7 @@ impl KeyPair {
             .pl
             .decrypt(x_secret.to_bytes(), ASOC_DATA)
             .map_err(DecapsulationError::Aes)?;
-        let payload: ChoosenPayload = data.into();
+        let payload = ChoosenPayload::from_bytes(data);
         let secret = pqc_kyber::decapsulate(&payload.kyb, &self.kyb.secret)
             .map_err(DecapsulationError::Kyber)?;
         payload

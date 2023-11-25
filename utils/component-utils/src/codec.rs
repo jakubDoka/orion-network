@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use std::{sync::Arc, u32, usize};
 
 use arrayvec::{ArrayString, ArrayVec};
@@ -94,6 +95,14 @@ pub trait Codec<'a>: Sized {
         self.encode(&mut buffer);
         buffer.splice(..4, encode_len(buffer.len() - 4));
         buffer
+    }
+}
+
+impl<'a, T> Codec<'a> for PhantomData<T> {
+    fn encode(&self, _: &mut Vec<u8>) {}
+
+    fn decode(_: &mut &'a [u8]) -> Option<Self> {
+        Some(Self)
     }
 }
 

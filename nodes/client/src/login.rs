@@ -1,8 +1,9 @@
+use crypto::TransmutationCircle;
 use leptos::html::Input;
 use leptos::*;
 use leptos_router::A;
-use protocols::chat::{SerializedUserKeys, UserKeys, UserName, USER_KEYS_SIZE};
-use protocols::contracts::UserData;
+use primitives::chat::{RawUserKeys, UserKeys, UserName};
+use primitives::contracts::UserData;
 use web_sys::js_sys::{Array, Uint8Array};
 
 #[component]
@@ -26,20 +27,23 @@ pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
                 }
             };
 
-            let keys = match SerializedUserKeys::try_from(bytes) {
-                Ok(keys) => keys,
-                Err(e) => {
-                    file.set_custom_validity(&format!(
-                        "file is of incorrect size: {} != {}",
-                        e.len(),
-                        USER_KEYS_SIZE,
-                    ));
-                    file.report_validity();
-                    return;
-                }
+            let Some(keys) = RawUserKeys::try_from_slice(&bytes) else {
+                file.set_custom_validity(&format!(
+                    "file is of incorrect size: {} != {}",
+                    bytes.len(),
+                    core::mem::size_of::<RawUserKeys>(),
+                ));
+                file.report_validity();
+                return;
             };
 
-            wkeys(Some(keys.into()));
+            let Ok(keys) = UserKeys::try_from(keys.clone()) else {
+                file.set_custom_validity("invalid username");
+                file.report_validity();
+                return;
+            };
+
+            wkeys(Some(keys));
         });
     };
 
@@ -47,7 +51,7 @@ pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
         <div class="sc flx fdc bp ma">
             <Nav/>
             <form class="flx fdc">
-                <input class="pc hov bp tbm" type="file" node_ref=key_file on:change=on_change required />
+                <input class="pc hov bp tbm" type="file" style:width="250px" node_ref=key_file on:change=on_change required />
             </form>
         </div>
     }
@@ -84,7 +88,7 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
                 sign: key.sign.public_key().into(),
             };
 
-            let key_bytes = SerializedUserKeys::from(key);
+            let key_bytes = key.clone().into_raw().into_bytes();
             let url = web_sys::Url::create_object_url_with_blob(
                 &web_sys::Blob::new_with_u8_array_sequence_and_options(
                     &Array::from_iter(vec![Uint8Array::from(key_bytes.as_slice())]),
@@ -100,13 +104,20 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
             link.set_download(&format!("{}.keys", username_content));
             link.click();
 
-            if let Err(e) = client.register(crate::user_contract(), data).await {
+            if let Err(e) = client
+                .register(
+                    crate::user_contract(),
+                    username_content,
+                    data.to_identity().to_stored(),
+                )
+                .await
+            {
                 username.set_custom_validity(&format!("failed to create user: {e:?}"));
                 username.report_validity();
                 return;
             }
 
-            wkeys(Some(key_bytes.into()));
+            wkeys(Some(key));
         });
     };
 

@@ -2,14 +2,14 @@
 use std::str::FromStr;
 use std::u64;
 
+use crypto::{Serialized, TransmutationCircle};
 use parity_scale_codec::{Decode, Encode as _};
 use polkadot::contracts::calls::types::Call;
 use polkadot::runtime_types::pallet_contracts_primitives::{ContractResult, ExecReturnValue};
 use polkadot::runtime_types::sp_runtime::DispatchError;
 use polkadot::runtime_types::sp_weights::weight_v2::Weight;
-use protocols::contracts::{EdIdentity, SerializedUserIdentity};
-use protocols::contracts::{NodeData, SerializedNodeData};
-use protocols::UserName;
+use primitives::contracts::{StoredNodeData, StoredNodeIdentity, StoredUserIdentity};
+use primitives::UserName;
 use subxt::backend::legacy::LegacyRpcMethods;
 use subxt::backend::rpc::RpcClient;
 use subxt::tx::{Payload, Signer};
@@ -118,7 +118,6 @@ impl TransactionHandler for Keypair {
 
     async fn handle(&self, inner: &InnerClient, call: impl TxPayload) -> Result<(), Error> {
         let nonce = inner.get_nonce(&Signer::<Config>::account_id(self)).await?;
-
         inner
             .client
             .tx()
@@ -174,64 +173,53 @@ impl<S: TransactionHandler> Client<S> {
         })
     }
 
-    pub async fn join(&self, dest: ContractId, data: NodeData) -> Result<(), Error> {
+    pub async fn join(&self, dest: ContractId, data: StoredNodeData) -> Result<(), Error> {
         self.call_auto_weight(
             1000000,
             dest,
-            contracts::node_staker::messages::join(data.into()),
+            contracts::node_staker::messages::join(data.into_bytes()),
         )
         .await
     }
 
-    pub async fn list(&self, addr: ContractId) -> Result<Vec<EdIdentity>, Error> {
+    pub async fn list(&self, addr: ContractId) -> Result<Vec<Serialized<StoredNodeData>>, Error> {
         self.call_dry(0, addr, contracts::node_staker::messages::list())
             .await
-    }
-
-    pub async fn get_by_identity(
-        &self,
-        addr: ContractId,
-        id: protocols::contracts::EdIdentity,
-    ) -> Result<SerializedNodeData, Error> {
-        self.call_dry(
-            0,
-            addr,
-            contracts::node_staker::messages::get_by_identity(id),
-        )
-        .await
     }
 
     pub async fn vote(
         &self,
         dest: ContractId,
-        me: protocols::contracts::EdIdentity,
-        target: protocols::contracts::EdIdentity,
+        me: StoredNodeIdentity,
+        target: StoredNodeIdentity,
         weight: i32,
     ) -> Result<(), Error> {
-        let call = contracts::node_staker::messages::vote(me, target, weight);
+        let call =
+            contracts::node_staker::messages::vote(me.into_bytes(), target.into_bytes(), weight);
         self.call_auto_weight(0, dest, call).await
     }
 
-    pub async fn reclaim(
-        &self,
-        dest: ContractId,
-        me: protocols::contracts::EdIdentity,
-    ) -> Result<(), Error> {
-        self.call_auto_weight(0, dest, contracts::node_staker::messages::reclaim(me))
-            .await
+    pub async fn reclaim(&self, dest: ContractId, me: StoredNodeIdentity) -> Result<(), Error> {
+        self.call_auto_weight(
+            0,
+            dest,
+            contracts::node_staker::messages::reclaim(me.into_bytes()),
+        )
+        .await
     }
 
     pub async fn register(
         &self,
         dest: ContractId,
-        data: protocols::contracts::UserData,
+        name: UserName,
+        data: primitives::contracts::StoredUserIdentity,
     ) -> Result<(), Error> {
         self.call_auto_weight(
             0,
             dest,
             contracts::user_manager::messages::register_with_name(
-                protocols::username_to_raw(data.name),
-                data.to_identity().into(),
+                primitives::username_to_raw(name),
+                data.into_bytes(),
             ),
         )
         .await
@@ -241,25 +229,17 @@ impl<S: TransactionHandler> Client<S> {
         &self,
         dest: ContractId,
         name: UserName,
-    ) -> Result<SerializedUserIdentity, Error> {
+    ) -> Result<Option<Serialized<StoredUserIdentity>>, Error> {
         let call = contracts::user_manager::messages::get_profile_by_name(
-            protocols::username_to_raw(name),
+            primitives::username_to_raw(name),
         );
-        self.call_dry(0, dest, call)
-            .await
-            .and_then(|r: SerializedUserIdentity| {
-                if r.iter().any(|&b| b != 0) {
-                    Ok(r)
-                } else {
-                    Err(Error::Other("user not found".into()))
-                }
-            })
+        self.call_dry(0, dest, call).await
     }
 
     pub async fn user_exists(&self, dest: ContractId, name: UserName) -> Result<bool, Error> {
         self.get_profile_by_name(dest, name)
             .await
-            .map(|p| p.iter().any(|&b| b != 0))
+            .map(|p| p.is_some())
     }
 
     async fn call_auto_weight<T: parity_scale_codec::Decode>(
@@ -272,8 +252,8 @@ impl<S: TransactionHandler> Client<S> {
             .call_dry_low(value, dest.clone(), call_data.to_bytes())
             .await?;
 
-        weight.ref_time = weight.ref_time * 10;
-        weight.proof_size = weight.proof_size * 10;
+        weight.ref_time = weight.ref_time * 2;
+        weight.proof_size = weight.proof_size * 2;
 
         self.signer
             .handle(

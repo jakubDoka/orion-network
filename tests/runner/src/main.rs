@@ -1,4 +1,4 @@
-use std::{io, iter, process, thread::sleep};
+use std::{process, thread::sleep};
 
 use clap::Parser;
 
@@ -16,7 +16,7 @@ fn main() {
     let cmd = Command::parse();
 
     let accounts = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"];
-    let children = (0..cmd.node_count)
+    let _children = (0..cmd.node_count)
         .map(|i| {
             println!("Starting node {i} ({})", cmd.miner);
             if i % accounts.len() == 0 && i != 0 {
@@ -24,7 +24,10 @@ fn main() {
             }
             process::Command::new(&cmd.miner)
                 .env("PORT", (cmd.first_port + i as u16).to_string())
-                .env("NODE_ACCOUNT", format!("//{}", accounts[i % accounts.len()]))
+                .env(
+                    "NODE_ACCOUNT",
+                    format!("//{}", accounts[i % accounts.len()]),
+                )
                 .stdout(process::Stdio::inherit())
                 .stderr(process::Stdio::inherit())
                 .spawn()

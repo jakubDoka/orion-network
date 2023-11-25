@@ -4,6 +4,8 @@ use std::{mem, u16, u32};
 use component_utils::arrayvec::ArrayString;
 use component_utils::Reminder;
 use component_utils::{libp2p::identity::PeerId, Codec};
+use crypto::sign::Signature;
+use crypto::{enc, sign, Serialized, TransmutationCircle};
 
 pub const CHAT_NAME_CAP: usize = 32;
 pub const CHAT_CAP: usize = 1024 * 1024;
@@ -22,10 +24,11 @@ pub type Cursor = u32;
 pub type Permission = u32;
 pub type MemberId = u32;
 pub type ActionNo = u32;
-pub type Identity = crypto::sign::SerializedPublicKey;
+pub type Identity = crypto::Hash<sign::PublicKey>;
 pub type ChatName = ArrayString<CHAT_NAME_CAP>;
 
 use crate::contracts::UserIdentity;
+use crate::RawUserName;
 pub use crate::{UserName, USER_NAME_CAP};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -46,16 +49,58 @@ impl UserKeys {
         }
     }
 
-    pub fn identity(&self) -> UserIdentity {
+    pub fn into_raw(self) -> RawUserKeys {
+        let Self {
+            name,
+            sign,
+            enc,
+            vault,
+        } = self;
+        RawUserKeys {
+            name: crate::username_to_raw(name),
+            sign,
+            enc,
+            vault,
+        }
+    }
+
+    pub fn to_identity(&self) -> UserIdentity {
         UserIdentity {
-            sign: self.sign.public_key().into(),
-            enc: self.enc.public_key().into(),
+            sign: self.sign.public_key(),
+            enc: self.enc.public_key(),
         }
     }
 }
 
+impl TryFrom<RawUserKeys> for UserKeys {
+    type Error = ();
+
+    fn try_from(value: RawUserKeys) -> Result<Self, Self::Error> {
+        let RawUserKeys {
+            name,
+            sign,
+            enc,
+            vault,
+        } = value;
+        Ok(Self {
+            name: crate::username_from_raw(name).ok_or(())?,
+            sign,
+            enc,
+            vault,
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct RawUserKeys {
+    pub name: RawUserName,
+    pub sign: crypto::sign::KeyPair,
+    pub enc: crypto::enc::KeyPair,
+    pub vault: crypto::SharedSecret,
+}
+
 crypto::impl_transmute! {
-    UserKeys, USER_KEYS_SIZE, SerializedUserKeys;
+    RawUserKeys,
 }
 
 macro_rules! gen_simple_error {
@@ -125,9 +170,9 @@ gen_simple_error! {
 impl ActionProof {
     fn new(no: &mut ActionNo, sk: &crypto::sign::KeyPair, salt: [u8; SALT_SIZE]) -> Self {
         *no += 1;
-        let sig = sk.sign(&Self::build_salt(salt, *no - 1)).into();
+        let sig = sk.sign(&Self::build_salt(salt, *no - 1)).into_bytes();
         let s = Self {
-            pk: sk.public_key().into(),
+            pk: sk.public_key().into_bytes(),
             no: *no - 1,
             sig,
         };
@@ -147,8 +192,8 @@ impl ActionProof {
 
     fn is_valid(self, salt: [u8; SALT_SIZE]) -> bool {
         let Self { pk, no, sig } = self;
-        crypto::sign::PublicKey::from(pk)
-            .verify(&Self::build_salt(salt, no), &sig.into())
+        crypto::sign::PublicKey::from_bytes(pk)
+            .verify(&Self::build_salt(salt, no), &Signature::from_bytes(sig))
             .inspect_err(|e| log::warn!("invalid proof, {}", e))
             .is_ok()
     }
@@ -171,7 +216,7 @@ impl ActionProof {
 impl UserOrChat {
     pub fn as_slice(&self) -> &[u8] {
         match self {
-            Self::User(pk) => pk.as_ref(),
+            Self::User(pk) => pk.0.as_ref(),
             Self::Chat(name) => name.as_bytes(),
         }
     }
@@ -258,6 +303,7 @@ component_utils::protocol! { 'a:
         WriteData: WriteData<'a> => 1,
         Subscribe: ActionProof => 2,
         SendMail: SendMail<'a> => 3,
+        GetUserKeys: Identity => 4,
         KeepAlive => 30,
     }
 
@@ -269,9 +315,9 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     struct ActionProof {
-        pk: Identity,
+        pk: crypto::Serialized<sign::PublicKey>,
         no: ActionNo,
-        sig: crypto::sign::SerializedSignature,
+        sig: crypto::Serialized<sign::Signature>,
     }
 
     #[derive(Clone, Copy)]
@@ -313,6 +359,7 @@ component_utils::protocol! { 'a:
         DataWriteFailed: WriteDataError => 2,
         MailWritten => 3,
         MailWriteFailed: WriteMailError => 4,
+        UserKeys: Serialized<UserIdentity> => 5,
         Search: ChatSearchResult => 5,
     }
 
@@ -356,7 +403,7 @@ component_utils::protocol! { 'a:
     struct ChatInvite {
         chat: ChatName,
         member_id: MemberId,
-        secret: crypto::enc::SerializedChoosenCiphertext,
+        cp: crypto::Serialized<enc::ChoosenCiphertext>,
     }
 
     #[derive(Clone, Copy)]

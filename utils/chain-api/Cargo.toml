@@ -14,7 +14,7 @@ futures = { version = "0.3.29", features = ["executor"] }
 hex = "0.4.3"
 log = "0.4.20"
 parity-scale-codec = "3.6.5"
-protocols = { version = "0.1.0", path = "../protocols" }
+primitives = { version = "0.1.0", path = "../primitives" }
 scale-encode = "0.5.0"
 serde = { version = "1.0.190", features = ["derive"] }
 serde_json = "1.0.108"

@@ -1,10 +1,11 @@
-use std::usize;
+use std::{mem, usize};
 
 use aes_gcm::{
     aead::{generic_array::GenericArray, OsRng},
     aes::cipher::Unsigned,
     AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
 };
+use crypto::{enc::Ciphertext, Serialized, TransmutationCircle};
 use libp2p::core::multihash::Multihash;
 use libp2p::identity::PeerId;
 
@@ -111,18 +112,20 @@ pub fn peel_initial(
     node_kp: &KeyPair,
     original_buffer: &mut [u8],
 ) -> Option<(Option<PeerId>, SharedSecret, usize)> {
-    if original_buffer.len() < crypto::enc::PUBLIC_KEY_SIZE + crypto::enc::CIPHERTEXT_SIZE {
+    const PKS: usize = mem::size_of::<PublicKey>();
+    const CS: usize = mem::size_of::<Ciphertext>();
+
+    if original_buffer.len() < PKS + CS {
         return None;
     }
 
-    let (buffer, tail) =
-        original_buffer.split_at_mut(original_buffer.len() - crypto::enc::PUBLIC_KEY_SIZE);
-    let sender: crypto::enc::SerializedPublicKey = tail.try_into().expect("just checked that");
-    let sender = crypto::enc::PublicKey::from(sender);
+    let (buffer, tail) = original_buffer.split_at_mut(original_buffer.len() - PKS);
+    let sender: Serialized<PublicKey> = tail.try_into().expect("just checked that");
+    let sender = crypto::enc::PublicKey::from_bytes(sender);
 
-    let (buffer, tail) = buffer.split_at_mut(buffer.len() - crypto::enc::CIPHERTEXT_SIZE);
-    let ciphertext: crypto::enc::SerializedCiphertext = (&*tail).try_into().ok()?;
-    let ciphertext = crypto::enc::Ciphertext::from(ciphertext);
+    let (buffer, tail) = buffer.split_at_mut(buffer.len() - CS);
+    let ciphertext: Serialized<Ciphertext> = (&*tail).try_into().ok()?;
+    let ciphertext = crypto::enc::Ciphertext::from_bytes(ciphertext);
     let ss = node_kp.decapsulate(ciphertext, &sender).ok()?;
 
     if buffer.is_empty() {
@@ -137,6 +140,6 @@ pub fn peel_initial(
     let id = PeerId::from_bytes(tail).ok()?;
 
     let len = buffer.len();
-    original_buffer[len..len + crypto::enc::PUBLIC_KEY_SIZE].copy_from_slice(&sender.into_bytes());
-    Some((Some(id), ss, len + crypto::enc::PUBLIC_KEY_SIZE))
+    original_buffer[len..len + PKS].copy_from_slice(&sender.into_bytes());
+    Some((Some(id), ss, len + PKS))
 }

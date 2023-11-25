@@ -12,11 +12,14 @@ use leptos::html::Input;
 use leptos::signal_prelude::*;
 use leptos::*;
 use leptos_router::*;
-use protocols::chat::{ChatName, UserKeys, UserName};
+use primitives::chat::{ChatName, UserKeys, UserName};
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::future::Future;
+use std::rc::Rc;
 use std::str::FromStr;
+use std::task::{Poll, Waker};
 use web_sys::js_sys::wasm_bindgen;
 
 mod chat;
@@ -171,6 +174,36 @@ struct LoggedState {
     rusername: ReadSignal<UserName>,
 }
 
+impl LoggedState {
+    fn request<R: 'static>(
+        self,
+        command: node::Command,
+        get_resp: impl Fn(node::Event) -> Option<R> + 'static,
+    ) -> impl Future<Output = R> {
+        (self.wcommands)(command);
+
+        let result = Rc::new(Cell::new(None::<Result<R, Waker>>));
+        let ef_result = result.clone();
+        let effect = create_effect(move |_| {
+            if let Some(resp) = get_resp((self.revents)()) {
+                if let Some(Err(waker)) = ef_result.replace(Some(Ok(resp))) {
+                    waker.wake();
+                }
+            }
+        });
+
+        std::future::poll_fn(
+            move |cx| match result.replace(Some(Err(cx.waker().clone()))) {
+                Some(Ok(resp)) => {
+                    effect.dispose();
+                    return Poll::Ready(resp);
+                }
+                _ => Poll::Pending,
+            },
+        )
+    }
+}
+
 fn App() -> impl IntoView {
     let (revents, wevents) = create_signal(node::Event::None);
     let (rcommands, wcommands) = create_signal(node::Command::None);
@@ -287,16 +320,33 @@ fn Boot(rboot_phase: ReadSignal<Option<BootPhase>>) -> impl IntoView {
 
 #[component]
 fn Nav(rusername: ReadSignal<UserName>) -> impl IntoView {
+    let menu = create_node_ref::<html::Div>();
+    let on_menu_toggle = move |_| {
+        let menu = menu.get_untracked().unwrap();
+        menu.set_hidden(!menu.hidden());
+    };
+    let uname = move || rusername().to_string();
+
     view! {
-        <nav class="sc flx jcsb fg0">
+        <nav class="sc flx fdc fg0 phone-only">
+            <div class="flx jcsb">
+                <button class="rsb hov sc nav-menu-button" on:click=on_menu_toggle>/menu</button>
+                <div class="bp bf hc lsb">{uname}</div>
+            </div>
+            <div class="flx fdc tsm" hidden node_ref=menu>
+                <A class="bf hov bp bsb" href="/chat">/rooms</A>
+                <A class="bf hov bp sb" href="/profile">/profile</A>
+                <A class="bf hov bp tsb" href="/login">/logout</A>
+            </div>
+        </nav>
+
+        <nav class="sc flx jcsb fg0 desktop-only">
             <div class="flx">
                 <A class="bf hov bp rsb" href="/chat">/rooms</A>
                 <A class="bf hov bp sb" href="/profile">/profile</A>
                 <A class="bf hov bp sb" href="/login">/logout</A>
             </div>
-            <div class="bp bf hc lsb">
-                {move || rusername().to_string()}
-            </div>
+            <div class="bp bf hc lsb">{uname}</div>
         </nav>
     }
 }
@@ -304,8 +354,6 @@ fn Nav(rusername: ReadSignal<UserName>) -> impl IntoView {
 fn load_file(input: HtmlElement<Input>) -> Option<impl Future<Output = Result<Vec<u8>, JsValue>>> {
     use self::web_sys::wasm_bindgen::prelude::Closure;
     use std::cell::RefCell;
-    use std::rc::Rc;
-    use std::task::{Poll, Waker};
     use wasm_bindgen::JsCast;
     use web_sys::*;
 
@@ -381,4 +429,8 @@ fn get_value(elem: NodeRef<Input>) -> String {
 
 fn navigate_to(path: impl Display) {
     leptos_router::use_navigate()(&format!("{path}"), Default::default());
+}
+
+fn not(signal: impl Fn() -> bool + Copy) -> impl Fn() -> bool + Copy {
+    move || !signal()
 }

@@ -3,7 +3,7 @@ use component_utils::futures::stream::Fuse;
 use component_utils::kad::KadPeerSearch;
 use component_utils::Codec;
 use component_utils::{futures, LinearMap};
-use crypto::decrypt;
+use crypto::{decrypt, TransmutationCircle};
 use leptos::signal_prelude::*;
 use libp2p::core::upgrade::Version;
 use libp2p::futures::StreamExt;
@@ -12,8 +12,8 @@ use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::*;
 use libp2p::{PeerId, Swarm};
 use onion::{EncryptedStream, PathId};
-use protocols::chat::*;
-use protocols::contracts::{NodeData, UserData, UserIdentity};
+use primitives::chat::*;
+use primitives::contracts::{NodeData, StoredUserData, StoredUserIdentity};
 use rand::seq::IteratorRandom;
 use std::collections::{HashMap, HashSet};
 use std::task::Poll;
@@ -142,7 +142,7 @@ pub enum Command {
     CreateChat(ChatName),
     InviteUser {
         chat: ChatName,
-        user: UserData,
+        user: StoredUserData,
     },
     #[allow(dead_code)]
     FetchMessages(ChatName, bool),
@@ -183,18 +183,18 @@ impl Node {
         let chain_api = crate::chain_node(keys.name).await.unwrap();
         let node_request = chain_api.list(crate::node_contract());
         let profile_request = chain_api.get_profile_by_name(crate::user_contract(), keys.name);
-        log::debug!("{:?}", keys.name);
-        let (node_data, profile) = futures::join!(node_request, profile_request);
-        let (node_data, profile) = (
+        let (node_data, profile_hash) = futures::join!(node_request, profile_request);
+        let (node_data, profile_hash) = (
             node_data.map_err(BootError::FetchNodes)?,
-            profile.map_err(BootError::FetchProfile)?,
+            profile_hash
+                .map_err(BootError::FetchProfile)?
+                .ok_or(BootError::ProfileNotFound)?,
         );
-        let profile = UserIdentity::from(profile);
-
-        assert_eq!(
-            profile.sign,
-            crypto::sign::SerializedPublicKey::from(keys.sign.public_key())
-        );
+        let profile = keys.to_identity();
+        let profile_hash = StoredUserIdentity::from_bytes(profile_hash);
+        if profile_hash.verify(&profile) {
+            return Err(BootError::InvalidProfileKeys);
+        }
 
         let nodes = node_data
             .into_iter()
@@ -230,7 +230,7 @@ impl Node {
                 kad::store::MemoryStore::new(peer_id),
                 mem::take(
                     kad::Config::default()
-                        .set_replication_factor(protocols::chat::REPLICATION_FACTOR),
+                        .set_replication_factor(primitives::chat::REPLICATION_FACTOR),
                 ),
             ),
             identify: identify::Behaviour::new(identify::Config::new("l".into(), keypair.public())),
@@ -303,7 +303,7 @@ impl Node {
 
         let mut buffer = vec![];
         send_request(
-            InitRequest::Search(profile.sign),
+            InitRequest::Search(profile_hash.sign),
             &mut init_stream,
             &mut buffer,
         );
@@ -314,7 +314,7 @@ impl Node {
             todo!("error handling");
         };
 
-        if key != profile.sign {
+        if key != profile_hash.sign {
             todo!("error handling");
         }
 
@@ -341,7 +341,7 @@ impl Node {
         };
 
         send_request(
-            InitRequest::ReadData(profile.sign),
+            InitRequest::ReadData(profile.sign.into_bytes()),
             &mut profile_stream,
             &mut buffer,
         );
@@ -475,7 +475,7 @@ impl Node {
             send_request(
                 InitRequest::Subscribe(ChatSubs {
                     chats: subs.iter().copied().collect(),
-                    identity: keys.sign.public_key().into(),
+                    identity: keys.sign.public_key().into_bytes(),
                 }),
                 &mut stream,
                 &mut buffer,
@@ -486,7 +486,7 @@ impl Node {
                 peer_id,
                 subs,
                 stream,
-                cursor: protocols::chat::NO_CURSOR,
+                cursor: primitives::chat::NO_CURSOR,
             });
         }
 
@@ -570,7 +570,7 @@ impl Node {
                     secret: self
                         .keys
                         .enc
-                        .decapsulate_choosen(invite.secret.into())
+                        .decapsulate_choosen(<_>::from_bytes(invite.cp))
                         .unwrap(),
                     action_no: ActionNo::MAX,
                     permission: Permission::default(),
@@ -626,7 +626,7 @@ impl Node {
                     } else if meta.action_no == ActionNo::MAX {
                         InitRequest::Subscribe(ChatSubs {
                             chats: [key].into(),
-                            identity: self.keys.sign.public_key().into(),
+                            identity: self.keys.sign.public_key().into_bytes(),
                         })
                     } else {
                         panic!("{key}");
@@ -684,7 +684,7 @@ impl Node {
                     SubIntent::Invited(name) => (
                         InitRequest::Subscribe(ChatSubs {
                             chats: [name].into(),
-                            identity: self.keys.sign.public_key().into(),
+                            identity: self.keys.sign.public_key().into_bytes(),
                         }),
                         name,
                     ),
@@ -776,19 +776,19 @@ impl Node {
                 let mail = Mail::ChatInvite(ChatInvite {
                     chat,
                     member_id: 0,
-                    secret: self
+                    cp: self
                         .keys
                         .enc
                         .encapsulate_choosen(&user.enc.into(), meta.secret)
                         .unwrap()
-                        .into(),
+                        .into_bytes(),
                 });
 
                 self.buffer.clear();
                 mail.encode(&mut self.buffer);
                 send_request(
                     ProfileRequest::SendMail(SendMail {
-                        id: user.sign,
+                        id: user.sign.into_bytes(),
                         data: &self.buffer,
                     }),
                     &mut self.profile_path,
@@ -1024,6 +1024,10 @@ pub enum BootError {
     FetchNodes(chain_api::Error),
     #[error("failed to fetch profile: {0}")]
     FetchProfile(chain_api::Error),
+    #[error("profile not found")]
+    ProfileNotFound,
+    #[error("invalid profile keys")]
+    InvalidProfileKeys,
     #[error("failed to search for chat (stream broken): {0}")]
     ChatSearch(io::Error),
 }
@@ -1044,7 +1048,7 @@ struct Subscription {
     peer_id: PeerId,
     subs: HashSet<ChatName>,
     stream: EncryptedStream,
-    cursor: protocols::chat::Cursor,
+    cursor: primitives::chat::Cursor,
 }
 
 impl futures::Stream for Subscription {

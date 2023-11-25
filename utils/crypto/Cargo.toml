@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["aes"], default-features = false }
+blake3 = { version = "1.5.0", default-features = false }
 ed25519-dalek = { version = "2.0.0", default-features = false }
 pqc_dilithium = { path = "../../forked/dilithium", features = ["mode3"], default-features = false }
 pqc_kyber = { path = "../../forked/kyber", features = ["kyber1024"], default-features = false }
@@ -15,12 +16,16 @@ x25519-dalek = { version = "2.0.0", features = ["static_secrets"], default-featu
 
 [features]
 default = ["std", "getrandom"]
-std = ["aes-gcm/std",
+std = [
+	"aes-gcm/std",
 	"pqc_kyber/std",
 	"ed25519-dalek/std",
-	]
-getrandom = ["pqc_kyber/getrandom",
+	"blake3/std",
+]
+getrandom = [
+	"pqc_kyber/getrandom",
 	"x25519-dalek/getrandom",
 	"ed25519-dalek/rand_core",
 	"pqc_dilithium/getrandom",
-	"aes-gcm/getrandom"]
+	"aes-gcm/getrandom",
+]

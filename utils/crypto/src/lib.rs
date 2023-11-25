@@ -10,33 +10,54 @@ use {aes_gcm::aead::OsRng, pqc_kyber::RngCore};
 
 #[macro_export]
 macro_rules! impl_transmute {
-    ($($type:ty, $size_const:ident, $serialized_alias:ident;)*) => {$(
-        pub const $size_const: usize = core::mem::size_of::<$type>();
-        pub type $serialized_alias = [u8; $size_const];
+    ($($type:ty,)*) => {$(
+        impl $crate::TransmutationCircle for $type {
+            type Serialized = [u8; core::mem::size_of::<Self>()];
 
-        impl From<$serialized_alias> for $type {
-            fn from(bytes: $serialized_alias) -> Self {
+            fn into_bytes(self) -> Self::Serialized {
+                unsafe { core::mem::transmute(self) }
+            }
+
+            fn from_bytes(bytes: Self::Serialized) -> Self {
                 unsafe { core::mem::transmute(bytes) }
             }
-        }
 
-        impl From<$type> for $serialized_alias {
-            fn from(signature: $type) -> Self {
-                unsafe { core::mem::transmute(signature) }
+            fn as_bytes(&self) -> &Self::Serialized {
+                unsafe { core::mem::transmute(self) }
             }
-        }
 
-        impl $type {
-            #[allow(dead_code)]
-            pub fn into_bytes(self) -> $serialized_alias {
-                self.into()
+            fn from_ref(bytes: &Self::Serialized) -> &Self {
+                unsafe { core::mem::transmute(bytes) }
+            }
+
+            fn try_from_slice(slice: &[u8]) -> Option<&Self> {
+                if slice.len() == core::mem::size_of::<Self>() {
+                    Some(unsafe { core::mem::transmute(slice.as_ptr()) })
+                } else {
+                    None
+                }
             }
         }
     )*};
 }
 
+pub trait TransmutationCircle: Sized {
+    type Serialized: AsRef<[u8]>;
+
+    fn into_bytes(self) -> Self::Serialized;
+    fn from_bytes(bytes: Self::Serialized) -> Self;
+    fn as_bytes(&self) -> &Self::Serialized;
+    fn from_ref(bytes: &Self::Serialized) -> &Self;
+    fn try_from_slice(slice: &[u8]) -> Option<&Self>;
+}
+
+pub type Serialized<T> = <T as TransmutationCircle>::Serialized;
+
 pub mod enc;
+pub mod hash;
 pub mod sign;
+
+pub use hash::{AnyHash, Hash};
 
 #[cfg(all(feature = "getrandom", feature = "std"))]
 pub fn new_secret() -> SharedSecret {

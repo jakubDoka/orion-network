@@ -1,14 +1,16 @@
 #[cfg(feature = "getrandom")]
 use aes_gcm::aead::OsRng;
-use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
+use ed25519_dalek::{SigningKey, VerifyingKey};
 #[cfg(feature = "std")]
-use thiserror::Error;
+use {ed25519_dalek::Signer, thiserror::Error};
 
 impl_transmute! {
-    Signature, SIGNATURE_SIZE, SerializedSignature;
-    KeyPair, KEY_PAIR_SIZE, SerializedKeyPair;
-    PublicKey, PUBLIC_KEY_SIZE, SerializedPublicKey;
+    Signature,
+    KeyPair,
+    PublicKey,
 }
+
+pub type Ed = [u8; 32];
 
 #[derive(Clone, Copy)]
 pub struct Signature {
@@ -54,7 +56,7 @@ impl Default for KeyPair {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PublicKey {
     pub dili: [u8; pqc_dilithium::PUBLICKEYBYTES],
     pub ed: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
