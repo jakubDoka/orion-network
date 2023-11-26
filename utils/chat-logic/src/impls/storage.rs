@@ -1,3 +1,5 @@
+use {crypto::TransmutationCircle, primitives::contracts::NodeIdentity};
+
 use {
     crate::Identity,
     component_utils::Codec,
@@ -28,14 +30,24 @@ fn replicate<'a>(
 }
 
 pub struct Storage {
-    profiles: HashMap<super::Identity, FullProfile>,
-    chats: HashMap<super::ChatName, Chat>,
+    profiles: HashMap<crate::Identity, FullProfile>,
+    chats: HashMap<crate::ChatName, Chat>,
+    nodes: HashMap<crate::Identity, NodeIdentity>,
 
     // this is true if we are dispatching put_record
     replicating: bool,
 }
 
 impl Storage {
+    pub fn new() -> Self {
+        Self {
+            profiles: HashMap::new(),
+            chats: HashMap::new(),
+            nodes: HashMap::new(),
+            replicating: false,
+        }
+    }
+
     pub fn start_replication(&mut self) {
         self.replicating = true;
     }
@@ -60,6 +72,13 @@ impl libp2p::kad::store::RecordStore for Storage {
                 return Some(Cow::Owned(libp2p::kad::Record::new(
                     k.clone(),
                     FetchProfileResp::from(profile).to_bytes(),
+                )));
+            }
+
+            if let Some(node) = self.nodes.get(&id) {
+                return Some(Cow::Owned(libp2p::kad::Record::new(
+                    k.clone(),
+                    node.into_bytes().to_vec(),
                 )));
             }
         }

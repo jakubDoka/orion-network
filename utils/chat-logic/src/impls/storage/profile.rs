@@ -34,14 +34,15 @@ pub struct FetchProfile {
     id: QueryId,
 }
 
-impl crate::AsyncHandler for FetchProfile {
+impl crate::Handler for FetchProfile {
     type Request<'a> = Identity;
     type Response<'a> = Result<FetchProfileResp, FetchProfileError>;
     type Context = libp2p::kad::Behaviour<Storage>;
 
     fn spawn(
         context: &mut Self::Context,
-        request: Self::Request<'_>,
+        request: &Self::Request<'_>,
+        _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
     ) -> Result<Self::Response<'static>, Self> {
         if let Some(profile) = context.store_mut().profiles.get(&request) {
@@ -56,7 +57,8 @@ impl crate::AsyncHandler for FetchProfile {
     fn try_complete(
         self,
         _context: &mut Self::Context,
-        event: &<Self::Context as crate::MinimalNetworkBehaviour>::ToSwarm,
+        _: &mut crate::EventDispatch<Self>,
+        event: &<Self::Context as crate::Context>::ToSwarm,
     ) -> Result<Self::Response<'static>, Self> {
         let libp2p::kad::Event::OutboundQueryProgressed {
             id,
@@ -111,7 +113,8 @@ impl crate::SyncHandler for CreateAccount {
 
     fn execute(
         context: &mut Self::Context,
-        request: Self::Request<'_>,
+        request: &Self::Request<'_>,
+        _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'static> {
         crate::ensure!(
@@ -119,10 +122,8 @@ impl crate::SyncHandler for CreateAccount {
             CreateAccountError::InvalidProof
         );
 
-        let entry = context
-            .store_mut()
-            .profiles
-            .entry(crypto::hash::new_raw(&request.proof.pk));
+        let user_id = crypto::hash::new_raw(&request.proof.pk);
+        let entry = context.store_mut().profiles.entry(user_id);
 
         crate::ensure!(let Entry::Vacant(entry) = entry, CreateAccountError::AlreadyExists);
 
@@ -135,7 +136,7 @@ impl crate::SyncHandler for CreateAccount {
                 mail: Vec::new(),
             })
             .clone();
-        replicate(context, &request, &pr, meta);
+        replicate(context, &user_id, &pr, meta);
 
         Ok(())
     }
@@ -164,7 +165,8 @@ impl crate::SyncHandler for SetVault {
 
     fn execute(
         context: &mut Self::Context,
-        request: Self::Request<'_>,
+        request: &Self::Request<'_>,
+        _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'static> {
         crate::ensure!(request.proof.verify_profile(), SetVaultError::InvalidProof);
@@ -181,7 +183,7 @@ impl crate::SyncHandler for SetVault {
 
         profile.vault.clear();
         profile.vault.extend_from_slice(request.vault.0.as_ref());
-        replicate(context, &identity, &request, meta);
+        replicate(context, &identity, request, meta);
 
         Ok(())
     }
@@ -212,7 +214,8 @@ impl crate::SyncHandler for FetchVault {
 
     fn execute<'a>(
         context: &'a mut Self::Context,
-        request: Self::Request<'a>,
+        request: &Self::Request<'a>,
+        _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
     ) -> Self::Response<'a> {
         let profile = context.store_mut().profiles.get(&request);
@@ -236,7 +239,8 @@ impl crate::SyncHandler for ReadMail {
 
     fn execute<'a>(
         context: &'a mut Self::Context,
-        request: Self::Request<'a>,
+        request: &Self::Request<'a>,
+        _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
     ) -> Self::Response<'a> {
         crate::ensure!(request.verify_profile(), ReadMailError::InvalidProof);
@@ -271,7 +275,8 @@ impl crate::SyncHandler for SendMail {
 
     fn execute(
         context: &mut Self::Context,
-        (identity, Reminder(content)): Self::Request<'_>,
+        &(identity, Reminder(content)): &Self::Request<'_>,
+        _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'static> {
         let profile = context.store_mut().profiles.get_mut(&identity);

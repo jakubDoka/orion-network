@@ -1,3 +1,5 @@
+use chat_logic::{RequestDispatch, Server};
+
 use {
     crate::BootPhase,
     component_utils::{
@@ -186,7 +188,7 @@ impl Node {
         events: WriteSignal<Event>,
         commands: ReadSignal<Command>,
         wboot_phase: WriteSignal<Option<BootPhase>>,
-    ) -> Result<Self, BootError> {
+    ) -> Result<(Self, RequestDispatch<Server>), BootError> {
         wboot_phase(Some(BootPhase::FetchTopology));
 
         let chain_api = crate::chain_node(keys.name).await.unwrap();

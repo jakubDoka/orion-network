@@ -30,14 +30,15 @@ impl Searcher for ChatQ {
     type Key<'a> = ChatName;
 }
 
-impl<T: Searcher> crate::AsyncHandler for SearchPeers<T> {
+impl<T: Searcher> crate::Handler for SearchPeers<T> {
     type Request<'a> = T::Key<'a>;
     type Response<'a> = Vec<PeerId>;
     type Context = libp2p::kad::Behaviour<Storage>;
 
     fn spawn(
         context: &mut Self::Context,
-        request: Self::Request<'_>,
+        request: &Self::Request<'_>,
+        _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
     ) -> Result<Self::Response<'static>, Self> {
         Err(Self {
@@ -50,7 +51,8 @@ impl<T: Searcher> crate::AsyncHandler for SearchPeers<T> {
     fn try_complete(
         mut self,
         _: &mut Self::Context,
-        event: &<Self::Context as crate::MinimalNetworkBehaviour>::ToSwarm,
+        _: &mut crate::EventDispatch<Self>,
+        event: &<Self::Context as crate::Context>::ToSwarm,
     ) -> Result<Self::Response<'static>, Self> {
         let libp2p::kad::Event::OutboundQueryProgressed {
             id,

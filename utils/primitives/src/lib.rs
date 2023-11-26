@@ -8,8 +8,6 @@ use core::str::FromStr;
 
 use component_utils::arrayvec::ArrayString;
 
-#[cfg(feature = "std")]
-pub mod chat;
 pub mod contracts;
 
 pub const USER_NAME_CAP: usize = 32;

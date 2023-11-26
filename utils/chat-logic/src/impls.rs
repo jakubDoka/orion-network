@@ -1,9 +1,12 @@
 use std::{iter, num::NonZeroUsize};
 
+use component_utils::Reminder;
+
+use crate::RequestId;
+
 use {
     component_utils::arrayvec::ArrayString,
     crypto::{sign, Serialized, TransmutationCircle},
-    libp2p::swarm::NetworkBehaviour,
 };
 
 pub const CHAT_NAME_CAP: usize = 32;
@@ -69,6 +72,12 @@ component_utils::protocol! {'a:
         pk: Serialized<sign::PublicKey>,
         nonce: Nonce,
         signature: Serialized<sign::Signature>,
+    }
+
+    #[derive(Clone, Copy)]
+    struct DispatchResponse<'a> {
+        id: RequestId,
+        body: Reminder<'a>,
     }
 }
 

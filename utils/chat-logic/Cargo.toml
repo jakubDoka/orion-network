@@ -11,3 +11,4 @@ crypto = { version = "0.1.0", path = "../crypto", features = ["std"] }
 libp2p = { version = "0.53.1", features = ["macros", "kad"] }
 onion = { version = "0.1.0", path = "../onion" }
 primitives = { version = "0.1.0", path = "../primitives" }
+thiserror = "1.0.50"

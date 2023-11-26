@@ -2,6 +2,8 @@
 #![feature(iter_advance_by)]
 #![feature(macro_metavar_expr)]
 #![feature(associated_type_defaults)]
+#![feature(specialization)]
+#![allow(incomplete_features)]
 use {
     component_utils::{Codec, Reminder},
     libp2p::swarm::NetworkBehaviour,
@@ -28,42 +30,32 @@ macro_rules! compose_handlers {
     ($name:ident {$(
         $handler:ident: $handler_ty:ty,
     )*}) => {
+        #[derive(Default)]
         pub struct $name {$(
-           $handler: Vec<$crate::ActiveHandler<$handler_ty>>,
+            $handler: $crate::HandlerNest<$handler_ty>,
         )*}
 
-        impl Default for $name {
-            fn default() -> Self {
-                Self {$(
-                    $handler: Vec::new(),
-                )*}
-            }
-        }
-
         impl $name {
-            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>, buffet: &mut $crate::PacketBuffer) -> Result<(), $crate::DispatchError>
+            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>, buffet: &mut $crate::PacketBuffer<$crate::RequestId>) -> Result<(), $crate::DispatchError>
             where
-                $(T: $crate::MultiBehavior<<$handler_ty as $crate::Handler>::Context>,
-                T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as NetworkBehaviour>::ToSwarm>,)*
+                $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context>,
+                T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as $crate::Context>::ToSwarm>,)*
             {
                 match message.prefix {
-                    $(${index()} => $crate::dispatch(context, message, buffet, &mut self.$handler),)*
+                    $(${index()} => self.$handler.dispatch(context, message, buffet),)*
                     p => Err($crate::DispatchError::InvalidPrefix(p)),
                 }
             }
 
-            pub fn try_handle_event<T: $crate::MinimalNetworkBehaviour>(&mut self, context: &mut T, event: T::ToSwarm, buffer: &mut $crate::PacketBuffer)
-                -> Result<(), <T as $crate::MinimalNetworkBehaviour>::ToSwarm>
+            pub fn try_handle_event<T: $crate::Context>(&mut self, context: &mut T, event: T::ToSwarm, buffer: &mut $crate::PacketBuffer<$crate::RequestId>)
+                -> Result<(), <T as $crate::Context>::ToSwarm>
             where
-                $(T: $crate::MultiBehavior<<$handler_ty as $crate::Handler>::Context>,
-                T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as NetworkBehaviour>::ToSwarm>,)*
+                $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context>,
+                T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as $crate::Context>::ToSwarm>,)*
             {
-                $(
-                    let Err(event) = $crate::try_handle_event(context, event, buffer, &mut self.$handler) else {
-                        return Ok(());
-                    };
-                )*
-
+                $(let Err(event) = self.$handler.try_handle_event(context, event, buffer) else {
+                    return Ok(());
+                };)*
                 Err(event)
             }
         }
@@ -74,64 +66,89 @@ macro_rules! compose_handlers {
     };
 }
 
-pub fn try_handle_event<T: MinimalNetworkBehaviour, H: Handler>(
-    context: &mut T,
-    event: T::ToSwarm,
-    buffer: &mut PacketBuffer,
-    handlers: &mut Vec<ActiveHandler<H>>,
-) -> Result<(), T::ToSwarm>
-where
-    T::ToSwarm: From<<H::Context as MinimalNetworkBehaviour>::ToSwarm>,
-    T: MultiBehavior<H::Context>,
-{
-    let e = T::try_unpack_event(event)?;
-    drain_filter(handlers, |handler| {
-        let buffer = OutPacket::<H>::new(handler.request_id, buffer);
-        match H::try_complete(handler.handler, context.fragment(), &e, buffer) {
-            Some(h) => Err(ActiveHandler {
-                handler: h,
-                request_id: handler.request_id,
-            }),
-            None => Ok(()),
-        }
-    })
-    .for_each(drop);
-    Ok(())
+pub struct HandlerNest<H: Handler> {
+    handlers: Vec<ActiveHandler<H>>,
+    dispatch: EventDispatch<H>,
 }
 
-pub fn dispatch<T: MinimalNetworkBehaviour, H: Handler>(
-    context: &mut T,
-    message: DispatchMessage<'_>,
-    buffer: &mut PacketBuffer,
-    handlers: &mut Vec<ActiveHandler<H>>,
-) -> Result<(), DispatchError>
-where
-    T::ToSwarm: From<<H::Context as MinimalNetworkBehaviour>::ToSwarm>,
-    T: MultiBehavior<H::Context>,
-{
-    let request =
-        H::Request::decode(&mut &*message.payload.0).ok_or(DispatchError::InvalidRequest)?;
-    let buffer = OutPacket::<H>::new(message.request_id, buffer);
-    if let Some(handler) = H::spawn(
-        context.fragment(),
-        request,
-        (message.prefix, message.request_id),
-        buffer,
-    ) {
-        handlers.push(ActiveHandler {
-            handler,
-            request_id: message.request_id,
-        });
+impl<H: Handler> HandlerNest<H> {
+    pub fn try_handle_event<T: Context>(
+        &mut self,
+        context: &mut T,
+        event: T::ToSwarm,
+        buffer: &mut PacketBuffer<RequestId>,
+    ) -> Result<(), T::ToSwarm>
+    where
+        T::ToSwarm: From<<H::Context as Context>::ToSwarm>,
+        T: SubContext<H::Context>,
+    {
+        let e = T::try_unpack_event(event)?;
+        drain_filter(&mut self.handlers, |handler| {
+            match handler
+                .handler
+                .try_complete(context.fragment(), &mut self.dispatch, &e)
+            {
+                Err(h) => Err(ActiveHandler {
+                    handler: h,
+                    request_id: handler.request_id,
+                }),
+                Ok(r) => {
+                    buffer.push(&r, handler.request_id);
+                    Ok(())
+                }
+            }
+        })
+        .for_each(drop);
+        Ok(())
     }
-    Ok(())
+
+    pub fn dispatch<T: Context>(
+        &mut self,
+        context: &mut T,
+        message: DispatchMessage<'_>,
+        buffer: &mut PacketBuffer<RequestId>,
+    ) -> Result<(), DispatchError>
+    where
+        T::ToSwarm: From<<H::Context as Context>::ToSwarm>,
+        T: SubContext<H::Context>,
+    {
+        let request =
+            H::Request::decode(&mut &*message.payload.0).ok_or(DispatchError::InvalidRequest)?;
+        match H::spawn(
+            context.fragment(),
+            &request,
+            &mut self.dispatch,
+            (message.prefix, message.request_id),
+        ) {
+            Err(handler) => {
+                self.handlers.push(ActiveHandler {
+                    handler,
+                    request_id: message.request_id,
+                });
+            }
+            Ok(response) => buffer.push(&response, message.request_id),
+        }
+
+        Ok(())
+    }
+
+    pub fn drain_events(&mut self) -> impl Iterator<Item = (H::Topic, &mut [u8])> {
+        self.dispatch.drain()
+    }
+}
+
+impl<H: Handler> Default for HandlerNest<H> {
+    fn default() -> Self {
+        Self {
+            handlers: Vec::new(),
+            dispatch: EventDispatch::default(),
+        }
+    }
 }
 
 mod impls;
 
-use std::{
-    collections::{HashMap, HashSet},
-    convert::Infallible,
-};
+use std::convert::Infallible;
 
 pub use impls::*;
 
@@ -152,8 +169,11 @@ impl Codec<'_> for RequestId {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
 pub enum DispatchError {
+    #[error("invalid prefix: {0}")]
     InvalidPrefix(u8),
+    #[error("invalid request")]
     InvalidRequest,
 }
 
@@ -162,145 +182,90 @@ type RequestMeta = (u8, RequestId);
 pub trait Handler: Sized {
     type Request<'a>: Codec<'a>;
     type Response<'a>: Codec<'a>;
-    type Context: MinimalNetworkBehaviour;
-    type Broadcast: for<'a> Broadcast<Event<'a> = Self::Response<'a>> = NoOpBroadcast<Self>;
+    type Event<'a>: Codec<'a> = Infallible;
+    type Context: Context;
+    type Topic: Eq + std::hash::Hash + Codec<'static> = Infallible;
 
     fn spawn<'a>(
         context: &'a mut Self::Context,
-        request: Self::Request<'a>,
-        meta: RequestMeta,
-        resp_buffer: OutPacket<'_, Self>,
-    ) -> Option<Self>;
-    fn try_complete<'a>(
-        self,
-        context: &'a mut Self::Context,
-        event: &'a <Self::Context as MinimalNetworkBehaviour>::ToSwarm,
-        resp_buffer: OutPacket<'_, Self>,
-    ) -> Option<Self>;
-}
-
-pub trait Broadcast: Sized {
-    type Event<'a>: Codec<'a>;
-    type Projection<'a>: Codec<'a>;
-
-    fn dispatch<'a>(
-        &mut self,
-        event: Self::Event<'a>,
-        targets: &mut Vec<PathId>,
-    ) -> Option<Self::Projection<'a>>;
-}
-
-pub struct NoOpBroadcast<T>(std::marker::PhantomData<T>);
-
-impl<T: Handler> Broadcast for NoOpBroadcast<T> {
-    type Event<'a> = T::Response<'a>;
-    type Projection<'a> = Infallible;
-
-    fn dispatch<'a>(
-        &mut self,
-        _: Self::Event<'a>,
-        _: &mut Vec<PathId>,
-    ) -> Option<Self::Projection<'a>> {
-        None
-    }
-}
-
-pub trait AsyncHandler: Sized {
-    type Request<'a>: Codec<'a>;
-    type Response<'a>: Codec<'a>;
-    type Context: MinimalNetworkBehaviour;
-
-    fn spawn<'a>(
-        context: &'a mut Self::Context,
-        request: Self::Request<'a>,
+        request: &Self::Request<'a>,
+        dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
     ) -> Result<Self::Response<'a>, Self>;
     fn try_complete<'a>(
         self,
         context: &'a mut Self::Context,
-        event: &'a <Self::Context as MinimalNetworkBehaviour>::ToSwarm,
+        dispatch: &mut EventDispatch<Self>,
+        event: &'a <Self::Context as Context>::ToSwarm,
     ) -> Result<Self::Response<'a>, Self>;
-}
-
-impl<T: AsyncHandler> Handler for T {
-    type Request<'a> = T::Request<'a>;
-    type Response<'a> = T::Response<'a>;
-    type Context = T::Context;
-
-    fn spawn<'a>(
-        context: &'a mut Self::Context,
-        request: Self::Request<'a>,
-        meta: RequestMeta,
-        buffer: OutPacket<'_, Self>,
-    ) -> Option<Self> {
-        match Self::spawn(context, request, meta) {
-            Ok(response) => {
-                buffer.push(&response);
-                None
-            }
-            Err(handler) => Some(handler),
-        }
-    }
-
-    fn try_complete<'a>(
-        self,
-        context: &'a mut Self::Context,
-        event: &'a <Self::Context as MinimalNetworkBehaviour>::ToSwarm,
-        resp_buffer: OutPacket<'_, Self>,
-    ) -> Option<Self> {
-        match Self::try_complete(self, context, event) {
-            Ok(response) => {
-                resp_buffer.push(&response);
-                None
-            }
-            Err(handler) => Some(handler),
-        }
-    }
 }
 
 pub trait SyncHandler: Sized {
     type Request<'a>: Codec<'a>;
     type Response<'a>: Codec<'a>;
-    type Context: MinimalNetworkBehaviour;
+    type Event<'a>: Codec<'a> = Infallible;
+    type Context: Context;
+    type Topic: Eq + std::hash::Hash + Codec<'static> = Infallible;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
-        request: Self::Request<'a>,
+        request: &Self::Request<'a>,
+        dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
     ) -> Self::Response<'a>;
 }
 
-impl<T: SyncHandler> AsyncHandler for T {
+impl<T: SyncHandler> Handler for T {
     type Request<'a> = T::Request<'a>;
     type Response<'a> = T::Response<'a>;
+    type Event<'a> = T::Event<'a>;
     type Context = T::Context;
+    type Topic = T::Topic;
 
     fn spawn<'a>(
         context: &'a mut Self::Context,
-        request: Self::Request<'a>,
+        request: &Self::Request<'a>,
+        dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
     ) -> Result<Self::Response<'a>, Self> {
-        Ok(Self::execute(context, request, meta))
+        Ok(Self::execute(context, request, dispatch, meta))
     }
 
     fn try_complete<'a>(
         self,
         _: &'a mut Self::Context,
-        _: &'a <Self::Context as MinimalNetworkBehaviour>::ToSwarm,
+        _: &mut EventDispatch<Self>,
+        _: &'a <Self::Context as Context>::ToSwarm,
     ) -> Result<Self::Response<'a>, Self> {
         Err(self)
     }
 }
 
-pub trait Event {
-    type Key: Eq + std::hash::Hash;
+pub struct EventDispatch<H: Handler> {
+    inner: PacketBuffer<H::Topic>,
+}
 
-    fn key(&self) -> Self::Key;
+impl<H: Handler> EventDispatch<H> {
+    pub fn push(&mut self, topic: H::Topic, event: &H::Event<'_>) {
+        self.inner.push(event, topic);
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = (H::Topic, &mut [u8])> {
+        self.inner.drain()
+    }
+}
+
+impl<H: Handler> Default for EventDispatch<H> {
+    fn default() -> Self {
+        Self {
+            inner: PacketBuffer::new(),
+        }
+    }
 }
 
 pub struct RequestDispatch<S> {
     buffer: Vec<u8>,
-    sink: libp2p::futures::channel::mpsc::Sender<RawRequest>,
+    sink: libp2p::futures::channel::mpsc::Sender<RequestInit>,
     phantom: std::marker::PhantomData<S>,
 }
 
@@ -335,20 +300,68 @@ impl<S> RequestDispatch<S> {
         let (tx, rx) = libp2p::futures::channel::oneshot::channel();
         use libp2p::futures::SinkExt;
         self.sink
-            .send(RawRequest {
+            .send(RequestInit::Request(RawRequest {
                 request_id: RequestId::new(),
                 stream,
                 payload: Vec::new(),
                 channel: tx,
-            })
+            }))
             .await
             .map_err(|_| RequestError::ChannelClosed)?;
         self.buffer = rx.await.map_err(|_| RequestError::ChannelClosed)?;
         H::Response::decode(&mut &self.buffer[..]).ok_or(RequestError::InvalidResponse)
     }
+
+    pub fn subscribe<H: Handler>(
+        &mut self,
+        topic: H::Topic,
+    ) -> Result<Subscription<H>, RequestError>
+    where
+        S: Dispatches<H>,
+    {
+        let (tx, rx) = libp2p::futures::channel::mpsc::channel(0);
+        self.sink
+            .try_send(RequestInit::Subscription(SubscriptionInit {
+                topic: topic.to_bytes(),
+                channel: tx,
+            }))
+            .map_err(|_| RequestError::ChannelClosed)?;
+
+        Ok(Subscription {
+            buffer: Vec::new(),
+            events: rx,
+            phantom: std::marker::PhantomData,
+        })
+    }
 }
 
-pub type RequestStream = libp2p::futures::channel::mpsc::Receiver<RawRequest>;
+pub type RequestStream = libp2p::futures::channel::mpsc::Receiver<RequestInit>;
+
+pub enum RequestInit {
+    Request(RawRequest),
+    Subscription(SubscriptionInit),
+}
+
+pub struct Subscription<H> {
+    buffer: Vec<u8>,
+    events: libp2p::futures::channel::mpsc::Receiver<SubscriptionMessage>,
+    phantom: std::marker::PhantomData<H>,
+}
+
+impl<H: Handler> Subscription<H> {
+    pub async fn next(&mut self) -> Option<H::Event<'_>> {
+        use libp2p::futures::StreamExt;
+        self.buffer = self.events.next().await?;
+        H::Event::decode(&mut &self.buffer[..])
+    }
+}
+
+pub struct SubscriptionInit {
+    pub topic: Vec<u8>,
+    pub channel: libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>,
+}
+
+pub type SubscriptionMessage = Vec<u8>;
 
 pub struct RawRequest {
     pub request_id: RequestId,
@@ -364,12 +377,12 @@ pub enum RequestError {
     ChannelClosed,
 }
 
-pub struct PacketBuffer {
+pub struct PacketBuffer<M> {
     packets: Vec<u8>,
-    bunds: Vec<(usize, RequestId)>,
+    bunds: Vec<(usize, M)>,
 }
 
-impl PacketBuffer {
+impl<M> PacketBuffer<M> {
     pub fn new() -> Self {
         Self {
             packets: Vec::new(),
@@ -377,12 +390,12 @@ impl PacketBuffer {
         }
     }
 
-    fn push<'a>(&mut self, packet: &impl Codec<'a>, id: RequestId) {
+    fn push<'a>(&mut self, packet: &impl Codec<'a>, id: M) {
         self.bunds.push((self.packets.len(), id));
         packet.encode(&mut self.packets);
     }
 
-    pub fn drain(&mut self) -> impl Iterator<Item = (RequestId, &mut [u8])> {
+    pub fn drain(&mut self) -> impl Iterator<Item = (M, &mut [u8])> {
         let slice = unsafe { std::mem::transmute::<_, &mut [u8]>(self.packets.as_mut_slice()) };
         unsafe { self.packets.set_len(0) }
         self.bunds.drain(..).scan(slice, move |slice, (bund, req)| {
@@ -393,38 +406,15 @@ impl PacketBuffer {
     }
 }
 
-pub struct OutPacket<'a, T> {
-    id: RequestId,
-    buff: &'a mut PacketBuffer,
-    phantom: std::marker::PhantomData<T>,
-}
-
-impl<'a, T> OutPacket<'a, T> {
-    pub fn new(id: RequestId, buff: &'a mut PacketBuffer) -> Self {
-        Self {
-            id,
-            buff,
-            phantom: std::marker::PhantomData,
-        }
-    }
-
-    pub fn push<'b>(self, packet: &T::Response<'b>)
-    where
-        T: Handler,
-    {
-        self.buff.push(packet, self.id);
-    }
-}
-
-pub trait MinimalNetworkBehaviour {
+pub trait Context {
     type ToSwarm;
 }
 
-impl<T: NetworkBehaviour> MinimalNetworkBehaviour for T {
+impl<T: NetworkBehaviour> Context for T {
     type ToSwarm = T::ToSwarm;
 }
 
-pub trait MultiBehavior<F: MinimalNetworkBehaviour>: MinimalNetworkBehaviour
+pub trait SubContext<F: Context>: Context
 where
     Self::ToSwarm: From<F::ToSwarm>,
 {
@@ -432,7 +422,7 @@ where
     fn try_unpack_event(event: Self::ToSwarm) -> Result<F::ToSwarm, Self::ToSwarm>;
 }
 
-impl<T: NetworkBehaviour> MultiBehavior<T> for T {
+impl<T: NetworkBehaviour> SubContext<T> for T {
     fn fragment(&mut self) -> &mut T {
         self
     }

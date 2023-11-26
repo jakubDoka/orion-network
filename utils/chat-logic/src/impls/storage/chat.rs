@@ -23,7 +23,8 @@ impl crate::SyncHandler for CreateChat {
 
     fn execute<'a>(
         context: &'a mut Self::Context,
-        (identiy, name): Self::Request<'a>,
+        &(identiy, name): &Self::Request<'a>,
+        _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'a> {
         let chat_entry = context.store_mut().chats.entry(name);
@@ -54,7 +55,8 @@ impl crate::SyncHandler for AddUser {
 
     fn execute<'a>(
         context: &'a mut Self::Context,
-        (identiy, name, proof): Self::Request<'a>,
+        &(identiy, name, proof): &Self::Request<'a>,
+        _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'a> {
         ensure!(proof.verify_profile(), AddUserError::InvalidProof);
@@ -104,10 +106,13 @@ impl crate::SyncHandler for SendMessage {
     type Request<'a> = (ChatName, Proof, Reminder<'a>);
     type Response<'a> = Result<(), SendMessageError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Event<'a> = (Proof, Reminder<'a>);
+    type Topic = ChatName;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
-        (name, proof, message): Self::Request<'a>,
+        &(name, proof, message): &Self::Request<'a>,
+        events: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'a> {
         ensure!(proof.verify_chat(name), SendMessageError::InvalidProof);
@@ -137,6 +142,7 @@ impl crate::SyncHandler for SendMessage {
 
         chat.messages.push(message.0.iter().copied());
         replicate(context, &name, &(name, proof, message), meta);
+        events.push(name, &(proof, message));
 
         Ok(())
     }
@@ -161,7 +167,8 @@ impl crate::SyncHandler for FetchMessages {
 
     fn execute<'a>(
         context: &'a mut Self::Context,
-        request: Self::Request<'a>,
+        request: &Self::Request<'a>,
+        _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'a> {
         let chat = context

@@ -1,6 +1,7 @@
 #![feature(iter_collect_into)]
 #![allow(non_snake_case)]
 #![feature(mem_copy_fn)]
+#![feature(macro_metavar_expr)]
 
 use {
     self::web_sys::wasm_bindgen::JsValue,
