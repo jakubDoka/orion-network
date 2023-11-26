@@ -1,11 +1,13 @@
 extern crate proc_macro;
 
-use contract_metadata::ContractMetadata;
-use heck::ToUpperCamelCase as _;
-use ink_metadata::{InkProject, MetadataVersion, Selector};
-use proc_macro::TokenStream;
-use proc_macro_error::{abort_call_site, proc_macro_error};
-use subxt_codegen::{CratePath, DerivesRegistry, TypeGenerator, TypeSubstitutes};
+use {
+    contract_metadata::ContractMetadata,
+    heck::ToUpperCamelCase as _,
+    ink_metadata::{InkProject, MetadataVersion, Selector},
+    proc_macro::TokenStream,
+    proc_macro_error::{abort_call_site, proc_macro_error},
+    subxt_codegen::{CratePath, DerivesRegistry, TypeGenerator, TypeSubstitutes},
+};
 
 #[proc_macro]
 #[proc_macro_error]
@@ -193,13 +195,15 @@ fn hex_lits(selector: &ink_metadata::Selector) -> [syn::LitInt; 4] {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use ink_metadata::{
-        layout::{Layout, StructLayout},
-        ConstructorSpec, ContractSpec, MessageParamSpec, MessageSpec, ReturnTypeSpec, TypeSpec,
+    use {
+        super::*,
+        ink_metadata::{
+            layout::{Layout, StructLayout},
+            ConstructorSpec, ContractSpec, MessageParamSpec, MessageSpec, ReturnTypeSpec, TypeSpec,
+        },
+        ink_primitives::AccountId,
+        scale_info::{IntoPortable, Registry},
     };
-    use ink_primitives::AccountId;
-    use scale_info::{IntoPortable, Registry};
 
     // Helper for creating a InkProject with custom MessageSpec
     fn ink_project_with_custom_message(message: MessageSpec) -> InkProject {

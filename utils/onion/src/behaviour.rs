@@ -1,31 +1,34 @@
-use crate::{
-    handler::{self, Handler},
-    packet::{self, ASOC_DATA, MISSING_PEER},
-    IncomingOrRequest, IncomingOrResponse, IncomingStream, KeyPair, PublicKey, SharedSecret,
-    StreamRequest,
+use {
+    crate::{
+        handler::{self, Handler},
+        packet::{self, ASOC_DATA, MISSING_PEER},
+        IncomingOrRequest, IncomingOrResponse, IncomingStream, KeyPair, PublicKey, SharedSecret,
+        StreamRequest,
+    },
+    aes_gcm::{
+        aead::{generic_array::GenericArray, OsRng},
+        AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
+    },
+    component_utils::PacketReader,
+    core::fmt,
+    futures::{
+        stream::{FusedStream, FuturesUnordered},
+        AsyncRead, StreamExt,
+    },
+    instant::{Duration, Instant},
+    libp2p::{
+        identity::PeerId,
+        swarm::{
+            dial_opts::{DialOpts, PeerCondition},
+            CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm as TS,
+        },
+    },
+    std::{
+        collections::VecDeque, convert::Infallible, io, mem, ops::DerefMut, pin::Pin, sync::Arc,
+        task::Poll,
+    },
+    thiserror::Error,
 };
-use aes_gcm::{
-    aead::{generic_array::GenericArray, OsRng},
-    AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
-};
-use component_utils::PacketReader;
-use core::fmt;
-use futures::{
-    stream::{FusedStream, FuturesUnordered},
-    AsyncRead, StreamExt,
-};
-use instant::{Duration, Instant};
-use libp2p::identity::PeerId;
-use libp2p::swarm::ToSwarm as TS;
-use libp2p::swarm::{
-    dial_opts::{DialOpts, PeerCondition},
-    CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
-};
-use std::{
-    collections::VecDeque, convert::Infallible, io, mem, ops::DerefMut, pin::Pin, sync::Arc,
-    task::Poll,
-};
-use thiserror::Error;
 
 pub struct Behaviour {
     config: Config,
@@ -300,7 +303,7 @@ impl NetworkBehaviour for Behaviour {
             HTB::IncomingStream(IncomingOrResponse::Incoming(s)) => self.push_incoming_stream(s),
             HTB::IncomingStream(IncomingOrResponse::Response(s)) => {
                 self.events
-                    .push_back(TS::GenerateEvent(Event::InboundStream(s)));
+                    .push_back(TS::GenerateEvent(Event::InboundStream(s, PathId::new())));
             }
             HTB::OutboundStream {
                 to: the,
@@ -372,7 +375,7 @@ component_utils::gen_config! {
 #[derive(Debug)]
 pub enum Event {
     ConnectRequest(PeerId),
-    InboundStream(EncryptedStream),
+    InboundStream(EncryptedStream, PathId),
     OutboundStream(EncryptedStream, PathId, PeerId),
     Error(Error),
 }

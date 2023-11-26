@@ -1,5 +1,9 @@
-use core::marker::PhantomData;
-use std::{sync::Arc, u32, usize};
+use {
+    core::marker::PhantomData,
+    std::{sync::Arc, u32, usize},
+};
+
+use core::convert::Infallible;
 
 use arrayvec::{ArrayString, ArrayVec};
 #[cfg(feature = "std")]
@@ -18,7 +22,7 @@ pub fn decode_len(bytes: [u8; 4]) -> usize {
 #[macro_export]
 macro_rules! protocol {
     (@low $(#[$meta:meta])* enum $lt:lifetime $name:ident$(<$lt2:lifetime>)? {$(
-        $variant:ident $(: $value:ty)? => $id:literal,
+        $variant:ident $(: $value:ty)?,
     )*}) => {
        $(#[$meta])*
         pub enum $name$(<$lt2>)? {
@@ -29,7 +33,7 @@ macro_rules! protocol {
             fn encode(&self, buffer: &mut Vec<u8>) {
                 match self {
                     $($crate::protocol!(@pattern $variant value $($value)?) => {
-                        ($id as u8).encode(buffer);
+                        (${index()} as u8).encode(buffer);
                         $(<$value as $crate::codec::Codec<$lt>>::encode(value, buffer);)?
                     })*
                 }
@@ -38,7 +42,7 @@ macro_rules! protocol {
             fn decode(buffer: &mut &$lt [u8]) -> Option<Self> {
                 let value = <u8>::decode(buffer)?;
                 match value {
-                    $( $id => {
+                    $( ${index()} => {
                         Some(Self::$variant$((<$value as $crate::codec::Codec<$lt>>::decode(buffer)?))?)
                     })*
                     _ => None,
@@ -72,10 +76,10 @@ macro_rules! protocol {
     };
 
     ($lt:lifetime: $($(#[$meta:meta])* $keyword:ident $name:ident$(<$lt2:lifetime>)? {$(
-        $field:ident$(: $ty:ty)? $(=> $id:literal)?,
+        $field:ident$(: $ty:ty)?,
     )*})*) => {
         $($crate::protocol!(@low $(#[$meta])* $keyword $lt $name$(<$lt2>)? {$(
-            $field $(: $ty)? $(=> $id)?,
+            $field $(: $ty)?,
         )*});)*
     };
 }
@@ -98,11 +102,64 @@ pub trait Codec<'a>: Sized {
     }
 }
 
+impl Codec<'_> for Infallible {
+    fn encode(&self, _: &mut Vec<u8>) {
+        match *self {}
+    }
+
+    fn decode(_: &mut &[u8]) -> Option<Self> {
+        None
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a, T: Codec<'a>> Codec<'a> for std::collections::VecDeque<T> {
+    fn encode(&self, buffer: &mut Vec<u8>) {
+        self.len().encode(buffer);
+        for i in self {
+            i.encode(buffer);
+        }
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        let len = <usize>::decode(buffer)?;
+        let mut s = Self::with_capacity(len);
+        for _ in 0..len {
+            s.push_back(<T>::decode(buffer)?);
+        }
+        Some(s)
+    }
+}
+
 impl<'a, T> Codec<'a> for PhantomData<T> {
     fn encode(&self, _: &mut Vec<u8>) {}
 
     fn decode(_: &mut &'a [u8]) -> Option<Self> {
         Some(Self)
+    }
+}
+
+impl<'a, R: Codec<'a>, E: Codec<'a>> Codec<'a> for Result<R, E> {
+    fn encode(&self, buffer: &mut Vec<u8>) {
+        match self {
+            Ok(r) => {
+                true.encode(buffer);
+                r.encode(buffer);
+            }
+            Err(e) => {
+                false.encode(buffer);
+                e.encode(buffer);
+            }
+        }
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        let is_ok = <bool>::decode(buffer)?;
+        Some(if is_ok {
+            Ok(<R>::decode(buffer)?)
+        } else {
+            Err(<E>::decode(buffer)?)
+        })
     }
 }
 

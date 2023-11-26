@@ -2,6 +2,7 @@
 #![feature(iter_next_chunk)]
 #![feature(iter_advance_by)]
 #![feature(ip_in_core)]
+#![feature(macro_metavar_expr)]
 
 use core::str::FromStr;
 

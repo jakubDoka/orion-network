@@ -4,8 +4,10 @@
 mod user_manager {
     use core::marker::PhantomData;
 
-    use crypto::{Serialized, TransmutationCircle};
-    use primitives::{contracts::StoredUserIdentity, RawUserName};
+    use {
+        crypto::{Serialized, TransmutationCircle},
+        primitives::{contracts::StoredUserIdentity, RawUserName},
+    };
 
     #[derive(scale::Decode, scale::Encode)]
     #[cfg_attr(

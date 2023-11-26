@@ -1,18 +1,23 @@
-use core::fmt;
-use std::future::Future;
-use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use component_utils::DropFn;
-use crypto::TransmutationCircle;
-use leptos::html::{Input, Textarea};
-use leptos::*;
-use leptos_router::Redirect;
-use primitives::chat::{AddMember, ChatName, CreateChatErrorData, UserName};
-use primitives::contracts::{StoredUserIdentity, UserIdentity};
-
-use crate::node;
-use crate::node::MessageContent;
+use {
+    crate::{node, node::MessageContent},
+    component_utils::DropFn,
+    core::fmt,
+    crypto::TransmutationCircle,
+    leptos::{
+        html::{Input, Textarea},
+        *,
+    },
+    leptos_router::Redirect,
+    primitives::{
+        chat::{AddMember, ChatName, CreateChatErrorData, UserName},
+        contracts::StoredUserIdentity,
+    },
+    std::{
+        future::Future,
+        ops::Deref,
+        sync::atomic::{AtomicUsize, Ordering},
+    },
+};
 
 fn is_at_bottom(messages_div: HtmlElement<leptos::html::Div>) -> bool {
     let scroll_bottom = messages_div.scroll_top();

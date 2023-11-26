@@ -1,14 +1,17 @@
-use std::sync::Arc;
-use std::{collections::VecDeque, fmt, io, iter, slice, task::Poll};
+use std::{collections::VecDeque, fmt, io, iter, slice, sync::Arc, task::Poll};
 
-use futures::{AsyncReadExt, AsyncWriteExt, Future};
-use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use libp2p::identity::PeerId;
-use libp2p::swarm::{
-    handler::{FullyNegotiatedInbound, FullyNegotiatedOutbound},
-    ConnectionHandler, ConnectionHandlerEvent, StreamProtocol,
+use {
+    futures::{AsyncReadExt, AsyncWriteExt, Future},
+    libp2p::{
+        core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo},
+        identity::PeerId,
+        swarm::{
+            handler::{FullyNegotiatedInbound, FullyNegotiatedOutbound},
+            ConnectionHandler, ConnectionHandlerEvent, StreamProtocol,
+        },
+    },
+    thiserror::Error,
 };
-use thiserror::Error;
 
 use crate::{
     packet::{self, CONFIRM_PACKET_SIZE},
@@ -100,8 +103,7 @@ impl ConnectionHandler for Handler {
             Self::OutboundOpenInfo,
         >,
     ) {
-        use libp2p::swarm::handler::ConnectionEvent as CE;
-        use libp2p::swarm::handler::ConnectionHandlerEvent as CHE;
+        use libp2p::swarm::handler::{ConnectionEvent as CE, ConnectionHandlerEvent as CHE};
         let ev = match event {
             CE::FullyNegotiatedInbound(FullyNegotiatedInbound {
                 protocol: Some(proto),

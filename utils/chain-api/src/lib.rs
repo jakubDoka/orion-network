@@ -1,23 +1,30 @@
 #![feature(lazy_cell)]
-use std::str::FromStr;
-use std::u64;
+use std::{str::FromStr, u64};
 
-use crypto::{Serialized, TransmutationCircle};
-use parity_scale_codec::{Decode, Encode as _};
-use polkadot::contracts::calls::types::Call;
-use polkadot::runtime_types::pallet_contracts_primitives::{ContractResult, ExecReturnValue};
-use polkadot::runtime_types::sp_runtime::DispatchError;
-use polkadot::runtime_types::sp_weights::weight_v2::Weight;
-use primitives::contracts::{StoredNodeData, StoredNodeIdentity, StoredUserIdentity};
-use primitives::UserName;
-use subxt::backend::legacy::LegacyRpcMethods;
-use subxt::backend::rpc::RpcClient;
-use subxt::tx::{Payload, Signer};
-use subxt::{OnlineClient, PolkadotConfig};
-use subxt_signer::bip39::Mnemonic;
+use {
+    crypto::{Serialized, TransmutationCircle},
+    parity_scale_codec::{Decode, Encode as _},
+    polkadot::{
+        contracts::calls::types::Call,
+        runtime_types::{
+            pallet_contracts_primitives::{ContractResult, ExecReturnValue},
+            sp_runtime::DispatchError,
+            sp_weights::weight_v2::Weight,
+        },
+    },
+    primitives::{
+        contracts::{StoredNodeData, StoredNodeIdentity, StoredUserIdentity},
+        UserName,
+    },
+    subxt::{
+        backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
+        tx::{Payload, Signer},
+        OnlineClient, PolkadotConfig,
+    },
+    subxt_signer::bip39::Mnemonic,
+};
 
-pub use serde_json::json;
-pub use subxt::tx::TxPayload;
+pub use {serde_json::json, subxt::tx::TxPayload};
 
 pub type Config = PolkadotConfig;
 pub type Balance = u128;

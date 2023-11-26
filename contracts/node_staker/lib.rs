@@ -2,10 +2,12 @@
 
 #[ink::contract]
 mod node_staker {
-    use core::{marker::PhantomData, u32};
-    use crypto::{sign, Serialized, TransmutationCircle};
-    use ink::prelude::vec::Vec;
-    use primitives::contracts::*;
+    use {
+        core::{marker::PhantomData, u32},
+        crypto::{sign, Serialized, TransmutationCircle},
+        ink::prelude::vec::Vec,
+        primitives::contracts::*,
+    };
 
     #[derive(scale::Decode, scale::Encode)]
     #[cfg_attr(
@@ -195,8 +197,13 @@ mod node_staker {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
-        use ink::{env::test as ink_env, env::DefaultEnvironment as Env, primitives::AccountId};
+        use {
+            super::*,
+            ink::{
+                env::{test as ink_env, DefaultEnvironment as Env},
+                primitives::AccountId,
+            },
+        };
 
         fn init_contract() -> NodeStaker {
             ink_env::set_callee::<Env>(ink_env::default_accounts::<Env>().charlie);
@@ -374,8 +381,7 @@ mod node_staker {
 
     #[cfg(all(test, feature = "e2e-tests"))]
     mod e2e_tests {
-        use super::*;
-        use ink_e2e::build_message;
+        use {super::*, ink_e2e::build_message};
 
         type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

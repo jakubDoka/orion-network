@@ -1,20 +1,18 @@
-use std::collections::HashSet;
-use std::io;
-use std::num::NonZeroUsize;
-use std::{mem, usize};
-use std::{pin::Pin, time::Duration};
+use crate::PathId;
 
-use component_utils::{impl_kad_search, AsocStream, KadPeerSearch};
-use futures::stream::SelectAll;
-use futures::{FutureExt, StreamExt};
-use libp2p::core::{multiaddr::Protocol, upgrade::Version, Transport};
-use libp2p::identity::{Keypair, PeerId};
-use libp2p::kad::store::MemoryStore;
-use libp2p::kad::Mode;
-use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
-use rand::seq::SliceRandom;
-
-use crate::EncryptedStream;
+use {
+    crate::EncryptedStream,
+    component_utils::{impl_kad_search, AsocStream, KadPeerSearch},
+    futures::{stream::SelectAll, FutureExt, StreamExt},
+    libp2p::{
+        core::{multiaddr::Protocol, upgrade::Version, Transport},
+        identity::{Keypair, PeerId},
+        kad::{store::MemoryStore, Mode},
+        swarm::{NetworkBehaviour, SwarmEvent},
+    },
+    rand::seq::SliceRandom,
+    std::{collections::HashSet, io, mem, num::NonZeroUsize, pin::Pin, time::Duration, usize},
+};
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_millis(1000);
 
@@ -104,7 +102,7 @@ async fn open_path(
     loop {
         let (e, id, ..) = futures::future::select_all(swarms.iter_mut().map(|s| s.next())).await;
         match e.unwrap() {
-            SwarmEvent::Behaviour(crate::Event::InboundStream(s)) => input = Some(s),
+            SwarmEvent::Behaviour(crate::Event::InboundStream(s, ..)) => input = Some(s),
             SwarmEvent::Behaviour(crate::Event::OutboundStream(s, ..)) => output = Some(s),
             e => log::debug!("{id} {e:?}"),
         }
@@ -292,9 +290,9 @@ async fn settle_down() {
         .unzip();
 
     fn handle_packet(
-        id: usize,
+        id: PathId,
         packet: io::Result<Vec<u8>>,
-        streams: &mut SelectAll<AsocStream<usize, EncryptedStream>>,
+        streams: &mut SelectAll<AsocStream<PathId, EncryptedStream>>,
         counter: &mut usize,
     ) {
         let mut packet = match packet {
@@ -320,14 +318,13 @@ async fn settle_down() {
         for mut swarm in swarms {
             tokio::time::sleep(spacing).await;
             tokio::spawn(async move {
-                use crate::Event as OE;
-                use libp2p::identify::Event as IE;
-                use SDBehaviourEvent as BE;
-                use SwarmEvent as SE;
+                use {
+                    crate::Event as OE, libp2p::identify::Event as IE, SDBehaviourEvent as BE,
+                    SwarmEvent as SE,
+                };
 
                 let mut discovery = KadPeerSearch::default();
-                let mut stream_counter = 0;
-                let mut streams = SelectAll::<AsocStream<usize, EncryptedStream>>::new();
+                let mut streams = SelectAll::<AsocStream<PathId, EncryptedStream>>::new();
                 let mut counter = 0;
                 loop {
                     let ev = futures::select! {
@@ -353,14 +350,13 @@ async fn settle_down() {
                                 &mut swarm,
                                 &mut discovery,
                             ) => {}
-                        SE::Behaviour(BE::Onion(OE::InboundStream(stream))) => {
+                        SE::Behaviour(BE::Onion(OE::InboundStream(stream, pid))) => {
                             if streams.len() > max_open_streams_server {
                                 log::info!("too many open streams");
                                 continue;
                             }
 
-                            streams.push(AsocStream::new(stream, stream_counter));
-                            stream_counter += 1;
+                            streams.push(AsocStream::new(stream, pid));
                         }
                         e => log::debug!("{e:?}"),
                     }
@@ -423,14 +419,13 @@ async fn settle_down() {
         tokio::time::sleep(spacing).await;
         let node_data = node_data.clone();
         tokio::spawn(async move {
-            use crate::Event as OE;
-            use libp2p::identify::Event as IE;
-            use SDBehaviourEvent as BE;
-            use SwarmEvent as SE;
+            use {
+                crate::Event as OE, libp2p::identify::Event as IE, SDBehaviourEvent as BE,
+                SwarmEvent as SE,
+            };
 
             let mut discovery = KadPeerSearch::default();
-            let mut stream_counter = 0;
-            let mut streams = SelectAll::<AsocStream<usize, EncryptedStream>>::new();
+            let mut streams = SelectAll::<AsocStream<PathId, EncryptedStream>>::new();
             let mut pending_routes = HashSet::new();
             let peer_id = *swarm.local_peer_id();
             let mut connected = false;
@@ -482,8 +477,7 @@ async fn settle_down() {
                     }
                     SE::Behaviour(BE::Onion(OE::OutboundStream(mut stream, id, ..))) => {
                         stream.write(&mut b"hello".to_vec());
-                        streams.push(AsocStream::new(stream, stream_counter));
-                        stream_counter += 1;
+                        streams.push(AsocStream::new(stream, id));
                         pending_routes.remove(&(id, peer_id));
                     }
                     e => log::info!("{e:?}"),

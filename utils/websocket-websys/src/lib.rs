@@ -10,10 +10,11 @@ use std::{
     task::{Poll, Waker},
 };
 
-use libp2p_core::transport::TransportError as TE;
-use libp2p_core::{multiaddr::Protocol as MP, Multiaddr};
-use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
-use web_sys::{window, CloseEvent, MessageEvent, WebSocket};
+use {
+    libp2p_core::{multiaddr::Protocol as MP, transport::TransportError as TE, Multiaddr},
+    wasm_bindgen::{prelude::Closure, JsCast, JsValue},
+    web_sys::{window, CloseEvent, MessageEvent, WebSocket},
+};
 
 fn parse_multiaddr(ma: &Multiaddr) -> Result<String, &'static str> {
     let Ok([ip, MP::Tcp(port), MP::Ws(path)]) = ma.iter().next_chunk() else {

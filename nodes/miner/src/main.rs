@@ -2,35 +2,35 @@
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
 
-use chain_api::ContractId;
-use component_utils::{
-    codec::Codec,
-    kad::KadPeerSearch,
-    libp2p::kad::{
-        store::{MemoryStore, RecordStore},
-        InboundRequest, QueryId, Quorum, StoreInserts,
+use {
+    chain_api::ContractId,
+    component_utils::{
+        codec::Codec,
+        kad::KadPeerSearch,
+        libp2p::kad::{
+            store::{MemoryStore, RecordStore},
+            InboundRequest, QueryId, Quorum, StoreInserts,
+        },
+        Base128Bytes,
     },
-    Base128Bytes,
-};
-use crypto::TransmutationCircle;
-use libp2p::{
-    core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
-    futures::{self, StreamExt},
-    kad,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    Multiaddr, PeerId, Swarm, Transport,
-};
-use onion::EncryptedStream;
-use primitives::chat::*;
-use primitives::contracts::NodeData;
-use std::{
-    borrow::Cow,
-    collections::{hash_map::Entry, HashMap, HashSet},
-    mem,
-    net::Ipv4Addr,
-    pin::Pin,
-    time::Duration,
-    usize,
+    crypto::TransmutationCircle,
+    libp2p::{
+        core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
+        futures::{self, StreamExt},
+        kad,
+        swarm::{NetworkBehaviour, SwarmEvent},
+        Multiaddr, PeerId, Swarm, Transport,
+    },
+    onion::EncryptedStream,
+    primitives::{chat::*, contracts::NodeData},
+    std::{
+        collections::{hash_map::Entry, HashMap, HashSet},
+        mem,
+        net::Ipv4Addr,
+        pin::Pin,
+        time::Duration,
+        usize,
+    },
 };
 
 #[tokio::main(flavor = "current_thread")]

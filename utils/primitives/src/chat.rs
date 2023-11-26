@@ -1,11 +1,13 @@
-use std::{collections::VecDeque, iter, num::NonZeroUsize, usize};
-use std::{mem, u16, u32};
+use std::{collections::VecDeque, iter, mem, num::NonZeroUsize, u16, u32, usize};
 
-use component_utils::arrayvec::ArrayString;
-use component_utils::Reminder;
-use component_utils::{libp2p::identity::PeerId, Codec};
-use crypto::sign::Signature;
-use crypto::{enc, sign, Serialized, TransmutationCircle};
+use {
+    component_utils::{arrayvec::ArrayString, libp2p::identity::PeerId, Codec, Reminder},
+    crypto::{
+        enc,
+        sign::{self, Signature},
+        Serialized, TransmutationCircle,
+    },
+};
 
 pub const CHAT_NAME_CAP: usize = 32;
 pub const CHAT_CAP: usize = 1024 * 1024;
@@ -27,8 +29,7 @@ pub type ActionNo = u32;
 pub type Identity = crypto::Hash<sign::PublicKey>;
 pub type ChatName = ArrayString<CHAT_NAME_CAP>;
 
-use crate::contracts::UserIdentity;
-use crate::RawUserName;
+use crate::{contracts::UserIdentity, RawUserName};
 pub use crate::{UserName, USER_NAME_CAP};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -103,38 +104,7 @@ crypto::impl_transmute! {
     RawUserKeys,
 }
 
-macro_rules! gen_simple_error {
-    ($(
-        error $name:ident {$(
-            $variant:ident => $message:literal,
-        )*}
-    )*) => {$(
-        #[derive(Debug, Clone, Copy, thiserror::Error)]
-        #[repr(u8)]
-        pub enum $name {$(
-            #[error($message)]
-            $variant,
-        )*}
-
-
-        impl<'a> Codec<'a> for $name {
-            fn encode(&self, buffer: &mut Vec<u8>) {
-                buffer.push(*self as u8);
-            }
-
-            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-                let max_var = [$(Self::$variant),*].len();
-                let b = u8::decode(buffer)?;
-                if b >= max_var as u8 {
-                    return None;
-                }
-                Some(unsafe { std::mem::transmute(b) })
-            }
-        }
-    )*};
-}
-
-gen_simple_error! {
+component_utils::gen_simple_error! {
     error PutMessageError {
         ChatNotFound => "chat does not exist",
         InvalidContent => "cannot parse message content",
@@ -244,10 +214,10 @@ impl<'a> ReplicateMessage<'a> {
 component_utils::protocol! { 'a:
     #[derive(Clone)]
     enum ChatRequest<'a> {
-        Send: Message<'a> => 0,
-        Fetch: FetchMessages => 1,
-        OtherInit: InitRequest => 2,
-        KeepAlive => 30,
+        Send: Message<'a>,
+        Fetch: FetchMessages,
+        OtherInit: InitRequest,
+        KeepAlive0,
     }
 
     #[derive(Clone, Copy)]
@@ -260,9 +230,9 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     enum MessagePayload<'a> {
-        Arbitrary: &'a [u8] => 0,
-        AddMember: AddMember => 1,
-        RemoveMember: MemberId => 2,
+        Arbitrary: &'a [u8],
+        AddMember: AddMember,
+        RemoveMember: MemberId,
     }
 
     #[derive(Clone, Copy)]
@@ -279,10 +249,10 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone)]
     enum InitRequest {
-        Search: Identity => 0,
-        ReadData: Identity => 1,
-        Subscribe: ChatSubs => 2,
-        Create: CreateChat => 3,
+        Search: Identity,
+        ReadData: Identity,
+        Subscribe: ChatSubs,
+        Create: CreateChat,
     }
 
     #[derive(Clone)]
@@ -299,18 +269,18 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     enum ProfileRequest<'a> {
-        Search: ChatName => 0,
-        WriteData: WriteData<'a> => 1,
-        Subscribe: ActionProof => 2,
-        SendMail: SendMail<'a> => 3,
-        GetUserKeys: Identity => 4,
-        KeepAlive => 30,
+        Search: ChatName,
+        WriteData: WriteData<'a>,
+        Subscribe: ActionProof,
+        SendMail: SendMail<'a>,
+        GetUserKeys: Identity,
+        KeepAlive0,
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     enum UserOrChat {
-        User: Identity => 0,
-        Chat: ChatName => 1,
+        User: Identity,
+        Chat: ChatName,
     }
 
     #[derive(Clone, Copy)]
@@ -333,13 +303,13 @@ component_utils::protocol! { 'a:
     }
 
     enum ChatResponse<'a> {
-        New: Message<'a> => 0,
-        Failed: PutMessageError => 1,
-        Fetched: FetchedMessages<'a> => 2,
-        Subscribed: Subscribed => 3,
-        NotFound => 3,
-        CannotCreate: CreateChatErrorData => 4,
-        Created: ChatName => 5,
+        New: Message<'a>,
+        Failed: PutMessageError,
+        Fetched: FetchedMessages<'a>,
+        Subscribed: Subscribed,
+        NotFound,
+        CannotCreate: CreateChatErrorData,
+        Created: ChatName,
     }
 
     struct Subscribed {
@@ -354,18 +324,18 @@ component_utils::protocol! { 'a:
     }
 
     enum ProfileResponse<'a> {
-        Mail: &'a [u8] => 0,
-        DataWritten => 1,
-        DataWriteFailed: WriteDataError => 2,
-        MailWritten => 3,
-        MailWriteFailed: WriteMailError => 4,
-        UserKeys: Serialized<UserIdentity> => 5,
-        Search: ChatSearchResult => 5,
+        Mail: &'a [u8],
+        DataWritten,
+        DataWriteFailed: WriteDataError,
+        MailWritten,
+        MailWriteFailed: WriteMailError,
+        UserKeys: Serialized<UserIdentity>,
+        Search: ChatSearchResult,
     }
 
     enum ProfileSubscribeResponse<'a> {
-        Success: &'a [u8] => 0,
-        Failure: ReadMailError => 1,
+        Success: &'a [u8],
+        Failure: ReadMailError,
     }
 
     struct InitSearchResult {
@@ -387,16 +357,16 @@ component_utils::protocol! { 'a:
 
     #[derive(Clone, Copy)]
     enum PutRecord<'a> {
-        Message: ReplicateMessage<'a> => 1,
-        Mail: &'a [u8] => 2,
-        ChatHistory: ChatHistory<'a> => 2,
-        WriteData: WriteData<'a> => 3,
-        CreateChat: CreateChat => 4,
+        Message: ReplicateMessage<'a>,
+        Mail: &'a [u8],
+        ChatHistory: ChatHistory<'a>,
+        WriteData: WriteData<'a>,
+        CreateChat: CreateChat,
     }
 
     #[derive(Clone, Copy)]
     enum Mail {
-        ChatInvite: ChatInvite => 0,
+        ChatInvite: ChatInvite,
     }
 
     #[derive(Clone, Copy)]

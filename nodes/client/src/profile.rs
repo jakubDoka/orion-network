@@ -1,7 +1,8 @@
-use leptos::*;
-use leptos_router::Redirect;
-
-use crate::node::{self, Theme};
+use {
+    crate::node::{self, Theme},
+    leptos::*,
+    leptos_router::Redirect,
+};
 
 #[component]
 pub fn Profile(state: crate::LoggedState) -> impl IntoView {

@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
 
-use libp2p::identity::PeerId;
-use libp2p::kad::{store::RecordStore, QueryId, QueryResult};
+use libp2p::{
+    identity::PeerId,
+    kad::{store::RecordStore, QueryId, QueryResult},
+};
 
 use libp2p::swarm::Swarm;
 

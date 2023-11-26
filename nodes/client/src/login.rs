@@ -1,10 +1,13 @@
-use crypto::TransmutationCircle;
-use leptos::html::Input;
-use leptos::*;
-use leptos_router::A;
-use primitives::chat::{RawUserKeys, UserKeys, UserName};
-use primitives::contracts::UserData;
-use web_sys::js_sys::{Array, Uint8Array};
+use {
+    crypto::TransmutationCircle,
+    leptos::{html::Input, *},
+    leptos_router::A,
+    primitives::{
+        chat::{RawUserKeys, UserKeys, UserName},
+        contracts::UserData,
+    },
+    web_sys::js_sys::{Array, Uint8Array},
+};
 
 #[component]
 pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {

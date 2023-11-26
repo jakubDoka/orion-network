@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![feature(array_chunks)]
+#![feature(macro_metavar_expr)]
+
 #[macro_export]
 macro_rules! gen_config {
     (
@@ -53,6 +55,38 @@ macro_rules! gen_unique_id {
     };
 }
 
+#[macro_export]
+macro_rules! gen_simple_error {
+    ($(
+        error $name:ident {$(
+            $variant:ident => $message:literal,
+        )*}
+    )*) => {$(
+        #[derive(Debug, Clone, Copy, $crate::thiserror::Error)]
+        #[repr(u8)]
+        pub enum $name {$(
+            #[error($message)]
+            $variant,
+        )*}
+
+
+        impl<'a> $crate::Codec<'a> for $name {
+            fn encode(&self, buffer: &mut Vec<u8>) {
+                buffer.push(*self as u8);
+            }
+
+            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+                let max_var = [$(Self::$variant),*].len();
+                let b = u8::decode(buffer)?;
+                if b >= max_var as u8 {
+                    return None;
+                }
+                Some(unsafe { std::mem::transmute(b) })
+            }
+        }
+    )*};
+}
+
 #[cfg(feature = "std")]
 pub mod codec;
 #[cfg(feature = "std")]
@@ -60,7 +94,7 @@ pub mod kad;
 #[cfg(feature = "std")]
 pub mod stream;
 
-pub use arrayvec;
+pub use {arrayvec, thiserror};
 
 #[cfg(feature = "std")]
 pub use {codec::*, futures, kad::*, libp2p, stream::*};
@@ -155,6 +189,19 @@ impl<F: FnOnce()> Drop for DropFn<F> {
     fn drop(&mut self) {
         self.0.take().unwrap()()
     }
+}
+
+pub fn arrstr_to_array<const SIZE: usize>(s: arrayvec::ArrayString<SIZE>) -> [u8; SIZE] {
+    let mut arr = [0xff; SIZE];
+    arr[..s.len()].copy_from_slice(s.as_bytes());
+    arr
+}
+
+pub fn array_to_arrstr<const SIZE: usize>(arr: [u8; SIZE]) -> Option<arrayvec::ArrayString<SIZE>> {
+    let mut s = arrayvec::ArrayString::<SIZE>::new();
+    let len = arr.iter().rposition(|&x| x != 0xff).map_or(0, |x| x + 1);
+    s.push_str(core::str::from_utf8(&arr[..len]).ok()?);
+    Some(s)
 }
 
 #[cfg(test)]

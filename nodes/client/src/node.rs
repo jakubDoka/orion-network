@@ -1,26 +1,35 @@
-use crate::BootPhase;
-use component_utils::futures::stream::Fuse;
-use component_utils::kad::KadPeerSearch;
-use component_utils::Codec;
-use component_utils::{futures, LinearMap};
-use crypto::{decrypt, TransmutationCircle};
-use leptos::signal_prelude::*;
-use libp2p::core::upgrade::Version;
-use libp2p::futures::StreamExt;
-use libp2p::kad::store::MemoryStore;
-use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
-use libp2p::*;
-use libp2p::{PeerId, Swarm};
-use onion::{EncryptedStream, PathId};
-use primitives::chat::*;
-use primitives::contracts::{NodeData, StoredUserData, StoredUserIdentity};
-use rand::seq::IteratorRandom;
-use std::collections::{HashMap, HashSet};
-use std::task::Poll;
-use std::time::Duration;
-use std::u8;
-use std::{io, mem, pin::Pin, usize};
-use web_sys::wasm_bindgen::JsValue;
+use {
+    crate::BootPhase,
+    component_utils::{
+        futures::{self, stream::Fuse},
+        kad::KadPeerSearch,
+        Codec, LinearMap,
+    },
+    crypto::{decrypt, TransmutationCircle},
+    leptos::signal_prelude::*,
+    libp2p::{
+        core::upgrade::Version,
+        futures::StreamExt,
+        kad::store::MemoryStore,
+        swarm::{NetworkBehaviour, SwarmEvent},
+        PeerId, Swarm, *,
+    },
+    onion::{EncryptedStream, PathId},
+    primitives::{
+        chat::*,
+        contracts::{NodeData, StoredUserData, StoredUserIdentity},
+    },
+    rand::seq::IteratorRandom,
+    std::{
+        collections::{HashMap, HashSet},
+        io, mem,
+        pin::Pin,
+        task::Poll,
+        time::Duration,
+        u8, usize,
+    },
+    web_sys::wasm_bindgen::JsValue,
+};
 
 pub type MessageContent = std::rc::Rc<str>;
 

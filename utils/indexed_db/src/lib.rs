@@ -1,17 +1,14 @@
 #![allow(dead_code)]
-use std::cell::Cell;
-use std::convert::identity;
-use std::future::Future;
-use std::rc::Rc;
-use std::task::Waker;
+use std::{cell::Cell, convert::identity, future::Future, rc::Rc, task::Waker};
 
-use futures::future::FusedFuture;
-use futures::stream::FusedStream;
-use futures::Stream;
-use web_sys::js_sys::{Array, Function};
-use web_sys::wasm_bindgen::prelude::Closure;
-use web_sys::wasm_bindgen::{JsCast, JsValue};
-use web_sys::{window, IdbDatabase, IdbRequest};
+use {
+    futures::{future::FusedFuture, stream::FusedStream, Stream},
+    web_sys::{
+        js_sys::{Array, Function},
+        wasm_bindgen::{prelude::Closure, JsCast, JsValue},
+        window, IdbDatabase, IdbRequest,
+    },
+};
 
 /// [(name, key, [(index_name, key, unique)])]
 pub type Schema = &'static [(

@@ -12,4 +12,8 @@ mod packet;
 #[cfg(test)]
 mod tests;
 
-pub use {behaviour::*, handler::*, packet::KeyPair, packet::PublicKey, packet::SharedSecret};
+pub use {
+    behaviour::*,
+    handler::*,
+    packet::{KeyPair, PublicKey, SharedSecret},
+};

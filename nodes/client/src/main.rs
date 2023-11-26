@@ -2,25 +2,29 @@
 #![allow(non_snake_case)]
 #![feature(mem_copy_fn)]
 
-use self::web_sys::wasm_bindgen::JsValue;
-use crate::chat::Chat;
-use crate::login::{Login, Register};
-use crate::node::Node;
-use crate::profile::Profile;
-use chain_api::{ContractId, TransactionHandler};
-use leptos::html::Input;
-use leptos::signal_prelude::*;
-use leptos::*;
-use leptos_router::*;
-use primitives::chat::{ChatName, UserKeys, UserName};
-use std::cell::Cell;
-use std::cmp::Ordering;
-use std::fmt::Display;
-use std::future::Future;
-use std::rc::Rc;
-use std::str::FromStr;
-use std::task::{Poll, Waker};
-use web_sys::js_sys::wasm_bindgen;
+use {
+    self::web_sys::wasm_bindgen::JsValue,
+    crate::{
+        chat::Chat,
+        login::{Login, Register},
+        node::Node,
+        profile::Profile,
+    },
+    chain_api::{ContractId, TransactionHandler},
+    leptos::{html::Input, signal_prelude::*, *},
+    leptos_router::*,
+    primitives::chat::{ChatName, UserKeys, UserName},
+    std::{
+        cell::Cell,
+        cmp::Ordering,
+        fmt::Display,
+        future::Future,
+        rc::Rc,
+        str::FromStr,
+        task::{Poll, Waker},
+    },
+    web_sys::js_sys::wasm_bindgen,
+};
 
 mod chat;
 mod login;
@@ -352,10 +356,10 @@ fn Nav(rusername: ReadSignal<UserName>) -> impl IntoView {
 }
 
 fn load_file(input: HtmlElement<Input>) -> Option<impl Future<Output = Result<Vec<u8>, JsValue>>> {
-    use self::web_sys::wasm_bindgen::prelude::Closure;
-    use std::cell::RefCell;
-    use wasm_bindgen::JsCast;
-    use web_sys::*;
+    use {
+        self::web_sys::wasm_bindgen::prelude::Closure, std::cell::RefCell, wasm_bindgen::JsCast,
+        web_sys::*,
+    };
 
     struct FileFutureInner {
         loaded: Option<Result<Vec<u8>, JsValue>>,

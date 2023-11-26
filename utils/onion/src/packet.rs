@@ -1,13 +1,14 @@
 use std::{mem, usize};
 
-use aes_gcm::{
-    aead::{generic_array::GenericArray, OsRng},
-    aes::cipher::Unsigned,
-    AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
+use {
+    aes_gcm::{
+        aead::{generic_array::GenericArray, OsRng},
+        aes::cipher::Unsigned,
+        AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
+    },
+    crypto::{enc::Ciphertext, Serialized, TransmutationCircle},
+    libp2p::{core::multihash::Multihash, identity::PeerId},
 };
-use crypto::{enc::Ciphertext, Serialized, TransmutationCircle};
-use libp2p::core::multihash::Multihash;
-use libp2p::identity::PeerId;
 
 pub const OK: u8 = 0;
 pub const MISSING_PEER: u8 = 1;

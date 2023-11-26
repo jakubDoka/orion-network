@@ -1,13 +1,35 @@
-use component_utils::{Codec, Reminder};
-use libp2p::swarm::NetworkBehaviour;
-use onion::PathId;
+#![feature(iter_next_chunk)]
+#![feature(iter_advance_by)]
+#![feature(macro_metavar_expr)]
+#![feature(associated_type_defaults)]
+use {
+    component_utils::{Codec, Reminder},
+    libp2p::swarm::NetworkBehaviour,
+    onion::PathId,
+};
 
+#[macro_export]
+macro_rules! ensure {
+    ($cond:expr, $resp:expr) => {
+        if !$cond {
+            return Err($resp);
+        }
+    };
+
+    (let $var:pat = $expr:expr, $resp:expr) => {
+        let $var = $expr else {
+            return Err($resp);
+        };
+    };
+}
+
+#[macro_export]
 macro_rules! compose_handlers {
     ($name:ident {$(
         $handler:ident: $handler_ty:ty,
     )*}) => {
         pub struct $name {$(
-            $handler: Vec<$crate::ActiveHandler<$handler_ty>>,
+           $handler: Vec<$crate::ActiveHandler<$handler_ty>>,
         )*}
 
         impl Default for $name {
@@ -19,68 +41,103 @@ macro_rules! compose_handlers {
         }
 
         impl $name {
-            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>, buffrt: &mut $crate::PacketBuffer) -> Result<(), $crate::DispatchError>
+            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>, buffet: &mut $crate::PacketBuffer) -> Result<(), $crate::DispatchError>
             where
                 $(T: $crate::MultiBehavior<<$handler_ty as $crate::Handler>::Context>,
                 T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as NetworkBehaviour>::ToSwarm>,)*
             {
                 match message.prefix {
-                    $(<$handler_ty as $crate::Handler>::PREFIX => {
-                        let request = <<$handler_ty as $crate::Handler>::Request<'_> as component_utils::Codec<'_>>::decode(&mut &*message.payload.0)
-                            .ok_or($crate::DispatchError::InvalidRequest)?;
-                        let buffer = $crate::OutPacket::<$handler_ty>::new(message.request_id, buffrt);
-                        if let Some(handler) = <$handler_ty as $crate::Handler>::spawn(context.fragment(), request, buffer) {
-                            self.$handler.push($crate::ActiveHandler { handler, request_id: message.request_id });
-                        }
-                        Ok(())
-                    })*
+                    $(${index()} => $crate::dispatch(context, message, buffet, &mut self.$handler),)*
                     p => Err($crate::DispatchError::InvalidPrefix(p)),
                 }
             }
 
-            pub fn try_handle_event<T: $crate::MinimalNetworkBehaviour>(&mut self, context: &mut T, mut event: T::ToSwarm, buffer: &mut $crate::PacketBuffer)
+            pub fn try_handle_event<T: $crate::MinimalNetworkBehaviour>(&mut self, context: &mut T, event: T::ToSwarm, buffer: &mut $crate::PacketBuffer)
                 -> Result<(), <T as $crate::MinimalNetworkBehaviour>::ToSwarm>
             where
                 $(T: $crate::MultiBehavior<<$handler_ty as $crate::Handler>::Context>,
                 T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as NetworkBehaviour>::ToSwarm>,)*
             {
                 $(
-                    match <T as $crate::MultiBehavior<<$handler_ty as $crate::Handler>::Context>>::try_unpack_event(event) {
-                        Ok(e) => {
-                            $crate::drain_filter(&mut self.$handler, |mut handler| {
-                                let buffer = $crate::OutPacket::<$handler_ty>::new(handler.request_id, buffer);
-                                match <$handler_ty as $crate::Handler>::try_handle_event(&mut handler.handler, context.fragment(), &e) {
-                                    Some(result) => {
-                                        if let Some(e) = <$handler_ty as $crate::Handler>::try_complete(handler.handler, result, context.fragment(), buffer) {
-                                            Err($crate::ActiveHandler { handler: e, request_id: handler.request_id })
-                                        } else {
-                                            Ok(())
-                                        }
-                                    }
-                                    None => Err(handler),
-                                }
-                            }).for_each(drop);
-                            return Ok(());
-                        }
-                        Err(e) => event = e.into(),
-                    }
+                    let Err(event) = $crate::try_handle_event(context, event, buffer, &mut self.$handler) else {
+                        return Ok(());
+                    };
                 )*
 
                 Err(event)
             }
         }
 
-        $(impl $crate::Dispatches<$handler_ty> for $name {})*
+        $(impl $crate::Dispatches<$handler_ty> for $name {
+            const PREFIX: u8 = ${index()};
+        })*
     };
+}
+
+pub fn try_handle_event<T: MinimalNetworkBehaviour, H: Handler>(
+    context: &mut T,
+    event: T::ToSwarm,
+    buffer: &mut PacketBuffer,
+    handlers: &mut Vec<ActiveHandler<H>>,
+) -> Result<(), T::ToSwarm>
+where
+    T::ToSwarm: From<<H::Context as MinimalNetworkBehaviour>::ToSwarm>,
+    T: MultiBehavior<H::Context>,
+{
+    let e = T::try_unpack_event(event)?;
+    drain_filter(handlers, |handler| {
+        let buffer = OutPacket::<H>::new(handler.request_id, buffer);
+        match H::try_complete(handler.handler, context.fragment(), &e, buffer) {
+            Some(h) => Err(ActiveHandler {
+                handler: h,
+                request_id: handler.request_id,
+            }),
+            None => Ok(()),
+        }
+    })
+    .for_each(drop);
+    Ok(())
+}
+
+pub fn dispatch<T: MinimalNetworkBehaviour, H: Handler>(
+    context: &mut T,
+    message: DispatchMessage<'_>,
+    buffer: &mut PacketBuffer,
+    handlers: &mut Vec<ActiveHandler<H>>,
+) -> Result<(), DispatchError>
+where
+    T::ToSwarm: From<<H::Context as MinimalNetworkBehaviour>::ToSwarm>,
+    T: MultiBehavior<H::Context>,
+{
+    let request =
+        H::Request::decode(&mut &*message.payload.0).ok_or(DispatchError::InvalidRequest)?;
+    let buffer = OutPacket::<H>::new(message.request_id, buffer);
+    if let Some(handler) = H::spawn(
+        context.fragment(),
+        request,
+        (message.prefix, message.request_id),
+        buffer,
+    ) {
+        handlers.push(ActiveHandler {
+            handler,
+            request_id: message.request_id,
+        });
+    }
+    Ok(())
 }
 
 mod impls;
 
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+};
+
 pub use impls::*;
 
-struct ActiveHandler<H: Handler> {
-    request_id: RequestId,
-    handler: H,
+pub struct ActiveHandler<H: Handler> {
+    pub request_id: RequestId,
+    pub handler: H,
 }
 
 component_utils::gen_unique_id!(RequestId);
@@ -100,30 +157,145 @@ pub enum DispatchError {
     InvalidRequest,
 }
 
-pub trait Handler: Sized {
-    const PREFIX: u8;
+type RequestMeta = (u8, RequestId);
 
+pub trait Handler: Sized {
     type Request<'a>: Codec<'a>;
     type Response<'a>: Codec<'a>;
     type Context: MinimalNetworkBehaviour;
-    type EventResult;
+    type Broadcast: for<'a> Broadcast<Event<'a> = Self::Response<'a>> = NoOpBroadcast<Self>;
 
-    fn spawn(
-        context: &mut Self::Context,
-        request: Self::Request<'_>,
+    fn spawn<'a>(
+        context: &'a mut Self::Context,
+        request: Self::Request<'a>,
+        meta: RequestMeta,
         resp_buffer: OutPacket<'_, Self>,
     ) -> Option<Self>;
-    fn try_handle_event(
-        &mut self,
-        context: &mut Self::Context,
-        event: &<Self::Context as MinimalNetworkBehaviour>::ToSwarm,
-    ) -> Option<Self::EventResult>;
-    fn try_complete(
+    fn try_complete<'a>(
         self,
-        er: Self::EventResult,
-        context: &mut Self::Context,
+        context: &'a mut Self::Context,
+        event: &'a <Self::Context as MinimalNetworkBehaviour>::ToSwarm,
         resp_buffer: OutPacket<'_, Self>,
     ) -> Option<Self>;
+}
+
+pub trait Broadcast: Sized {
+    type Event<'a>: Codec<'a>;
+    type Projection<'a>: Codec<'a>;
+
+    fn dispatch<'a>(
+        &mut self,
+        event: Self::Event<'a>,
+        targets: &mut Vec<PathId>,
+    ) -> Option<Self::Projection<'a>>;
+}
+
+pub struct NoOpBroadcast<T>(std::marker::PhantomData<T>);
+
+impl<T: Handler> Broadcast for NoOpBroadcast<T> {
+    type Event<'a> = T::Response<'a>;
+    type Projection<'a> = Infallible;
+
+    fn dispatch<'a>(
+        &mut self,
+        _: Self::Event<'a>,
+        _: &mut Vec<PathId>,
+    ) -> Option<Self::Projection<'a>> {
+        None
+    }
+}
+
+pub trait AsyncHandler: Sized {
+    type Request<'a>: Codec<'a>;
+    type Response<'a>: Codec<'a>;
+    type Context: MinimalNetworkBehaviour;
+
+    fn spawn<'a>(
+        context: &'a mut Self::Context,
+        request: Self::Request<'a>,
+        meta: RequestMeta,
+    ) -> Result<Self::Response<'a>, Self>;
+    fn try_complete<'a>(
+        self,
+        context: &'a mut Self::Context,
+        event: &'a <Self::Context as MinimalNetworkBehaviour>::ToSwarm,
+    ) -> Result<Self::Response<'a>, Self>;
+}
+
+impl<T: AsyncHandler> Handler for T {
+    type Request<'a> = T::Request<'a>;
+    type Response<'a> = T::Response<'a>;
+    type Context = T::Context;
+
+    fn spawn<'a>(
+        context: &'a mut Self::Context,
+        request: Self::Request<'a>,
+        meta: RequestMeta,
+        buffer: OutPacket<'_, Self>,
+    ) -> Option<Self> {
+        match Self::spawn(context, request, meta) {
+            Ok(response) => {
+                buffer.push(&response);
+                None
+            }
+            Err(handler) => Some(handler),
+        }
+    }
+
+    fn try_complete<'a>(
+        self,
+        context: &'a mut Self::Context,
+        event: &'a <Self::Context as MinimalNetworkBehaviour>::ToSwarm,
+        resp_buffer: OutPacket<'_, Self>,
+    ) -> Option<Self> {
+        match Self::try_complete(self, context, event) {
+            Ok(response) => {
+                resp_buffer.push(&response);
+                None
+            }
+            Err(handler) => Some(handler),
+        }
+    }
+}
+
+pub trait SyncHandler: Sized {
+    type Request<'a>: Codec<'a>;
+    type Response<'a>: Codec<'a>;
+    type Context: MinimalNetworkBehaviour;
+
+    fn execute<'a>(
+        context: &'a mut Self::Context,
+        request: Self::Request<'a>,
+        meta: RequestMeta,
+    ) -> Self::Response<'a>;
+}
+
+impl<T: SyncHandler> AsyncHandler for T {
+    type Request<'a> = T::Request<'a>;
+    type Response<'a> = T::Response<'a>;
+    type Context = T::Context;
+
+    fn spawn<'a>(
+        context: &'a mut Self::Context,
+        request: Self::Request<'a>,
+        meta: RequestMeta,
+    ) -> Result<Self::Response<'a>, Self> {
+        Ok(Self::execute(context, request, meta))
+    }
+
+    fn try_complete<'a>(
+        self,
+        _: &'a mut Self::Context,
+        _: &'a <Self::Context as MinimalNetworkBehaviour>::ToSwarm,
+    ) -> Result<Self::Response<'a>, Self> {
+        Err(self)
+    }
+}
+
+pub trait Event {
+    type Key: Eq + std::hash::Hash;
+
+    fn key(&self) -> Self::Key;
 }
 
 pub struct RequestDispatch<S> {
@@ -156,7 +328,7 @@ impl<S> RequestDispatch<S> {
         let id = RequestId::new();
 
         self.buffer.clear();
-        self.buffer.push(H::PREFIX);
+        self.buffer.push(S::PREFIX);
         id.encode(&mut self.buffer);
         request.encode(&mut self.buffer);
 
@@ -252,7 +424,7 @@ impl<T: NetworkBehaviour> MinimalNetworkBehaviour for T {
     type ToSwarm = T::ToSwarm;
 }
 
-pub trait MultiBehavior<F: NetworkBehaviour>: MinimalNetworkBehaviour
+pub trait MultiBehavior<F: MinimalNetworkBehaviour>: MinimalNetworkBehaviour
 where
     Self::ToSwarm: From<F::ToSwarm>,
 {
@@ -270,7 +442,9 @@ impl<T: NetworkBehaviour> MultiBehavior<T> for T {
     }
 }
 
-pub trait Dispatches<H: Handler> {}
+pub trait Dispatches<H: Handler> {
+    const PREFIX: u8;
+}
 
 component_utils::protocol! {'a:
     struct DispatchMessage<'a> {
