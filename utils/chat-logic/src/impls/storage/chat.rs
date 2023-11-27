@@ -61,7 +61,7 @@ impl crate::SyncHandler for AddUser {
         _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'a> {
-        ensure!(proof.verify_profile(), AddUserError::InvalidProof);
+        ensure!(proof.verify_chat(name), AddUserError::InvalidProof);
 
         let chat = context
             .store_mut()

@@ -44,7 +44,6 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         return view! { <Redirect path="/login"/> }.into_view();
     };
     let my_name = keys.name;
-    let secret = keys.vault;
     let identity = crypto::hash::new(&keys.sign.public_key());
     let my_enc = keys.enc.into_bytes();
     let ed = move || state.requests.get_untracked().unwrap();
@@ -98,11 +97,14 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .await
             .unwrap()
             .unwrap();
+        let secret = state
+            .chat_secret(chat)
+            .expect("we are not part of this chat");
         for message in chat_logic::unpack_messages(&mut messages) {
             let decrypted = crypto::decrypt(message, secret).unwrap();
             let RawChatMessage { sender, content } =
                 RawChatMessage::decode(&mut &*decrypted).unwrap();
-            append_message(sender, content.into());
+            prepend_message(sender, content.into());
         }
         set_red_all_messages(new_cursor == chat_logic::NO_CURSOR);
         set_cursor(new_cursor);
@@ -117,11 +119,15 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         spawn_local(async move {
             while let Some((proof, Reminder(message))) = sub.next().await {
                 assert!(proof.verify_chat(chat));
+                log::info!("received message: {:?}", message);
                 let mut message = message.to_vec();
+                let secret = state
+                    .chat_secret(chat)
+                    .expect("we are not part of this chat");
                 let message = crypto::decrypt(&mut message, secret).unwrap();
                 let RawChatMessage { sender, content } =
                     RawChatMessage::decode(&mut &*message).unwrap();
-                prepend_message(sender, content.into());
+                append_message(sender, content.into());
             }
         });
     });
@@ -161,8 +167,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
             ed().dispatch::<CreateChat>(chat, (identity, chat))
                 .await
-                .unwrap()
-                .unwrap();
+                .map_err(|e| format!("failed to create chat: {e}"))?
+                .map_err(|e| format!("failed to create chat: {e}"))?;
 
             let meta = node::ChatMeta::new();
             state.vault.update(|v| _ = v.chats.insert(chat, meta));
@@ -272,7 +278,11 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let secret = state
             .chat_secret(chat)
             .expect("we are not part of this chat");
-        let mut content = content.into_bytes();
+        let mut content = RawChatMessage {
+            sender: my_name,
+            content: &content,
+        }
+        .to_bytes();
         crypto::encrypt(&mut content, secret);
         let proof = state.next_chat_proof(chat).expect("universe to work");
 

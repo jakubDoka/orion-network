@@ -553,8 +553,8 @@ impl Node {
         assert!(!req.payload.is_empty());
 
         sub.stream.write(&mut req.payload);
-        self.pending_requests.push((req.request_id, req.channel));
-        log::warn!("request sent, {:?}", req.request_id);
+        self.pending_requests.push((req.id, req.channel));
+        log::warn!("request sent, {:?}", req.id);
     }
 
     fn handle_subscription_request(&mut self, mut sub: SubscriptionInit) {
@@ -687,8 +687,6 @@ impl Node {
                     _ => unreachable!(),
                 };
                 sub.topics.insert(topic.to_owned());
-
-                let (_, req) = self.pending_topic_search.swap_remove(index);
                 self.handle_command(req);
                 return;
             }

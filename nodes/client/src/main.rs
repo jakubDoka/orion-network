@@ -291,11 +291,27 @@ struct State {
 
 impl State {
     pub fn next_chat_proof(self, chat_name: ChatName) -> Option<chat_logic::Proof> {
-        update!(|self.keys => keys, self.vault => vault| vault.next_chat_proof(chat_name, &keys.as_ref()?.sign))
+        self.keys
+            .try_with_untracked(|keys| {
+                let keys = keys.as_ref()?;
+                self.vault.try_update(|vault| {
+                    let chat = vault.chats.get_mut(&chat_name)?;
+                    Some(Proof::for_chat(&keys.sign, &mut chat.action_no, chat_name))
+                })
+            })
+            .flatten()
+            .flatten()
     }
 
     pub fn next_profile_proof(self) -> Option<chat_logic::Proof> {
-        update!(|self.keys => keys, self.account_nonce => nonce| Some(Proof::for_profile(&keys.as_ref()?.sign, nonce)))
+        self.keys
+            .try_with_untracked(|keys| {
+                let keys = keys.as_ref()?;
+                self.account_nonce
+                    .try_update(|nonce| Some(Proof::for_profile(&keys.sign, nonce)))
+            })
+            .flatten()
+            .flatten()
     }
 
     pub fn chat_secret(self, chat_name: ChatName) -> Option<crypto::SharedSecret> {
@@ -308,11 +324,14 @@ fn App() -> impl IntoView {
     let (rboot_phase, wboot_phase) = create_signal(None::<BootPhase>);
     let state = State::default();
 
-    let serialized_vault = create_memo(move |_| state.vault.with(Codec::to_bytes));
+    let serialized_vault = create_memo(move |_| {
+        log::info!("vault serialized");
+        state.vault.with(Codec::to_bytes)
+    });
     let timeout = store_value(None::<TimeoutHandle>);
     let save_vault = move |keys: UserKeys, mut ed: RequestDispatch<Server>| {
         let identity = crypto::hash::new(&keys.sign.public_key());
-        let mut vault_bytes = serialized_vault.get();
+        let mut vault_bytes = serialized_vault.get_untracked();
         let proof = state.next_profile_proof().unwrap();
         crypto::encrypt(&mut vault_bytes, keys.vault);
         spawn_local(async move {
@@ -320,11 +339,12 @@ fn App() -> impl IntoView {
                 .await
                 .unwrap()
                 .unwrap();
+            log::info!("vault saved");
         });
     };
     create_effect(move |init| {
+        serialized_vault.track();
         if init.is_none() {
-            serialized_vault.track();
             return;
         }
         let Some(keys) = state.keys.get_untracked() else {
@@ -336,7 +356,7 @@ fn App() -> impl IntoView {
 
         timeout.get_value().map(|handle| handle.clear());
         let handle =
-            set_timeout_with_handle(move || save_vault(keys, ed), Duration::from_secs(5)).unwrap();
+            set_timeout_with_handle(move || save_vault(keys, ed), Duration::from_secs(3)).unwrap();
         timeout.set_value(Some(handle));
     });
 
@@ -355,9 +375,9 @@ fn App() -> impl IntoView {
                 }
             };
 
-            state.requests.set(Some(dispatch));
-            state.vault.set(vault);
-            state.account_nonce.set(nonce);
+            state.requests.set_untracked(Some(dispatch));
+            state.vault.set_untracked(vault);
+            state.account_nonce.set_untracked(nonce);
             navigate_to("/chat");
             node.run().await;
         });

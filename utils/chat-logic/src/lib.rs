@@ -379,7 +379,7 @@ impl<S> RequestDispatch<S> {
         use libp2p::futures::SinkExt;
         self.sink
             .send(RequestInit::Request(RawRequest {
-                request_id: RequestId::new(),
+                id,
                 topic: topic.into().as_ref().map(Codec::to_bytes),
                 payload: std::mem::take(&mut self.buffer),
                 channel: tx,
@@ -533,7 +533,7 @@ pub struct SubscriptionInit {
 pub type SubscriptionMessage = Vec<u8>;
 
 pub struct RawRequest {
-    pub request_id: RequestId,
+    pub id: RequestId,
     pub topic: Option<Vec<u8>>,
     pub payload: Vec<u8>,
     pub channel: libp2p::futures::channel::oneshot::Sender<RawResponse>,
@@ -552,30 +552,35 @@ pub type RootPacketBuffer = PacketBuffer<(RequestId, PathId)>;
 
 pub struct PacketBuffer<M> {
     packets: Vec<u8>,
-    bunds: Vec<(usize, M)>,
+    bounds: Vec<(usize, M)>,
 }
 
 impl<M> PacketBuffer<M> {
     pub fn new() -> Self {
         Self {
             packets: Vec::new(),
-            bunds: Vec::new(),
+            bounds: Vec::new(),
         }
     }
 
     fn push<'a>(&mut self, packet: &impl Codec<'a>, id: M) {
         packet.encode(&mut self.packets);
-        self.bunds.push((self.packets.len(), id));
+        self.bounds.push((self.packets.len(), id));
     }
 
     pub fn drain(&mut self) -> impl Iterator<Item = (M, &mut [u8])> {
+        let total_len = self.packets.len();
         let slice = unsafe { std::mem::transmute::<_, &mut [u8]>(self.packets.as_mut_slice()) };
         unsafe { self.packets.set_len(0) }
-        self.bunds.drain(..).scan(slice, move |slice, (bund, req)| {
-            let (head, tail) = std::mem::take(slice).split_at_mut(bund);
-            *slice = tail;
-            Some((req, head))
-        })
+        self.bounds
+            .drain(..)
+            .scan(slice, move |slice, (bound, req)| {
+                let current_len = slice.len();
+                let (head, tail) =
+                    std::mem::take(slice).split_at_mut(bound - (total_len - current_len));
+                *slice = tail;
+                Some((req, head))
+            })
     }
 }
 

@@ -2,7 +2,7 @@ use {crate::node::Theme, leptos::*, leptos_router::Redirect};
 
 #[component]
 pub fn Profile(state: crate::State) -> impl IntoView {
-    let Some(keys) = state.keys.get() else {
+    let Some(keys) = state.keys.get_untracked() else {
         return view! { <Redirect path="/login"/> }.into_view();
     };
     let my_name = keys.name;
