@@ -41,7 +41,7 @@ macro_rules! compose_handlers {
         )*}
 
         impl $name {
-            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>,  pid: Option<onion::PathId>, buffer: &mut $crate::PacketBuffer<$crate::RequestId>) -> Result<(), $crate::DispatchError>
+            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>,  pid: Option<onion::PathId>, buffer: &mut $crate::RootPacketBuffer) -> Result<(), $crate::DispatchError>
             where
                 $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context>,
                 T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as $crate::Context>::ToSwarm>,)*
@@ -51,9 +51,17 @@ macro_rules! compose_handlers {
                 }
 
                 match message.prefix {
-                    $(${index()} => self.$handler.dispatch(context, message, buffer),)*
+                    $(${index()} => self.$handler.dispatch(context, pid, message, buffer),)*
                     p => Err($crate::DispatchError::InvalidPrefix(p)),
                 }
+            }
+
+            pub fn dispatch_local<'a, H: $crate::SyncHandler>(&'a mut self, context: &'a mut H::Context, request: H::Request<'a>) -> H::Response<'a>
+            where
+                Self: $crate::Dispatches<H>,
+            {
+                use $crate::Dispatches;
+                H::execute(context, &request, &mut self.fetch_nest().dispatch, (Self::PREFIX, RequestId::new()))
             }
 
             fn try_handle_subscription(&mut self, pid: onion::PathId, message: $crate::DispatchMessage<'_>)
@@ -72,7 +80,7 @@ macro_rules! compose_handlers {
                 $(self.$handler.disconnected(pid);)*
             }
 
-            pub fn try_handle_event<T: $crate::Context>(&mut self, context: &mut T, event: T::ToSwarm, buffer: &mut $crate::PacketBuffer<$crate::RequestId>)
+            pub fn try_handle_event<T: $crate::Context>(&mut self, context: &mut T, event: T::ToSwarm, buffer: &mut $crate::RootPacketBuffer)
                 -> Result<(), <T as $crate::Context>::ToSwarm>
             where
                 $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context>,
@@ -87,6 +95,9 @@ macro_rules! compose_handlers {
 
         $(impl $crate::Dispatches<$handler_ty> for $name {
             const PREFIX: u8 = ${index()};
+            fn fetch_nest(&mut self) -> &mut $crate::HandlerNest<$handler_ty> {
+                &mut self.$handler
+            }
         })*
     };
 }
@@ -102,7 +113,7 @@ impl<H: Handler> HandlerNest<H> {
         &mut self,
         context: &mut T,
         event: T::ToSwarm,
-        buffer: &mut PacketBuffer<RequestId>,
+        buffer: &mut RootPacketBuffer,
     ) -> Result<(), T::ToSwarm>
     where
         T::ToSwarm: From<<H::Context as Context>::ToSwarm>,
@@ -116,10 +127,13 @@ impl<H: Handler> HandlerNest<H> {
             {
                 Err(h) => Err(ActiveHandler {
                     handler: h,
+                    path_id: handler.path_id,
                     request_id: handler.request_id,
                 }),
                 Ok(r) => {
-                    buffer.push(&r, handler.request_id);
+                    if let Some(pid) = handler.path_id {
+                        buffer.push(&r, (handler.request_id, pid))
+                    }
                     Ok(())
                 }
             }
@@ -131,8 +145,9 @@ impl<H: Handler> HandlerNest<H> {
     pub fn dispatch<T: Context>(
         &mut self,
         context: &mut T,
+        path_id: Option<PathId>,
         message: DispatchMessage<'_>,
-        buffer: &mut PacketBuffer<RequestId>,
+        buffer: &mut RootPacketBuffer,
     ) -> Result<(), DispatchError>
     where
         T::ToSwarm: From<<H::Context as Context>::ToSwarm>,
@@ -149,10 +164,15 @@ impl<H: Handler> HandlerNest<H> {
             Err(handler) => {
                 self.handlers.push(ActiveHandler {
                     handler,
+                    path_id,
                     request_id: message.request_id,
                 });
             }
-            Ok(response) => buffer.push(&response, message.request_id),
+            Ok(response) => {
+                if let Some(pid) = path_id {
+                    buffer.push(&response, (message.request_id, pid))
+                }
+            }
         }
 
         Ok(())
@@ -211,20 +231,11 @@ pub use impls::*;
 
 pub struct ActiveHandler<H: Handler> {
     pub request_id: RequestId,
+    pub path_id: Option<PathId>,
     pub handler: H,
 }
 
 component_utils::gen_unique_id!(RequestId);
-
-impl Codec<'_> for RequestId {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.0.encode(buffer);
-    }
-
-    fn decode(buffer: &mut &[u8]) -> Option<Self> {
-        usize::decode(buffer).map(Self)
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum DispatchError {
@@ -370,7 +381,7 @@ impl<S> RequestDispatch<S> {
             .send(RequestInit::Request(RawRequest {
                 request_id: RequestId::new(),
                 topic: topic.into().as_ref().map(Codec::to_bytes),
-                payload: Vec::new(),
+                payload: std::mem::take(&mut self.buffer),
                 channel: tx,
             }))
             .await
@@ -405,6 +416,26 @@ impl<S> RequestDispatch<S> {
         DispatchResponse::<H::Response<'_>>::decode(&mut &self.buffer[..])
             .ok_or(RequestError::InvalidResponse)
             .map(|r| r.response)
+    }
+
+    pub fn build_packet<H: Handler>(request: &H::Request<'_>, buffer: &mut Vec<u8>) -> RequestId
+    where
+        S: Dispatches<H>,
+    {
+        let id = RequestId::new();
+
+        buffer.clear();
+        buffer.push(S::PREFIX);
+        id.encode(buffer);
+        request.encode(buffer);
+        id
+    }
+
+    pub fn parse_response<H: Handler>(response: &[u8]) -> Result<H::Response<'_>, RequestError>
+    where
+        S: Dispatches<H>,
+    {
+        H::Response::decode(&mut &response[..]).ok_or(RequestError::InvalidResponse)
     }
 
     pub async fn dispatch_direct_batch<'a, 'b, H: Handler>(
@@ -455,7 +486,7 @@ impl<S> RequestDispatch<S> {
             .try_send(RequestInit::Subscription(SubscriptionInit {
                 request_id,
                 topic: topic.to_bytes(),
-                payload: (S::PREFIX & 0b0111_1111, request_id, topic).to_bytes(),
+                payload: (S::PREFIX | 0x80, request_id, topic).to_bytes(),
                 channel: tx,
             }))
             .map_err(|_| RequestError::ChannelClosed)?;
@@ -517,6 +548,8 @@ component_utils::gen_simple_error! {
     }
 }
 
+pub type RootPacketBuffer = PacketBuffer<(RequestId, PathId)>;
+
 pub struct PacketBuffer<M> {
     packets: Vec<u8>,
     bunds: Vec<(usize, M)>,
@@ -531,8 +564,8 @@ impl<M> PacketBuffer<M> {
     }
 
     fn push<'a>(&mut self, packet: &impl Codec<'a>, id: M) {
-        self.bunds.push((self.packets.len(), id));
         packet.encode(&mut self.packets);
+        self.bunds.push((self.packets.len(), id));
     }
 
     pub fn drain(&mut self) -> impl Iterator<Item = (M, &mut [u8])> {
@@ -574,6 +607,7 @@ impl<T: NetworkBehaviour> SubContext<T> for T {
 
 pub trait Dispatches<H: Handler> {
     const PREFIX: u8;
+    fn fetch_nest(&mut self) -> &mut HandlerNest<H>;
 }
 
 component_utils::protocol! {'a:

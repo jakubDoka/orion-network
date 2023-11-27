@@ -35,7 +35,7 @@ impl crate::SyncHandler for CreateChat {
         );
 
         entry.insert(Chat::new(identiy));
-        replicate(context, &name, &(identiy, name), meta);
+        replicate::<Self>(context, &name, &(identiy, name), meta);
 
         Ok(())
     }
@@ -87,7 +87,7 @@ impl crate::SyncHandler for AddUser {
         );
 
         chat.members.push(Member::new(identiy));
-        replicate(context, &name, &(identiy, name, proof), meta);
+        replicate::<Self>(context, &name, &(identiy, name, proof), meta);
 
         Ok(())
     }
@@ -143,7 +143,7 @@ impl crate::SyncHandler for SendMessage {
         );
 
         chat.messages.push(message.0.iter().copied());
-        replicate(context, &name, &(name, proof, message), meta);
+        replicate::<Self>(context, &name, &(name, proof, message), meta);
         events.push(name, &(proof, message));
 
         Ok(())

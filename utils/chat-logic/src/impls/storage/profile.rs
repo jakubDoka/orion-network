@@ -110,37 +110,34 @@ impl From<&FullProfile> for FetchProfileResp {
 pub enum CreateAccount {}
 
 impl crate::SyncHandler for CreateAccount {
-    type Request<'a> = CreateAccountReq;
+    type Request<'a> = (Proof, Serialized<enc::PublicKey>);
     type Response<'a> = Result<(), CreateAccountError>;
     type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = crate::Identity;
 
     fn execute(
         context: &mut Self::Context,
-        request: &Self::Request<'_>,
+        &(proof, enc): &Self::Request<'_>,
         _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'static> {
-        crate::ensure!(
-            request.proof.verify_profile(),
-            CreateAccountError::InvalidProof
-        );
+        crate::ensure!(proof.verify_profile(), CreateAccountError::InvalidProof);
 
-        let user_id = crypto::hash::new_raw(&request.proof.pk);
+        let user_id = crypto::hash::new_raw(&proof.pk);
         let entry = context.store_mut().profiles.entry(user_id);
 
         crate::ensure!(let Entry::Vacant(entry) = entry, CreateAccountError::AlreadyExists);
 
         let pr = entry
             .insert(FullProfile {
-                sign: request.proof.pk,
-                enc: request.enc,
-                action: request.proof.nonce,
+                sign: proof.pk,
+                enc,
+                action: proof.nonce,
                 vault: Vec::new(),
                 mail: Vec::new(),
             })
             .clone();
-        replicate(context, &user_id, &pr, meta);
+        replicate::<Self>(context, &user_id, &(proof, enc), meta);
 
         Ok(())
     }
@@ -150,13 +147,6 @@ component_utils::gen_simple_error! {
     error CreateAccountError {
         InvalidProof => "invalid proof",
         AlreadyExists => "account already exists",
-    }
-}
-
-component_utils::protocol! {'a:
-    struct CreateAccountReq {
-        proof: Proof,
-        enc: Serialized<enc::PublicKey>,
     }
 }
 
@@ -188,7 +178,7 @@ impl crate::SyncHandler for SetVault {
 
         profile.vault.clear();
         profile.vault.extend_from_slice(content.0.as_ref());
-        replicate(context, &identity, &(proof, content), meta);
+        replicate::<Self>(context, &identity, &(proof, content), meta);
 
         Ok(())
     }
@@ -289,7 +279,7 @@ impl crate::SyncHandler for SendMail {
 
         profile.mail.extend((content.len() as u16).to_be_bytes());
         profile.mail.extend_from_slice(content);
-        replicate(context, &identity, &content, meta);
+        replicate::<Self>(context, &identity, &(identity, Reminder(content)), meta);
         events.push(identity, &Reminder(content));
 
         Ok(())

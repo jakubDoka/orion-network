@@ -53,20 +53,20 @@ pub use {search_peers::*, storage::*};
 
 compose_handlers! {
     Server {
-        sp: SearchPeers<ProfileQ>,
-        sc: SearchPeers<ChatQ>,
+        sp: SearchPeers,
+        fp: FetchProfile,
 
         ca: CreateAccount,
         sv: SetVault,
         fv: FetchVault,
         sm: SendMail,
         rm: ReadMail,
-        fp: FetchProfile,
 
         cp: CreateChat,
         au: AddUser,
         smsg: SendMessage,
         fm: FetchMessages,
+        pn: PublishNode,
     }
 }
 
@@ -87,6 +87,7 @@ component_utils::protocol! {'a:
 
 impl Proof {
     const PROFILE_CONTEXT: ProofContext = [0xff - 1; CHAT_NAME_CAP];
+    const PAYLOAD_SIZE: usize = std::mem::size_of::<Nonce>() + CHAT_NAME_CAP;
 
     pub fn for_profile(kp: &sign::KeyPair, nonce: &mut Nonce) -> Self {
         Self::new(kp, nonce, Self::PROFILE_CONTEXT)
@@ -97,7 +98,7 @@ impl Proof {
     }
 
     fn new(kp: &sign::KeyPair, nonce: &mut Nonce, context: ProofContext) -> Self {
-        let signature = kp.sign(&Self::pack_proof_and_nonce(*nonce, context));
+        let signature = kp.sign(&Self::pack_payload(*nonce, context));
         *nonce += 1;
         Self {
             pk: kp.public_key().into_bytes(),
@@ -106,10 +107,10 @@ impl Proof {
         }
     }
 
-    fn pack_proof_and_nonce(nonce: Nonce, context: ProofContext) -> [u8; 36] {
-        let mut buf = [0; 36];
-        buf[..32].copy_from_slice(&context);
-        buf[32..].copy_from_slice(&nonce.to_be_bytes());
+    fn pack_payload(nonce: Nonce, context: ProofContext) -> [u8; Self::PAYLOAD_SIZE] {
+        let mut buf = [0; Self::PAYLOAD_SIZE];
+        buf[..CHAT_NAME_CAP].copy_from_slice(&context);
+        buf[CHAT_NAME_CAP..].copy_from_slice(&nonce.to_be_bytes());
         buf
     }
 
@@ -122,7 +123,7 @@ impl Proof {
     }
 
     fn verify(&self, context: ProofContext) -> bool {
-        let bytes = Self::pack_proof_and_nonce(self.nonce, context);
+        let bytes = Self::pack_payload(self.nonce, context);
         let pk = sign::PublicKey::from_ref(&self.pk);
         let signature = sign::Signature::from_ref(&self.signature);
         pk.verify(&bytes, signature).is_ok()

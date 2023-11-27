@@ -1,39 +1,21 @@
+use component_utils::Reminder;
+
 use {
-    component_utils::Codec,
+    super::Storage,
     libp2p::{
         kad::{GetClosestPeersOk, QueryId, QueryResult},
         PeerId,
     },
+    std::convert::Infallible,
 };
 
-use std::convert::Infallible;
-
-use super::Identity;
-
-use super::{ChatName, Storage};
-
-pub struct SearchPeers<T> {
+pub struct SearchPeers {
     query: QueryId,
     peers: Vec<PeerId>,
-    _marker: std::marker::PhantomData<T>,
 }
 
-pub trait Searcher {
-    type Key<'a>: Codec<'a>;
-}
-
-pub struct ProfileQ;
-impl Searcher for ProfileQ {
-    type Key<'a> = Identity;
-}
-
-pub struct ChatQ;
-impl Searcher for ChatQ {
-    type Key<'a> = ChatName;
-}
-
-impl<T: Searcher> crate::Handler for SearchPeers<T> {
-    type Request<'a> = T::Key<'a>;
+impl crate::Handler for SearchPeers {
+    type Request<'a> = Reminder<'a>;
     type Response<'a> = Vec<PeerId>;
     type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = Infallible;
@@ -45,9 +27,8 @@ impl<T: Searcher> crate::Handler for SearchPeers<T> {
         _: crate::RequestMeta,
     ) -> Result<Self::Response<'static>, Self> {
         Err(Self {
-            query: context.get_closest_peers(request.to_bytes()),
+            query: context.get_closest_peers(request.0.to_vec()),
             peers: Vec::new(),
-            _marker: std::marker::PhantomData,
         })
     }
 

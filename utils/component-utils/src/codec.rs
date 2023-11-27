@@ -292,6 +292,12 @@ impl<'a> Codec<'a> for u8 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Reminder<'a>(pub &'a [u8]);
 
+impl<'a> Default for Reminder<'a> {
+    fn default() -> Self {
+        Self(&[])
+    }
+}
+
 impl<'a> Codec<'a> for Reminder<'a> {
     fn encode(&self, buffer: &mut Vec<u8>) {
         buffer.extend_from_slice(self.0);

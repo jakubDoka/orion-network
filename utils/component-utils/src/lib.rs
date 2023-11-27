@@ -52,6 +52,16 @@ macro_rules! gen_unique_id {
                 Self(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
             }
         }
+
+        impl $crate::Codec<'_> for $ty {
+            fn encode(&self, buffer: &mut Vec<u8>) {
+                self.0.encode(buffer);
+            }
+
+            fn decode(buffer: &mut &[u8]) -> Option<Self> {
+                usize::decode(buffer).map(Self)
+            }
+        }
     };
 }
 

@@ -1,3 +1,5 @@
+use crate::Handler;
+
 use {crypto::TransmutationCircle, primitives::contracts::NodeIdentity};
 
 use {
@@ -8,14 +10,15 @@ use {
 };
 
 mod chat;
+mod nodes;
 mod profile;
 
-pub use {chat::*, profile::*};
+pub use {chat::*, nodes::*, profile::*};
 
-fn replicate<'a>(
-    kad: &mut libp2p::kad::Behaviour<Storage>,
-    key: &impl Codec<'a>,
-    value: &impl Codec<'a>,
+fn replicate<'a, H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
+    kad: &mut H::Context,
+    key: &H::Topic,
+    value: &H::Request<'a>,
     meta: crate::RequestMeta,
 ) {
     if kad.store_mut().replicating {
