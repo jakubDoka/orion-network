@@ -2,11 +2,9 @@
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
 
-use libp2p::kad::{self, QueryId, QueryResult};
-
 use {
     chain_api::ContractId,
-    chat_logic::{DispatchResponse, PacketBuffer, RequestId, SubContext},
+    chat_logic::{DispatchResponse, PacketBuffer, RequestId, SubContext, REPLICATION_FACTOR},
     component_utils::{
         codec::Codec,
         kad::KadPeerSearch,
@@ -16,11 +14,12 @@ use {
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
         futures::{self, StreamExt},
+        kad::{self, QueryId, QueryResult},
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, Transport,
     },
     onion::{EncryptedStream, PathId},
-    primitives::{chat::*, contracts::NodeData},
+    primitives::contracts::NodeData,
     std::{io, mem, net::Ipv4Addr, time::Duration},
 };
 
@@ -191,9 +190,9 @@ impl Miner {
             .kad
             .store_mut()
             .start_replication();
-        if let Err(e) = self
-            .server
-            .dispatch(self.swarm.behaviour_mut(), message, &mut self.packets)
+        if let Err(e) =
+            self.server
+                .dispatch(self.swarm.behaviour_mut(), message, None, &mut self.packets)
         {
             log::error!("failed to dispatch put record message: {}", e);
         }
@@ -203,6 +202,8 @@ impl Miner {
             .store_mut()
             .stop_replication();
         _ = self.packets.drain();
+
+        self.dispatch_events();
     }
 
     fn handle_event(&mut self, event: SE) {
@@ -263,6 +264,7 @@ impl Miner {
         let req = match req {
             Ok(req) => req,
             Err(e) => {
+                self.server.disconnected(id);
                 log::error!("failed to read from client: {}", e);
                 return;
             }
@@ -273,9 +275,9 @@ impl Miner {
             return;
         };
 
-        if let Err(e) = self
-            .server
-            .dispatch(self.swarm.behaviour_mut(), req, &mut self.packets)
+        if let Err(e) =
+            self.server
+                .dispatch(self.swarm.behaviour_mut(), req, Some(id), &mut self.packets)
         {
             log::error!("failed to dispatch init request: {}", e);
         };
@@ -289,7 +291,25 @@ impl Miner {
             send_response(resp, &mut stream.inner, &mut self.buffer);
         }
 
-        todo!()
+        self.dispatch_events();
+    }
+
+    fn dispatch_events(&mut self) {
+        for (targets, event) in self
+            .server
+            .smsg
+            .drain_events()
+            .chain(self.server.sm.drain_events())
+        {
+            for (target, request_id) in targets {
+                let resp = DispatchResponse {
+                    request_id,
+                    response: Reminder(event),
+                };
+                let stream = self.clients.iter_mut().find(|s| s.assoc == target).unwrap();
+                send_response(resp, &mut stream.inner, &mut self.buffer);
+            }
+        }
     }
 
     fn publish_identity(&mut self) {

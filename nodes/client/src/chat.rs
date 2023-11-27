@@ -1,3 +1,5 @@
+use chat_logic::ChatName;
+
 use {
     crate::{node, node::MessageContent},
     component_utils::DropFn,
@@ -8,10 +10,7 @@ use {
         *,
     },
     leptos_router::Redirect,
-    primitives::{
-        chat::{AddMember, ChatName, CreateChatErrorData, UserName},
-        contracts::StoredUserIdentity,
-    },
+    primitives::contracts::StoredUserIdentity,
     std::{
         future::Future,
         ops::Deref,
@@ -34,8 +33,6 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
         chats,
         rkeys,
         rusername,
-        revents,
-        wcommands,
         ..
     } = state;
 

@@ -3,6 +3,12 @@
 #![feature(mem_copy_fn)]
 #![feature(macro_metavar_expr)]
 
+use libp2p::Multiaddr;
+
+use {crypto::enc, primitives::contracts::UserIdentity};
+
+use {chat_logic::ChatName, crypto::sign, primitives::UserName};
+
 use {
     self::web_sys::wasm_bindgen::JsValue,
     crate::{
@@ -14,7 +20,6 @@ use {
     chain_api::{ContractId, TransactionHandler},
     leptos::{html::Input, signal_prelude::*, *},
     leptos_router::*,
-    primitives::chat::{ChatName, UserKeys, UserName},
     std::{
         cell::Cell,
         cmp::Ordering,
@@ -160,6 +165,11 @@ async fn chain_node(name: UserName) -> Result<chain_api::Client<WebSigner>, chai
     chain_api::Client::with_signer(BOOTSTRAP_NODE, WebSigner(name)).await
 }
 
+fn boot_node() -> Multiaddr {
+    build_env!(BOOTSTRAP_NODE);
+    BOOTSTRAP_NODE.parse().unwrap()
+}
+
 fn user_contract() -> ContractId {
     build_env!(USER_CONTRACT);
     ContractId::from_str(USER_CONTRACT).unwrap()
@@ -170,52 +180,49 @@ fn node_contract() -> ContractId {
     ContractId::from_str(NODE_CONTRACT).unwrap()
 }
 
-#[derive(Clone, Copy)]
-struct LoggedState {
-    revents: ReadSignal<node::Event>,
-    wcommands: WriteSignal<node::Command>,
-    chats: RwSignal<Vec<ChatName>>,
-    rkeys: ReadSignal<Option<UserKeys>>,
-    rusername: ReadSignal<UserName>,
+#[derive(Clone)]
+struct UserKeys {
+    name: UserName,
+    sign: sign::KeyPair,
+    enc: enc::KeyPair,
+    vault: crypto::SharedSecret,
 }
 
-impl LoggedState {
-    fn request<R: 'static>(
-        self,
-        command: node::Command,
-        get_resp: impl Fn(node::Event) -> Option<R> + 'static,
-    ) -> impl Future<Output = R> {
-        (self.wcommands)(command);
+impl UserKeys {
+    pub fn new(name: UserName) -> Self {
+        let sign = sign::KeyPair::new();
+        let enc = enc::KeyPair::new();
+        let vault = crypto::new_secret();
+        Self {
+            name,
+            sign,
+            enc,
+            vault,
+        }
+    }
 
-        let result = Rc::new(Cell::new(None::<Result<R, Waker>>));
-        let ef_result = result.clone();
-        let effect = create_effect(move |_| {
-            if let Some(resp) = get_resp((self.revents)()) {
-                if let Some(Err(waker)) = ef_result.replace(Some(Ok(resp))) {
-                    waker.wake();
-                }
-            }
-        });
-
-        std::future::poll_fn(
-            move |cx| match result.replace(Some(Err(cx.waker().clone()))) {
-                Some(Ok(resp)) => {
-                    effect.dispose();
-                    return Poll::Ready(resp);
-                }
-                _ => Poll::Pending,
-            },
-        )
+    pub fn to_identity(&self) -> UserIdentity {
+        UserIdentity {
+            sign: self.sign.public_key(),
+            enc: self.enc.public_key(),
+        }
     }
 }
 
+#[derive(Clone, Copy)]
+struct LoggedState {
+    chats: RwSignal<Vec<ChatName>>,
+    rkeys: ReadSignal<Option<UserKeys>>,
+    rusername: ReadSignal<UserName>,
+    event_dispatch: StoredValue<Option<chat_logic::RequestDispatch<chat_logic::Server>>>,
+}
+
 fn App() -> impl IntoView {
-    let (revents, wevents) = create_signal(node::Event::None);
-    let (rcommands, wcommands) = create_signal(node::Command::None);
     let (rkeys, wkeys) = create_signal(None::<UserKeys>);
     let (rusername, wusername) = create_signal(UserName::from("username").unwrap());
     let chats = create_rw_signal(Vec::new());
     let (rboot_phase, wboot_phase) = create_signal(None::<BootPhase>);
+    let event_dispatch = store_value(None::<chat_logic::RequestDispatch<chat_logic::Server>>);
 
     create_effect(move |_| {
         let Some(keys) = rkeys() else {
@@ -224,7 +231,7 @@ fn App() -> impl IntoView {
 
         spawn_local(async move {
             navigate_to("/");
-            let n = match Node::new(keys, wevents, rcommands, wboot_phase).await {
+            let (n, d) = match Node::new(keys, wboot_phase).await {
                 Ok(n) => n,
                 Err(e) => {
                     log::error!("failed to create node: {e}");
@@ -232,6 +239,7 @@ fn App() -> impl IntoView {
                 }
             };
 
+            event_dispatch.set_value(Some(d));
             wusername(n.username());
             chats.set(n.chats().collect());
 
@@ -241,11 +249,10 @@ fn App() -> impl IntoView {
     });
 
     let state = LoggedState {
-        revents,
-        wcommands,
         chats,
         rkeys,
         rusername,
+        event_dispatch,
     };
 
     let chat = move || view! { <Chat state/> };

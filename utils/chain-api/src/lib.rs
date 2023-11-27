@@ -189,9 +189,14 @@ impl<S: TransactionHandler> Client<S> {
         .await
     }
 
-    pub async fn list(&self, addr: ContractId) -> Result<Vec<Serialized<StoredNodeData>>, Error> {
-        self.call_dry(0, addr, contracts::node_staker::messages::list())
-            .await
+    pub async fn list(&self, addr: ContractId) -> Result<Vec<StoredNodeData>, Error> {
+        self.call_dry::<Vec<Serialized<StoredNodeData>>>(
+            0,
+            addr,
+            contracts::node_staker::messages::list(),
+        )
+        .await
+        .map(|v| unsafe { std::mem::transmute(v) })
     }
 
     pub async fn vote(

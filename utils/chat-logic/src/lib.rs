@@ -32,19 +32,39 @@ macro_rules! compose_handlers {
     )*}) => {
         #[derive(Default)]
         pub struct $name {$(
-            $handler: $crate::HandlerNest<$handler_ty>,
+            pub $handler: $crate::HandlerNest<$handler_ty>,
         )*}
 
         impl $name {
-            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>, buffet: &mut $crate::PacketBuffer<$crate::RequestId>) -> Result<(), $crate::DispatchError>
+            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>,  pid: Option<onion::PathId>, buffer: &mut $crate::PacketBuffer<$crate::RequestId>) -> Result<(), $crate::DispatchError>
             where
                 $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context>,
                 T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as $crate::Context>::ToSwarm>,)*
             {
+                if message.prefix >> 7 == 1 && pid.is_some() {
+                    return self.try_handle_subscription(pid.unwrap(), message);
+                }
+
                 match message.prefix {
-                    $(${index()} => self.$handler.dispatch(context, message, buffet),)*
+                    $(${index()} => self.$handler.dispatch(context, message, buffer),)*
                     p => Err($crate::DispatchError::InvalidPrefix(p)),
                 }
+            }
+
+            fn try_handle_subscription(&mut self, pid: onion::PathId, message: $crate::DispatchMessage<'_>)
+                -> Result<(), $crate::DispatchError>
+            {
+                let prefix = message.prefix & 0b0111_1111;
+                match prefix {
+                    $(${index()} => self.$handler.subscribe(pid, message.request_id, message.payload),)*
+                    p => return Err($crate::DispatchError::InvalidPrefix(p)),
+                }
+
+                Ok(())
+            }
+
+            pub fn disconnected(&mut self, pid: onion::PathId) {
+                $(self.$handler.disconnected(pid);)*
             }
 
             pub fn try_handle_event<T: $crate::Context>(&mut self, context: &mut T, event: T::ToSwarm, buffer: &mut $crate::PacketBuffer<$crate::RequestId>)
@@ -68,6 +88,7 @@ macro_rules! compose_handlers {
 
 pub struct HandlerNest<H: Handler> {
     handlers: Vec<ActiveHandler<H>>,
+    sub_mapping: HashMap<H::Topic, HashMap<PathId, RequestId>>,
     dispatch: EventDispatch<H>,
 }
 
@@ -132,8 +153,40 @@ impl<H: Handler> HandlerNest<H> {
         Ok(())
     }
 
-    pub fn drain_events(&mut self) -> impl Iterator<Item = (H::Topic, &mut [u8])> {
-        self.dispatch.drain()
+    pub fn subscribe(&mut self, pid: PathId, rid: RequestId, Reminder(topic): Reminder) {
+        let Some(topic) = H::Topic::decode(&mut &topic[..]) else {
+            return;
+        };
+
+        self.sub_mapping.entry(topic).or_default().insert(pid, rid);
+    }
+
+    pub fn disconnected(&mut self, pid: PathId) {
+        // TODO: could be slow
+        for (_, pids) in self.sub_mapping.iter_mut() {
+            pids.remove(&pid);
+        }
+    }
+
+    pub fn drain_events(
+        &mut self,
+    ) -> impl Iterator<
+        Item = (
+            iter::Map<
+                hash_map::Iter<'_, PathId, RequestId>,
+                fn((&PathId, &RequestId)) -> (PathId, RequestId),
+            >,
+            &mut [u8],
+        ),
+    > {
+        fn map((pid, rid): (&PathId, &RequestId)) -> (PathId, RequestId) {
+            (*pid, *rid)
+        }
+        let mapping = &self.sub_mapping;
+        self.dispatch.drain().filter_map(move |(topic, buffer)| {
+            let pids = mapping.get(&topic)?.iter().map(map as _);
+            Some((pids, buffer))
+        })
     }
 }
 
@@ -142,15 +195,24 @@ impl<H: Handler> Default for HandlerNest<H> {
         Self {
             handlers: Vec::new(),
             dispatch: EventDispatch::default(),
+            sub_mapping: HashMap::new(),
         }
     }
 }
 
 mod impls;
 
-use std::convert::Infallible;
+use std::{
+    collections::{hash_map, HashMap},
+    convert::Infallible,
+    iter,
+};
 
 pub use impls::*;
+use {
+    libp2p::futures::{Stream, StreamExt},
+    onion::EncryptedStream,
+};
 
 pub struct ActiveHandler<H: Handler> {
     pub request_id: RequestId,
@@ -184,7 +246,7 @@ pub trait Handler: Sized {
     type Response<'a>: Codec<'a>;
     type Event<'a>: Codec<'a> = Infallible;
     type Context: Context;
-    type Topic: Eq + std::hash::Hash + Codec<'static> = Infallible;
+    type Topic: Eq + std::hash::Hash + for<'a> Codec<'a> = Infallible;
 
     fn spawn<'a>(
         context: &'a mut Self::Context,
@@ -205,7 +267,7 @@ pub trait SyncHandler: Sized {
     type Response<'a>: Codec<'a>;
     type Event<'a>: Codec<'a> = Infallible;
     type Context: Context;
-    type Topic: Eq + std::hash::Hash + Codec<'static> = Infallible;
+    type Topic: Eq + std::hash::Hash + for<'a> Codec<'a> = Infallible;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
@@ -312,6 +374,69 @@ impl<S> RequestDispatch<S> {
         H::Response::decode(&mut &self.buffer[..]).ok_or(RequestError::InvalidResponse)
     }
 
+    pub async fn dispatch_direct<H: Handler>(
+        &mut self,
+        stream: &mut EncryptedStream,
+        request: &H::Request<'_>,
+    ) -> Result<H::Response<'_>, RequestError>
+    where
+        S: Dispatches<H>,
+    {
+        let id = RequestId::new();
+
+        self.buffer.clear();
+        self.buffer.push(S::PREFIX);
+        id.encode(&mut self.buffer);
+        request.encode(&mut self.buffer);
+
+        stream.write(&mut self.buffer);
+
+        self.buffer = stream
+            .next()
+            .await
+            .ok_or(RequestError::ChannelClosed)?
+            .map_err(|_| RequestError::ChannelClosed)?;
+
+        DispatchResponse::<H::Response<'_>>::decode(&mut &self.buffer[..])
+            .ok_or(RequestError::InvalidResponse)
+            .map(|r| r.response)
+    }
+
+    pub async fn dispatch_direct_batch<'a, 'b, H: Handler>(
+        &'a mut self,
+        stream: &mut EncryptedStream,
+        requests: impl Iterator<Item = H::Request<'b>>,
+    ) -> Result<impl Iterator<Item = (H::Response<'a>, H::Request<'b>)>, RequestError>
+    where
+        S: Dispatches<H>,
+    {
+        let mut mapping = HashMap::new();
+        for request in requests {
+            let id = RequestId::new();
+
+            self.buffer.clear();
+            self.buffer.push(S::PREFIX);
+            id.encode(&mut self.buffer);
+            request.encode(&mut self.buffer);
+
+            stream.write(&mut self.buffer);
+            mapping.insert(id, request);
+        }
+
+        let mut stream = stream.by_ref().take(mapping.len());
+        while let Some(packet) = stream.next().await {
+            self.buffer
+                .extend(packet.map_err(|_| RequestError::ChannelClosed)?);
+        }
+
+        Ok(
+            (0..mapping.len()).scan(self.buffer.as_slice(), move |b, _| {
+                DispatchResponse::<H::Response<'_>>::decode(b)
+                    .and_then(|r| Some((r.response, mapping.remove(&r.request_id)?)))
+            }),
+        )
+    }
+
     pub fn subscribe<H: Handler>(
         &mut self,
         topic: H::Topic,
@@ -350,7 +475,6 @@ pub struct Subscription<H> {
 
 impl<H: Handler> Subscription<H> {
     pub async fn next(&mut self) -> Option<H::Event<'_>> {
-        use libp2p::futures::StreamExt;
         self.buffer = self.events.next().await?;
         H::Event::decode(&mut &self.buffer[..])
     }
@@ -372,9 +496,11 @@ pub struct RawRequest {
 
 pub type RawResponse = Vec<u8>;
 
-pub enum RequestError {
-    InvalidResponse,
-    ChannelClosed,
+component_utils::gen_simple_error! {
+    error RequestError {
+        InvalidResponse => "invalid response",
+        ChannelClosed => "channel closed",
+    }
 }
 
 pub struct PacketBuffer<M> {

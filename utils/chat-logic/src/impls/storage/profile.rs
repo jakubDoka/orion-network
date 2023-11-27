@@ -272,11 +272,13 @@ impl crate::SyncHandler for SendMail {
     type Request<'a> = (Identity, Reminder<'a>);
     type Response<'a> = Result<(), SendMailError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = crate::Identity;
+    type Event<'a> = Reminder<'a>;
 
     fn execute(
         context: &mut Self::Context,
         &(identity, Reminder(content)): &Self::Request<'_>,
-        _: &mut crate::EventDispatch<Self>,
+        events: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'static> {
         let profile = context.store_mut().profiles.get_mut(&identity);
@@ -289,6 +291,7 @@ impl crate::SyncHandler for SendMail {
         profile.mail.extend((content.len() as u16).to_be_bytes());
         profile.mail.extend_from_slice(content);
         replicate(context, &identity, &content, meta);
+        events.push(identity, &Reminder(content));
 
         Ok(())
     }

@@ -56,6 +56,7 @@ compose_handlers! {
 
         ca: CreateAccount,
         sv: SetVault,
+        fv: FetchVault,
         sm: SendMail,
         rm: ReadMail,
         fp: FetchProfile,
