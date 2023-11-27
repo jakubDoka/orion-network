@@ -1,9 +1,14 @@
-use chat_logic::{ChatQ, RawRequest, RequestId, RequestInit};
+use crate::UserState;
+
+use {chat_logic::Proof, crypto::sign};
+
+use {chat_logic::SubscriptionMessage, libp2p::futures::SinkExt};
 
 use {
     crate::{BootPhase, UserKeys},
     chat_logic::{
-        ChatName, FetchVault, Nonce, ProfileQ, RequestDispatch, RequestStream, SearchPeers, Server,
+        ChatName, ChatQ, DispatchResponse, FetchVault, Nonce, ProfileQ, RawRequest, RawResponse,
+        RequestDispatch, RequestId, RequestInit, RequestStream, SearchPeers, SubscriptionInit,
     },
     component_utils::{
         futures::{self},
@@ -21,7 +26,7 @@ use {
     },
     onion::{EncryptedStream, PathId},
     primitives::{
-        contracts::{NodeData, NodeIdentity, StoredUserIdentity},
+        contracts::{NodeIdentity, StoredUserIdentity},
         UserName,
     },
     rand::seq::IteratorRandom,
@@ -49,7 +54,15 @@ component_utils::protocol! { 'a:
     }
 
     struct RawChatMessage<'a> {
+        sender: UserName,
         content: &'a str,
+    }
+}
+
+impl Vault {
+    pub fn next_chat_proof(&mut self, chat: ChatName, kp: &sign::KeyPair) -> Option<Proof> {
+        let meta = self.chats.get_mut(&chat)?;
+        Some(Proof::for_chat(kp, &mut meta.action_no, chat))
     }
 }
 
@@ -120,25 +133,26 @@ gen_theme! {
 }
 
 pub struct Node {
-    keys: UserKeys,
     swarm: Swarm<Behaviour>,
     peer_search: KadPeerSearch,
     subscriptions: futures::stream::SelectAll<Subscription>,
     pending_requests: Vec<(
         RequestId,
-        libp2p::futures::channel::oneshot::Sender<RawRequest>,
+        libp2p::futures::channel::oneshot::Sender<RawResponse>,
     )>,
-    nodes: HashMap<PeerId, enc::PublicKey>,
+    active_subs: Vec<(
+        RequestId,
+        libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>,
+    )>,
+    _nodes: HashMap<PeerId, enc::PublicKey>,
     requests: RequestStream,
-    vault: Vault,
-    profile_nonce: Nonce,
 }
 
 impl Node {
     pub async fn new(
         keys: UserKeys,
         wboot_phase: WriteSignal<Option<BootPhase>>,
-    ) -> Result<(Self, RequestDispatch<Server>), BootError> {
+    ) -> Result<(Self, UserState), BootError> {
         wboot_phase(Some(BootPhase::FetchTopology));
 
         let mut peer_search = KadPeerSearch::default();
@@ -314,13 +328,13 @@ impl Node {
                 }
             };
 
-        let (profile_nonce, Reminder(vault)) = request_dispatch
+        let (account_nonce, Reminder(vault)) = request_dispatch
             .dispatch_direct::<FetchVault>(&mut profile_stream, &profile_hash.sign)
             .await
             .unwrap()
             .unwrap();
 
-        let vault = if vault.is_empty() {
+        let vault = if !vault.is_empty() {
             Default::default()
         } else {
             // not ideal
@@ -386,8 +400,9 @@ impl Node {
             .collect::<Vec<_>>();
 
         let mut subscriptions = futures::stream::SelectAll::new();
+        subscriptions.push(profile_sub);
         while !awaiting.is_empty() {
-            let (mut stream, subs, peer_id, id) =
+            let (stream, subs, peer_id, id) =
                 loop {
                     match swarm.select_next_some().await {
                         SwarmEvent::Behaviour(BehaviourEvent::Onion(
@@ -416,16 +431,20 @@ impl Node {
 
         Ok((
             Self {
-                keys,
                 swarm,
-                nodes,
+                _nodes: nodes,
                 peer_search,
                 subscriptions,
+                pending_requests: vec![],
+                active_subs: vec![],
                 requests: commands,
-                vault,
-                profile_nonce,
             },
-            request_dispatch,
+            UserState {
+                keys: Some(keys),
+                requests: Some(request_dispatch),
+                vault,
+                account_nonce,
+            },
         ))
     }
 
@@ -459,31 +478,55 @@ impl Node {
             futures::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event),
                 command = self.requests.select_next_some() => self.handle_command(command),
-                (id, response) = self.subscriptions.select_next_some() => self.handle_subscription_response(id, response),
+                (_id, response) = self.subscriptions.select_next_some() => self.handle_subscription_response(response).await,
             }
         }
     }
 
-    fn handle_mail(&mut self, bytes: &[u8]) {
-        todo!()
+    fn handle_request(&mut self, mut req: RawRequest) {
+        let Some(sub) = self
+            .subscriptions
+            .iter_mut()
+            .find(|s| req.topic.as_ref().map_or(true, |t| s.topics.contains(t)))
+        else {
+            todo!("find the node with the topic");
+        };
+
+        sub.stream.write(&mut req.payload);
+        self.pending_requests.push((req.request_id, req.channel));
     }
 
-    fn handle_request(&mut self, req: RawRequest) {}
+    fn handle_subscription_request(&mut self, mut sub: SubscriptionInit) {
+        let Some(subs) = self
+            .subscriptions
+            .iter_mut()
+            .find(|s| s.topics.contains(&sub.topic))
+        else {
+            todo!("find the node with the topic");
+        };
+
+        subs.stream.write(&mut sub.payload);
+        self.active_subs.push((sub.request_id, sub.channel));
+    }
 
     fn handle_command(&mut self, command: RequestInit) {
         match command {
             RequestInit::Request(req) => self.handle_request(req),
-            RequestInit::Subscription(sub) => self.handle_subscription(sub),
+            RequestInit::Subscription(sub) => self.handle_subscription_request(sub),
+            RequestInit::CloseSubscription(id) => {
+                let index = self
+                    .active_subs
+                    .iter()
+                    .position(|(rid, ..)| *rid == id)
+                    .expect("subscription not found");
+                self.active_subs.swap_remove(index);
+            }
         }
     }
 
     fn handle_swarm_event(&mut self, event: SE) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
-                mut stream,
-                id,
-                peer_id,
-            ))) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(..))) => {
                 todo!()
             }
             e if Self::try_handle_common_event(&e, &mut self.swarm, &mut self.peer_search) => {}
@@ -491,20 +534,47 @@ impl Node {
         }
     }
 
-    fn handle_subscription_response(&mut self, id: PathId, request: io::Result<Vec<u8>>) {
+    async fn handle_subscription_response(&mut self, request: io::Result<Vec<u8>>) {
         let Ok(msg) = request.inspect_err(|e| log::error!("chat subscription error: {e}")) else {
             return;
         };
 
-        todo!()
-    }
+        let Some(DispatchResponse {
+            request_id,
+            response: Reminder(content),
+        }) = DispatchResponse::decode(&mut &*msg)
+        else {
+            log::error!("invalid chat subscription response");
+            return;
+        };
 
-    pub fn username(&self) -> UserName {
-        self.keys.name
-    }
+        if let Some(index) = self
+            .pending_requests
+            .iter()
+            .position(|(rid, ..)| *rid == request_id)
+        {
+            let (_, channel) = self.pending_requests.swap_remove(index);
+            _ = channel.send(content.to_owned());
+            return;
+        }
 
-    pub fn chats(&self) -> impl Iterator<Item = ChatName> + '_ {
-        self.vault.chats.keys().copied()
+        if let Some((_, channel)) = self
+            .active_subs
+            .iter_mut()
+            .find(|(id, ..)| *id == request_id)
+        {
+            if channel.send(content.to_owned()).await.is_err() {
+                let index = self
+                    .active_subs
+                    .iter()
+                    .position(|(id, ..)| *id == request_id)
+                    .expect("subscription not found");
+                self.active_subs.swap_remove(index);
+            };
+            return;
+        }
+
+        log::error!("chat subscription response not found");
     }
 }
 
@@ -521,12 +591,6 @@ fn pick_route(
         .choose_multiple(&mut rng, 2);
     picked.insert(0, (*nodes.get(&target).unwrap(), target));
     picked.try_into().unwrap()
-}
-
-pub fn send_request<'a, T: Codec<'a>>(resp: T, stream: &mut EncryptedStream, buffer: &mut Vec<u8>) {
-    buffer.clear();
-    resp.encode(buffer);
-    stream.write(buffer);
 }
 
 #[allow(deprecated)]
@@ -548,19 +612,6 @@ pub enum BootError {
     ProfileNotFound,
     #[error("invalid profile keys")]
     InvalidProfileKeys,
-    #[error("failed to search for chat (stream broken): {0}")]
-    ChatSearch(io::Error),
-}
-
-fn node_data_to_path_seg(data: NodeData) -> (PeerId, NodeData) {
-    let peer_id = component_utils::libp2p::identity::PublicKey::from(
-        component_utils::libp2p::identity::ed25519::PublicKey::try_from_bytes(
-            &crypto::sign::PublicKey::from(data.sign).ed,
-        )
-        .unwrap(),
-    )
-    .to_peer_id();
-    (peer_id, data)
 }
 
 struct Subscription {

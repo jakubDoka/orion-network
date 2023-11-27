@@ -9,8 +9,8 @@ edition = "2021"
 arrayvec = { version = "0.7.4", default-features = false }
 futures = { version = "0.3.28", optional = true }
 libp2p = { version = "0.53.0", features = ["kad"], optional = true }
-thiserror = "1.0.50"
+thiserror = { version = "1.0.50", optional = true }
 
 [features]
 default = ["std"]
-std = ["futures", "libp2p", "arrayvec/serde", "arrayvec/std"]
+std = ["futures", "libp2p", "arrayvec/serde", "arrayvec/std", "thiserror"]

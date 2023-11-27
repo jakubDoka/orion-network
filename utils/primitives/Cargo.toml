@@ -9,8 +9,8 @@ edition = "2021"
 component-utils = { version = "0.1.0", path = "../component-utils", default-features = false }
 crypto = { version = "0.1.0", path = "../crypto", default-features = false }
 log = "0.4.20"
-thiserror = { version = "1.0.50" }
+thiserror = { version = "1.0.50", optional = true }
 
 [features]
 default = ["std"]
-std = ["component-utils/std", "crypto/std", "crypto/getrandom"]
+std = ["component-utils/std", "crypto/std", "crypto/getrandom", "thiserror"]

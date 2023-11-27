@@ -3,11 +3,7 @@
 #![feature(mem_copy_fn)]
 #![feature(macro_metavar_expr)]
 
-use libp2p::Multiaddr;
-
-use {crypto::enc, primitives::contracts::UserIdentity};
-
-use {chat_logic::ChatName, crypto::sign, primitives::UserName};
+use chat_logic::{ChatName, Proof};
 
 use {
     self::web_sys::wasm_bindgen::JsValue,
@@ -18,10 +14,14 @@ use {
         profile::Profile,
     },
     chain_api::{ContractId, TransactionHandler},
+    chat_logic::Nonce,
+    crypto::{enc, sign},
     leptos::{html::Input, signal_prelude::*, *},
     leptos_router::*,
+    libp2p::Multiaddr,
+    node::Vault,
+    primitives::{contracts::UserIdentity, RawUserName, UserName},
     std::{
-        cell::Cell,
         cmp::Ordering,
         fmt::Display,
         future::Future,
@@ -181,6 +181,16 @@ fn node_contract() -> ContractId {
 }
 
 #[derive(Clone)]
+struct RawUserKeys {
+    name: RawUserName,
+    sign: sign::KeyPair,
+    enc: enc::KeyPair,
+    vault: crypto::SharedSecret,
+}
+
+crypto::impl_transmute!(RawUserKeys,);
+
+#[derive(Clone)]
 struct UserKeys {
     name: UserName,
     sign: sign::KeyPair,
@@ -207,31 +217,77 @@ impl UserKeys {
             enc: self.enc.public_key(),
         }
     }
+
+    pub fn try_from_raw(raw: RawUserKeys) -> Option<Self> {
+        let RawUserKeys {
+            name,
+            sign,
+            enc,
+            vault,
+        } = raw;
+        Some(Self {
+            name: component_utils::array_to_arrstr(name)?,
+            sign,
+            enc,
+            vault,
+        })
+    }
+
+    pub fn into_raw(self) -> RawUserKeys {
+        let Self {
+            name,
+            sign,
+            enc,
+            vault,
+        } = self;
+        RawUserKeys {
+            name: component_utils::arrstr_to_array(name),
+            sign,
+            enc,
+            vault,
+        }
+    }
+}
+
+#[derive(Default)]
+struct UserState {
+    keys: Option<UserKeys>,
+    requests: Option<chat_logic::RequestDispatch<chat_logic::Server>>,
+    vault: Vault,
+    account_nonce: Nonce,
+}
+
+impl UserState {
+    pub fn next_chat_proof(&mut self, chat_name: ChatName) -> Option<chat_logic::Proof> {
+        self.vault
+            .next_chat_proof(chat_name, &self.keys.as_ref()?.sign)
+    }
+
+    pub fn next_profile_proof(&mut self) -> Option<chat_logic::Proof> {
+        Some(Proof::for_profile(
+            &self.keys.as_ref()?.sign,
+            &mut self.account_nonce,
+        ))
+    }
 }
 
 #[derive(Clone, Copy)]
 struct LoggedState {
-    chats: RwSignal<Vec<ChatName>>,
-    rkeys: ReadSignal<Option<UserKeys>>,
-    rusername: ReadSignal<UserName>,
-    event_dispatch: StoredValue<Option<chat_logic::RequestDispatch<chat_logic::Server>>>,
+    user_state: RwSignal<UserState>,
 }
 
 fn App() -> impl IntoView {
-    let (rkeys, wkeys) = create_signal(None::<UserKeys>);
-    let (rusername, wusername) = create_signal(UserName::from("username").unwrap());
-    let chats = create_rw_signal(Vec::new());
     let (rboot_phase, wboot_phase) = create_signal(None::<BootPhase>);
-    let event_dispatch = store_value(None::<chat_logic::RequestDispatch<chat_logic::Server>>);
+    let user_state = create_rw_signal(UserState::default());
 
     create_effect(move |_| {
-        let Some(keys) = rkeys() else {
+        let Some(keys) = user_state.with(|u| u.keys.clone()) else {
             return;
         };
 
         spawn_local(async move {
             navigate_to("/");
-            let (n, d) = match Node::new(keys, wboot_phase).await {
+            let (n, us) = match Node::new(keys, wboot_phase).await {
                 Ok(n) => n,
                 Err(e) => {
                     log::error!("failed to create node: {e}");
@@ -239,26 +295,18 @@ fn App() -> impl IntoView {
                 }
             };
 
-            event_dispatch.set_value(Some(d));
-            wusername(n.username());
-            chats.set(n.chats().collect());
-
+            user_state.set(us);
             navigate_to("/chat");
             n.run().await;
         });
     });
 
-    let state = LoggedState {
-        chats,
-        rkeys,
-        rusername,
-        event_dispatch,
-    };
+    let state = LoggedState { user_state };
 
     let chat = move || view! { <Chat state/> };
     let profile = move || view! { <Profile state/> };
-    let login = move || view! { <Login wkeys/> };
-    let register = move || view! { <Register wkeys/> };
+    let login = move || view! { <Login user_state/> };
+    let register = move || view! { <Register user_state/> };
     let boot = move || view! { <Boot rboot_phase/> };
 
     view! {
@@ -331,13 +379,14 @@ fn Boot(rboot_phase: ReadSignal<Option<BootPhase>>) -> impl IntoView {
 }
 
 #[component]
-fn Nav(rusername: ReadSignal<UserName>) -> impl IntoView {
+fn Nav(my_name: UserName) -> impl IntoView {
     let menu = create_node_ref::<html::Div>();
     let on_menu_toggle = move |_| {
         let menu = menu.get_untracked().unwrap();
         menu.set_hidden(!menu.hidden());
     };
-    let uname = move || rusername().to_string();
+
+    let uname = move || my_name.to_string();
 
     view! {
         <nav class="sc flx fdc fg0 phone-only">

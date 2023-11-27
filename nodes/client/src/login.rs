@@ -1,16 +1,17 @@
+use primitives::UserName;
+
+use crate::{RawUserKeys, UserKeys, UserState};
+
 use {
     crypto::TransmutationCircle,
     leptos::{html::Input, *},
     leptos_router::A,
-    primitives::{
-        chat::{RawUserKeys, UserKeys, UserName},
-        contracts::UserData,
-    },
+    primitives::contracts::UserData,
     web_sys::js_sys::{Array, Uint8Array},
 };
 
 #[component]
-pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
+pub fn Login(user_state: RwSignal<UserState>) -> impl IntoView {
     let key_file = create_node_ref::<Input>();
     let on_change = move |_| {
         let file = key_file.get_untracked().expect("universe to work");
@@ -40,13 +41,13 @@ pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
                 return;
             };
 
-            let Ok(keys) = UserKeys::try_from(keys.clone()) else {
+            let Some(keys) = UserKeys::try_from_raw(keys.clone()) else {
                 file.set_custom_validity("invalid username");
                 file.report_validity();
                 return;
             };
 
-            wkeys(Some(keys));
+            user_state.update(|s| s.keys = Some(keys));
         });
     };
 
@@ -61,7 +62,7 @@ pub fn Login(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
 }
 
 #[component]
-pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
+pub fn Register(user_state: RwSignal<UserState>) -> impl IntoView {
     let username = create_node_ref::<Input>();
     let download_link = create_node_ref::<leptos::html::A>();
 
@@ -120,7 +121,7 @@ pub fn Register(wkeys: WriteSignal<Option<UserKeys>>) -> impl IntoView {
                 return;
             }
 
-            wkeys(Some(key));
+            user_state.update(|s| s.keys = Some(key));
         });
     };
 

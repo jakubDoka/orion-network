@@ -6,8 +6,13 @@
 #![allow(incomplete_features)]
 use {
     component_utils::{Codec, Reminder},
-    libp2p::swarm::NetworkBehaviour,
-    onion::PathId,
+    libp2p::{futures::StreamExt, swarm::NetworkBehaviour},
+    onion::{EncryptedStream, PathId},
+    std::{
+        collections::{hash_map, HashMap},
+        convert::Infallible,
+        iter,
+    },
 };
 
 #[macro_export]
@@ -202,17 +207,7 @@ impl<H: Handler> Default for HandlerNest<H> {
 
 mod impls;
 
-use std::{
-    collections::{hash_map, HashMap},
-    convert::Infallible,
-    iter,
-};
-
 pub use impls::*;
-use {
-    libp2p::futures::{Stream, StreamExt},
-    onion::EncryptedStream,
-};
 
 pub struct ActiveHandler<H: Handler> {
     pub request_id: RequestId,
@@ -246,7 +241,7 @@ pub trait Handler: Sized {
     type Response<'a>: Codec<'a>;
     type Event<'a>: Codec<'a> = Infallible;
     type Context: Context;
-    type Topic: Eq + std::hash::Hash + for<'a> Codec<'a> = Infallible;
+    type Topic: Eq + std::hash::Hash + for<'a> Codec<'a>;
 
     fn spawn<'a>(
         context: &'a mut Self::Context,
@@ -267,7 +262,7 @@ pub trait SyncHandler: Sized {
     type Response<'a>: Codec<'a>;
     type Event<'a>: Codec<'a> = Infallible;
     type Context: Context;
-    type Topic: Eq + std::hash::Hash + for<'a> Codec<'a> = Infallible;
+    type Topic: Eq + std::hash::Hash + for<'a> Codec<'a>;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
@@ -331,6 +326,16 @@ pub struct RequestDispatch<S> {
     phantom: std::marker::PhantomData<S>,
 }
 
+impl<S> Clone for RequestDispatch<S> {
+    fn clone(&self) -> Self {
+        Self {
+            buffer: Vec::new(),
+            sink: self.sink.clone(),
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
+
 impl<S> RequestDispatch<S> {
     pub fn new() -> (Self, RequestStream) {
         let (sink, stream) = libp2p::futures::channel::mpsc::channel(5);
@@ -346,7 +351,7 @@ impl<S> RequestDispatch<S> {
 
     pub async fn dispatch<H: Handler>(
         &mut self,
-        stream: PathId,
+        topic: impl Into<Option<H::Topic>>,
         request: H::Request<'_>,
     ) -> Result<H::Response<'_>, RequestError>
     where
@@ -364,7 +369,7 @@ impl<S> RequestDispatch<S> {
         self.sink
             .send(RequestInit::Request(RawRequest {
                 request_id: RequestId::new(),
-                stream,
+                topic: topic.into().as_ref().map(Codec::to_bytes),
                 payload: Vec::new(),
                 channel: tx,
             }))
@@ -440,23 +445,29 @@ impl<S> RequestDispatch<S> {
     pub fn subscribe<H: Handler>(
         &mut self,
         topic: H::Topic,
-    ) -> Result<Subscription<H>, RequestError>
+    ) -> Result<(Subscription<H>, RequestId), RequestError>
     where
         S: Dispatches<H>,
     {
         let (tx, rx) = libp2p::futures::channel::mpsc::channel(0);
+        let request_id = RequestId::new();
         self.sink
             .try_send(RequestInit::Subscription(SubscriptionInit {
+                request_id,
                 topic: topic.to_bytes(),
+                payload: (S::PREFIX & 0b0111_1111, request_id, topic).to_bytes(),
                 channel: tx,
             }))
             .map_err(|_| RequestError::ChannelClosed)?;
 
-        Ok(Subscription {
-            buffer: Vec::new(),
-            events: rx,
-            phantom: std::marker::PhantomData,
-        })
+        Ok((
+            Subscription {
+                buffer: Vec::new(),
+                events: rx,
+                phantom: std::marker::PhantomData,
+            },
+            request_id,
+        ))
     }
 }
 
@@ -465,6 +476,7 @@ pub type RequestStream = libp2p::futures::channel::mpsc::Receiver<RequestInit>;
 pub enum RequestInit {
     Request(RawRequest),
     Subscription(SubscriptionInit),
+    CloseSubscription(RequestId),
 }
 
 pub struct Subscription<H> {
@@ -481,7 +493,9 @@ impl<H: Handler> Subscription<H> {
 }
 
 pub struct SubscriptionInit {
+    pub request_id: RequestId,
     pub topic: Vec<u8>,
+    pub payload: Vec<u8>,
     pub channel: libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>,
 }
 
@@ -489,7 +503,7 @@ pub type SubscriptionMessage = Vec<u8>;
 
 pub struct RawRequest {
     pub request_id: RequestId,
-    pub stream: PathId,
+    pub topic: Option<Vec<u8>>,
     pub payload: Vec<u8>,
     pub channel: libp2p::futures::channel::oneshot::Sender<RawResponse>,
 }

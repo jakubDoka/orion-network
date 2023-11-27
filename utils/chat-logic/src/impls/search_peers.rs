@@ -6,6 +6,8 @@ use {
     },
 };
 
+use std::convert::Infallible;
+
 use super::Identity;
 
 use super::{ChatName, Storage};
@@ -34,6 +36,7 @@ impl<T: Searcher> crate::Handler for SearchPeers<T> {
     type Request<'a> = T::Key<'a>;
     type Response<'a> = Vec<PeerId>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = Infallible;
 
     fn spawn(
         context: &mut Self::Context,

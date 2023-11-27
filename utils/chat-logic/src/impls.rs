@@ -27,18 +27,20 @@ pub fn advance_nonce(current: &mut Nonce, new: Nonce) -> bool {
     }
 }
 
-pub fn unpack_messages(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
-    let mut iter = buffer.iter();
+pub fn unpack_messages(buffer: &mut [u8]) -> impl Iterator<Item = &mut [u8]> {
+    let mut iter = buffer.iter_mut();
     iter::from_fn(move || {
         let len = iter
             .by_ref()
-            .copied()
+            .map(|b| *b)
             .next_chunk()
             .map(u16::from_be_bytes)
             .ok()?;
 
-        let slice = iter.as_slice().get(..len as usize)?;
-        iter.advance_by(len as usize).unwrap();
+        let (slice, rest) = std::mem::take(&mut iter)
+            .into_slice()
+            .split_at_mut(len as usize);
+        iter = rest.iter_mut();
 
         Some(slice)
     })
@@ -64,6 +66,7 @@ compose_handlers! {
         cp: CreateChat,
         au: AddUser,
         smsg: SendMessage,
+        fm: FetchMessages,
     }
 }
 

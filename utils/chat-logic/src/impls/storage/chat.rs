@@ -20,6 +20,7 @@ impl crate::SyncHandler for CreateChat {
     type Request<'a> = (Identity, ChatName);
     type Response<'a> = Result<(), CreateChatError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = ChatName;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
@@ -52,6 +53,7 @@ impl crate::SyncHandler for AddUser {
     type Request<'a> = (Identity, ChatName, Proof);
     type Response<'a> = Result<(), AddUserError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = ChatName;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
@@ -162,14 +164,15 @@ pub enum FetchMessages {}
 
 impl crate::SyncHandler for FetchMessages {
     type Request<'a> = (ChatName, Cursor);
-    type Response<'a> = Result<Vec<u8>, FetchMessagesError>;
+    type Response<'a> = Result<(Vec<u8>, Cursor), FetchMessagesError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = ChatName;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
         request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
-        meta: crate::RequestMeta,
+        _: crate::RequestMeta,
     ) -> Self::Response<'a> {
         let chat = context
             .store_mut()
@@ -181,9 +184,8 @@ impl crate::SyncHandler for FetchMessages {
         let cursor = chat
             .messages
             .fetch(request.1, MESSAGE_FETCH_LIMIT, &mut buffer);
-        replicate(context, &request.0, &(request.0, cursor), meta);
 
-        Ok(buffer)
+        Ok((buffer, cursor))
     }
 }
 

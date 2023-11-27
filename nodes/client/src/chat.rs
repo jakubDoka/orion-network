@@ -1,4 +1,15 @@
-use chat_logic::ChatName;
+use {chat_logic::FetchProfile, component_utils::Codec};
+
+use {chat_logic::SendMail, crypto::enc};
+
+use crate::node::RawChatMessage;
+
+use {
+    chat_logic::{AddUser, CreateChat, FetchMessages, SendMessage},
+    component_utils::Reminder,
+};
+
+use {chat_logic::ChatName, primitives::UserName};
 
 use {
     crate::{node, node::MessageContent},
@@ -29,31 +40,27 @@ fn is_at_bottom(messages_div: HtmlElement<leptos::html::Div>) -> bool {
 
 #[leptos::component]
 pub fn Chat(state: crate::LoggedState) -> impl IntoView {
-    let crate::LoggedState {
-        chats,
-        rkeys,
-        rusername,
-        ..
-    } = state;
+    let crate::LoggedState { user_state } = state;
 
-    let Some(_keys) = rkeys.get_untracked() else {
+    let Some(keys) = user_state.with_untracked(|us| us.keys.clone()) else {
         return view! { <Redirect path="/login"/> }.into_view();
     };
+    let my_name = keys.name;
 
+    let identity = crypto::hash::new(&keys.sign.public_key());
+    let ed = move || user_state.with_untracked(|us| us.requests.clone()).unwrap();
     let selected: Option<ChatName> = leptos_router::use_query_map()
         .with_untracked(|m| m.get("id").and_then(|v| v.as_str().try_into().ok()))
-        .filter(|v| chats.with_untracked(|chats| chats.contains(v)));
-    if let Some(selected) = selected {
-        wcommands(node::Command::FetchMessages(selected, true));
-    }
+        .filter(|v| user_state.with_untracked(|us| us.vault.chats.contains_key(v)));
     let current_chat = create_rw_signal(selected);
-    let red_all_messages = create_rw_signal(false);
     let (show_chat, set_show_chat) = create_signal(false);
     let messages = create_node_ref::<leptos::html::Div>();
+    let (cursor, set_cursor) = create_signal(chat_logic::NO_CURSOR);
+    let (red_all_messages, set_red_all_messages) = create_signal(false);
 
     let hide_chat = move |_| set_show_chat(false);
     let message_view = move |username: UserName, content: MessageContent| {
-        let my_message = rusername.get_untracked() == username;
+        let my_message = my_name == username;
         let justify = if my_message { "right" } else { "left" };
         let color = if my_message { "hc" } else { "pc" };
         view! {
@@ -78,14 +85,60 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             .unwrap();
     };
 
+    let fetch_messages = move || async move {
+        let Some(chat) = current_chat.get_untracked() else {
+            return;
+        };
+        if red_all_messages.get_untracked() {
+            return;
+        }
+        let cursor = cursor.get_untracked();
+        let (mut messages, new_cursor) = ed()
+            .dispatch::<FetchMessages>(chat, (chat, cursor))
+            .await
+            .unwrap()
+            .unwrap();
+        let secret = user_state.with_untracked(|us| us.vault.chats.get(&chat).unwrap().secret);
+        for message in chat_logic::unpack_messages(&mut messages) {
+            let decrypted = crypto::decrypt(message, secret).unwrap();
+            let RawChatMessage { sender, content } =
+                RawChatMessage::decode(&mut &*decrypted).unwrap();
+            append_message(sender, content.into());
+        }
+        set_red_all_messages(new_cursor == chat_logic::NO_CURSOR);
+        set_cursor(new_cursor);
+    };
+
+    create_effect(move |_| {
+        let Some(chat) = current_chat() else {
+            return;
+        };
+
+        let (mut sub, _id) = ed().subscribe::<SendMessage>(chat).unwrap();
+        spawn_local(async move {
+            while let Some((proof, Reminder(message))) = sub.next().await {
+                assert!(proof.verify_chat(chat));
+                let mut message = message.to_vec();
+                let secret =
+                    user_state.with_untracked(|us| us.vault.chats.get(&chat).unwrap().secret);
+                let message = crypto::decrypt(&mut message, secret).unwrap();
+                let RawChatMessage { sender, content } =
+                    RawChatMessage::decode(&mut &*message).unwrap();
+                prepend_message(sender, content.into());
+            }
+        });
+    });
+
     let side_chat = move |chat: ChatName| {
         let select_chat = move |_| {
             set_show_chat(true);
+            set_red_all_messages(false);
+            set_cursor(chat_logic::NO_CURSOR);
             current_chat.set(Some(chat));
             crate::navigate_to(format_args!("/chat/{chat}"));
             let messages = messages.get_untracked().expect("universe to work");
             messages.set_inner_html("");
-            wcommands(node::Command::FetchMessages(chat, true));
+            spawn_local(fetch_messages());
         };
         let selected = move || current_chat.get() == Some(chat);
         let not_selected = move || current_chat.get() != Some(chat);
@@ -105,24 +158,24 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                 return Err("invalid chat name".to_owned());
             };
 
-            if chats.with(|chats| chats.contains(&chat)) {
+            if user_state.with_untracked(|us| us.vault.chats.contains_key(&chat)) {
                 return Err("chat already exists, you are part of it".to_owned());
             }
 
-            state
-                .request(node::Command::CreateChat(chat), move |e| match e {
-                    node::Event::ChatCreated(c) if c == chat => Some(Ok(())),
-                    node::Event::CannotCreateChat(CreateChatErrorData { err, name })
-                        if name == chat =>
-                    {
-                        Some(Err(err))
-                    }
-                    _ => None,
-                })
+            ed().dispatch::<CreateChat>(chat, (identity, chat))
                 .await
-                .map_err(|e| e.to_string())?;
+                .unwrap()
+                .unwrap();
 
-            chats.update(|chats| chats.push(chat));
+            user_state.update(|us| {
+                us.vault.chats.insert(
+                    chat,
+                    node::ChatMeta {
+                        secret: crypto::new_secret(),
+                        action_no: 1,
+                    },
+                );
+            });
 
             Ok(())
         },
@@ -151,8 +204,8 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                 return Err("no chat selected".to_owned());
             };
 
-            let client = crate::chain_node(rusername.get_untracked()).await.unwrap();
-            let user = match client
+            let client = crate::chain_node(my_name).await.unwrap();
+            let invitee = match client
                 .get_profile_by_name(crate::user_contract(), name)
                 .await
             {
@@ -161,45 +214,35 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                 Err(e) => return Err(format!("failed to fetch user: {e}")),
             };
 
-            state
-                .request(node::Command::InviteUser { chat, user }, move |e| match e {
-                    node::Event::AddedMember(AddMember { invited, .. })
-                        if user.sign == invited
-                            && ADD_STAGE.fetch_add(1, Ordering::Relaxed) == 3 =>
-                    {
-                        Some(Ok(()))
-                    }
-                    node::Event::MailWritten if ADD_STAGE.fetch_add(1, Ordering::Relaxed) == 3 => {
-                        Some(Ok(()))
-                    }
-                    node::Event::MailWriteError(e) => Some(Err(e.to_string())),
-                    _ => None,
-                })
+            let Some(Some(proof)) = user_state.try_update(|us| us.next_chat_proof(chat)) else {
+                return Err("failed to generate proof".to_owned());
+            };
+            ed().dispatch::<AddUser>(chat, (invitee.sign, chat, proof))
                 .await
+                .map_err(|e| format!("failed to add user: {e}"))?
+                .map_err(|e| format!("failed to add user: {e}"))?;
+
+            let user_data = ed()
+                .dispatch::<FetchProfile>(None, invitee.sign)
+                .await
+                .unwrap()
+                .unwrap();
+
+            let my_kp = user_state.with_untracked(|us| us.keys.as_ref().unwrap().enc.clone());
+            let secret = user_state.with_untracked(|us| us.vault.chats.get(&chat).unwrap().secret);
+
+            let cp = my_kp
+                .encapsulate_choosen(enc::PublicKey::from_ref(&user_data.enc), secret)
+                .unwrap()
+                .into_bytes();
+            ed().dispatch::<SendMail>(None, (invitee.sign, Reminder(cp.as_slice())))
+                .await
+                .unwrap()
+                .unwrap();
+
+            Ok(())
         },
     );
-
-    create_effect(move |_| match revents() {
-        node::Event::NewMessage {
-            chat,
-            name,
-            content,
-        } if current_chat.get_untracked() == Some(chat) => append_message(name, content),
-        node::Event::FetchedMessages {
-            chat,
-            messages,
-            end,
-        } if current_chat.get_untracked() == Some(chat) => {
-            red_all_messages.update(|v| *v |= end);
-            for (name, content) in messages {
-                prepend_message(name, content);
-            }
-        }
-        node::Event::FetchedMessages { chat, messages, .. } => {
-            log::info!("fetched messages for {chat}: {messages:#?}");
-        }
-        _ => {}
-    });
 
     let message_input = create_node_ref::<Textarea>();
     let on_input = move |e: web_sys::KeyboardEvent| {
@@ -235,8 +278,22 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             return;
         }
 
-        wcommands(node::Command::SendMessage { chat, content });
-        message_input.get_untracked().unwrap().set_value("");
+        let secret = user_state.with_untracked(|us| us.vault.chats.get(&chat).unwrap().secret);
+        let mut content = content.into_bytes();
+        crypto::encrypt(&mut content, secret);
+
+        let proof = user_state
+            .try_update_untracked(|us| us.next_chat_proof(chat))
+            .unwrap()
+            .unwrap();
+
+        spawn_local(async move {
+            ed().dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
+                .await
+                .unwrap()
+                .unwrap();
+            message_input.get_untracked().unwrap().set_value("");
+        });
     };
 
     let message_scroll = create_node_ref::<leptos::html::Div>();
@@ -245,25 +302,28 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             return;
         }
 
-        let Some(chat) = current_chat.get_untracked() else {
-            return;
-        };
-
         if !is_at_bottom(message_scroll.get_untracked().unwrap()) {
             return;
         }
 
-        wcommands(node::Command::FetchMessages(chat, false))
+        spawn_local(fetch_messages());
     };
 
-    let chats_view =
-        move || chats.with(|chats| chats.iter().map(|&chat| side_chat(chat)).collect_view());
-    let chats_are_empty = move || chats.with(Vec::is_empty);
+    let chats_view = move || {
+        user_state.with(|us| {
+            us.vault
+                .chats
+                .keys()
+                .map(|&chat| side_chat(chat))
+                .collect_view()
+        })
+    };
+    let chats_are_empty = move || user_state.with(|us| us.vault.chats.is_empty());
     let chat_selected = move || current_chat.with(Option::is_some);
     let get_chat = move || current_chat.get().unwrap_or_default().to_string();
 
     view! {
-        <crate::Nav rusername/>
+        <crate::Nav my_name/>
         <main id="main" class="tbm flx fg1 jcsb">
             <div id="sidebar" class="bhc fg0 rbm oys pr" class=("off-screen", show_chat)>
                 <div class="pa w100">

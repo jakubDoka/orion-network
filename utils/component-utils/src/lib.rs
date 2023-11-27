@@ -94,10 +94,10 @@ pub mod kad;
 #[cfg(feature = "std")]
 pub mod stream;
 
-pub use {arrayvec, thiserror};
+pub use arrayvec;
 
 #[cfg(feature = "std")]
-pub use {codec::*, futures, kad::*, libp2p, stream::*};
+pub use {codec::*, futures, kad::*, libp2p, stream::*, thiserror};
 
 #[cfg(feature = "std")]
 pub fn drain_filter<'a, T>(

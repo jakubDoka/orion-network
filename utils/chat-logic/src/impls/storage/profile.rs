@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use crate::advance_nonce;
 
 const MAIL_BOX_CAP: usize = 1024 * 1024;
@@ -38,6 +40,7 @@ impl crate::Handler for FetchProfile {
     type Request<'a> = Identity;
     type Response<'a> = Result<FetchProfileResp, FetchProfileError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = Infallible;
 
     fn spawn(
         context: &mut Self::Context,
@@ -110,6 +113,7 @@ impl crate::SyncHandler for CreateAccount {
     type Request<'a> = CreateAccountReq;
     type Response<'a> = Result<(), CreateAccountError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = crate::Identity;
 
     fn execute(
         context: &mut Self::Context,
@@ -159,31 +163,32 @@ component_utils::protocol! {'a:
 pub enum SetVault {}
 
 impl crate::SyncHandler for SetVault {
-    type Request<'a> = SetVaultReq<'a>;
+    type Request<'a> = (Proof, Reminder<'a>);
     type Response<'a> = Result<(), SetVaultError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = crate::Identity;
 
     fn execute(
         context: &mut Self::Context,
-        request: &Self::Request<'_>,
+        &(proof, content): &Self::Request<'_>,
         _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'static> {
-        crate::ensure!(request.proof.verify_profile(), SetVaultError::InvalidProof);
+        crate::ensure!(proof.verify_profile(), SetVaultError::InvalidProof);
 
-        let identity = crypto::hash::new_raw(&request.proof.pk);
+        let identity = crypto::hash::new_raw(&proof.pk);
         let profile = context.store_mut().profiles.get_mut(&identity);
 
         crate::ensure!(let Some(profile) = profile, SetVaultError::NotFound);
 
         crate::ensure!(
-            advance_nonce(&mut profile.action, request.proof.nonce),
+            advance_nonce(&mut profile.action, proof.nonce),
             SetVaultError::InvalidAction
         );
 
         profile.vault.clear();
-        profile.vault.extend_from_slice(request.vault.0.as_ref());
-        replicate(context, &identity, request, meta);
+        profile.vault.extend_from_slice(content.0.as_ref());
+        replicate(context, &identity, &(proof, content), meta);
 
         Ok(())
     }
@@ -197,20 +202,13 @@ component_utils::gen_simple_error! {
     }
 }
 
-component_utils::protocol! {'a:
-    #[derive(Clone, Copy)]
-    struct SetVaultReq<'a> {
-        proof: Proof,
-        vault: Reminder<'a>,
-    }
-}
-
 pub enum FetchVault {}
 
 impl crate::SyncHandler for FetchVault {
     type Request<'a> = Identity;
     type Response<'a> = Result<(Nonce, Reminder<'a>), FetchVaultError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = Identity;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
@@ -236,6 +234,7 @@ impl crate::SyncHandler for ReadMail {
     type Request<'a> = Proof;
     type Response<'a> = Result<Reminder<'a>, ReadMailError>;
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Topic = crate::Identity;
 
     fn execute<'a>(
         context: &'a mut Self::Context,
