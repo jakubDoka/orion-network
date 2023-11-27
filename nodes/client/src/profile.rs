@@ -1,19 +1,11 @@
-use component_utils::Reminder;
-
-use {chat_logic::SetVault, component_utils::Codec};
-
 use {crate::node::Theme, leptos::*, leptos_router::Redirect};
 
 #[component]
-pub fn Profile(state: crate::LoggedState) -> impl IntoView {
-    let crate::LoggedState { user_state } = state;
-
-    let Some(keys) = user_state.with_untracked(|us| us.keys.clone()) else {
+pub fn Profile(state: crate::State) -> impl IntoView {
+    let Some(keys) = state.keys.get() else {
         return view! { <Redirect path="/login"/> }.into_view();
     };
     let my_name = keys.name;
-    let identity = crypto::hash::new(&keys.sign.public_key());
-    let ed = move || user_state.with_untracked(|us| us.requests.clone()).unwrap();
 
     let colors = Theme::KEYS;
     let style = web_sys::window()
@@ -43,20 +35,7 @@ pub fn Profile(state: crate::LoggedState) -> impl IntoView {
 
     let on_save = move |_| {
         let them = Theme::from_current().unwrap_or_default();
-        user_state.update(|us| us.vault.theme = them);
-        let mut vault_bytes = user_state.with_untracked(|us| us.vault.to_bytes());
-        let secret = user_state.with_untracked(|us| us.keys.as_ref().unwrap().vault);
-        let proof = user_state
-            .try_update(|us| us.next_profile_proof())
-            .unwrap()
-            .unwrap();
-        crypto::encrypt(&mut vault_bytes, secret);
-        spawn_local(async move {
-            ed().dispatch::<SetVault>(identity, (proof, Reminder(&vault_bytes)))
-                .await
-                .unwrap()
-                .unwrap();
-        });
+        state.vault.update(|vault| vault.theme = them);
     };
 
     view! {

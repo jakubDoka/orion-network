@@ -128,15 +128,13 @@ impl crate::SyncHandler for CreateAccount {
 
         crate::ensure!(let Entry::Vacant(entry) = entry, CreateAccountError::AlreadyExists);
 
-        let pr = entry
-            .insert(FullProfile {
-                sign: proof.pk,
-                enc,
-                action: proof.nonce,
-                vault: Vec::new(),
-                mail: Vec::new(),
-            })
-            .clone();
+        entry.insert(FullProfile {
+            sign: proof.pk,
+            enc,
+            action: proof.nonce,
+            vault: Vec::new(),
+            mail: Vec::new(),
+        });
         replicate::<Self>(context, &user_id, &(proof, enc), meta);
 
         Ok(())

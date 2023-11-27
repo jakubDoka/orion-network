@@ -2,9 +2,13 @@
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
 
+use {chat_logic::RootPacketBuffer, crypto::TransmutationCircle};
+
+use {chat_logic::PublishNode, primitives::contracts::NodeIdentity};
+
 use {
     chain_api::ContractId,
-    chat_logic::{DispatchResponse, PacketBuffer, RequestId, SubContext, REPLICATION_FACTOR},
+    chat_logic::{DispatchResponse, SubContext, REPLICATION_FACTOR},
     component_utils::{
         codec::Codec,
         kad::KadPeerSearch,
@@ -55,7 +59,8 @@ struct Miner {
     buffer: Vec<u8>,
     bootstrapped: Option<QueryId>,
     server: chat_logic::Server,
-    packets: PacketBuffer<RequestId>,
+    packets: RootPacketBuffer,
+    sign: crypto::sign::KeyPair,
 }
 
 impl Miner {
@@ -174,7 +179,8 @@ impl Miner {
             buffer: Default::default(),
             bootstrapped: None,
             server: Default::default(),
-            packets: PacketBuffer::new(),
+            packets: RootPacketBuffer::new(),
+            sign: sig_keys,
         }
     }
 
@@ -255,6 +261,17 @@ impl Miner {
                 let _ =
                     self.server
                         .try_handle_event(self.swarm.behaviour_mut(), b, &mut self.packets);
+
+                for ((rid, id), packet) in self.packets.drain() {
+                    let resp = DispatchResponse {
+                        request_id: rid,
+                        response: Reminder(packet),
+                    };
+                    let stream = self.clients.iter_mut().find(|s| s.assoc == id).unwrap();
+                    send_response(resp, &mut stream.inner, &mut self.buffer);
+                }
+
+                self.dispatch_events();
             }
             e => log::debug!("{e:?}"),
         }
@@ -271,7 +288,7 @@ impl Miner {
         };
 
         let Some(req) = chat_logic::DispatchMessage::decode(&mut req.as_slice()) else {
-            log::error!("failed to decode init request");
+            log::error!("failed to decode init request: {:?}", req);
             return;
         };
 
@@ -283,7 +300,7 @@ impl Miner {
         };
 
         let stream = self.clients.iter_mut().find(|s| s.assoc == id).unwrap();
-        for (rid, packet) in self.packets.drain() {
+        for ((rid, _), packet) in self.packets.drain() {
             let resp = DispatchResponse {
                 request_id: rid,
                 response: Reminder(packet),
@@ -313,7 +330,22 @@ impl Miner {
     }
 
     fn publish_identity(&mut self) {
-        todo!()
+        let signature = NodeIdentity {
+            sign: self.sign.public_key(),
+            enc: self
+                .swarm
+                .behaviour()
+                .onion
+                .config()
+                .secret
+                .clone()
+                .unwrap()
+                .public_key(),
+        };
+        self.server.dispatch_local::<PublishNode>(
+            &mut self.swarm.behaviour_mut().kad,
+            signature.into_bytes(),
+        )
     }
 
     async fn run(mut self) {

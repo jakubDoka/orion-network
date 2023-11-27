@@ -1,25 +1,20 @@
-use crate::UserState;
-
-use {chat_logic::Proof, crypto::sign};
-
-use {chat_logic::SubscriptionMessage, libp2p::futures::SinkExt};
-
 use {
     crate::{BootPhase, UserKeys},
     chat_logic::{
-        ChatName, ChatQ, DispatchResponse, FetchVault, Nonce, ProfileQ, RawRequest, RawResponse,
-        RequestDispatch, RequestId, RequestInit, RequestStream, SearchPeers, SubscriptionInit,
+        ChatName, CreateAccount, DispatchResponse, FetchVault, Nonce, Proof, RawRequest,
+        RawResponse, RequestDispatch, RequestId, RequestInit, RequestStream, SearchPeers, Server,
+        SubscriptionInit, SubscriptionMessage,
     },
     component_utils::{
         futures::{self},
         kad::KadPeerSearch,
         Codec, LinearMap, Reminder,
     },
-    crypto::{decrypt, enc, TransmutationCircle},
+    crypto::{decrypt, enc, sign, TransmutationCircle},
     leptos::signal_prelude::*,
     libp2p::{
-        core::upgrade::Version,
-        futures::StreamExt,
+        core::{upgrade::Version, ConnectedPoint},
+        futures::{SinkExt, StreamExt},
         kad::{store::MemoryStore, GetRecordOk, PeerRecord, ProgressStep, QueryResult},
         swarm::{NetworkBehaviour, SwarmEvent},
         PeerId, Swarm, *,
@@ -56,6 +51,15 @@ component_utils::protocol! { 'a:
     struct RawChatMessage<'a> {
         sender: UserName,
         content: &'a str,
+    }
+}
+
+impl ChatMeta {
+    pub fn new() -> Self {
+        Self {
+            secret: crypto::new_secret(),
+            action_no: 1,
+        }
     }
 }
 
@@ -140,11 +144,12 @@ pub struct Node {
         RequestId,
         libp2p::futures::channel::oneshot::Sender<RawResponse>,
     )>,
+    pending_topic_search: Vec<(Result<RequestId, PathId>, RequestInit)>,
     active_subs: Vec<(
         RequestId,
         libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>,
     )>,
-    _nodes: HashMap<PeerId, enc::PublicKey>,
+    nodes: HashMap<PeerId, enc::PublicKey>,
     requests: RequestStream,
 }
 
@@ -152,7 +157,7 @@ impl Node {
     pub async fn new(
         keys: UserKeys,
         wboot_phase: WriteSignal<Option<BootPhase>>,
-    ) -> Result<(Self, UserState), BootError> {
+    ) -> Result<(Self, Vault, RequestDispatch<Server>, Nonce), BootError> {
         wboot_phase(Some(BootPhase::FetchTopology));
 
         let mut peer_search = KadPeerSearch::default();
@@ -169,7 +174,7 @@ impl Node {
         );
         let profile = keys.to_identity();
         let profile_hash = StoredUserIdentity::from_bytes(profile_hash);
-        if profile_hash.verify(&profile) {
+        if !profile_hash.verify(&profile) {
             return Err(BootError::InvalidProfileKeys);
         }
 
@@ -212,12 +217,20 @@ impl Node {
         loop {
             match swarm.select_next_some().await {
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
-                SwarmEvent::ConnectionEstablished { .. } => {
+                SwarmEvent::ConnectionEstablished {
+                    peer_id,
+                    endpoint: ConnectedPoint::Dialer { address, .. },
+                    ..
+                } => {
+                    swarm.behaviour_mut().kad.add_address(&peer_id, address);
                     break;
                 }
                 _ => {}
             }
         }
+
+        wboot_phase(Some(BootPhase::InitiateKad));
+
         let qid = swarm.behaviour_mut().kad.bootstrap().unwrap();
         loop {
             match swarm.select_next_some().await {
@@ -234,6 +247,7 @@ impl Node {
             }
         }
 
+        wboot_phase(Some(BootPhase::CollecringKeys(node_data.len())));
         let mut query_pool = node_data
             .iter()
             .map(|nd| nd.sign.0.to_vec().into())
@@ -241,16 +255,16 @@ impl Node {
             .zip(node_data.iter())
             .collect::<Vec<_>>();
         let mut nodes = HashMap::new();
-        while !node_data.is_empty() {
-            let (result, id) = match swarm.select_next_some().await {
+        while node_data.len() - nodes.len() > 0 {
+            let (result, id, last) = match swarm.select_next_some().await {
                 SwarmEvent::Behaviour(BehaviourEvent::Kad(
                     kad::Event::OutboundQueryProgressed {
                         id,
                         result: QueryResult::GetRecord(result),
-                        step: ProgressStep { last: true, .. },
+                        step: ProgressStep { last, .. },
                         ..
                     },
-                )) => (result, id),
+                )) => (result, id, last),
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => continue,
                 _ => continue,
             };
@@ -261,6 +275,9 @@ impl Node {
             let (.., nd) = query_pool.swap_remove(index);
 
             let Ok(GetRecordOk::FoundRecord(PeerRecord { record, .. })) = result else {
+                if last {
+                    log::error!("failed to fetch node record {:#?}", result);
+                }
                 continue;
             };
 
@@ -274,6 +291,9 @@ impl Node {
                     .into();
 
             nodes.insert(pk.to_peer_id(), identity.enc);
+            wboot_phase(Some(BootPhase::CollecringKeys(
+                node_data.len() - nodes.len(),
+            )));
         }
 
         let route = nodes
@@ -302,7 +322,7 @@ impl Node {
         wboot_phase(Some(BootPhase::ProfileSearch));
 
         let members = request_dispatch
-            .dispatch_direct::<SearchPeers<ProfileQ>>(&mut init_stream, &profile_hash.sign)
+            .dispatch_direct::<SearchPeers>(&mut init_stream, &Reminder(&profile_hash.sign.0))
             .await
             .unwrap();
 
@@ -328,19 +348,32 @@ impl Node {
                 }
             };
 
-        let (account_nonce, Reminder(vault)) = request_dispatch
+        let (mut account_nonce, Reminder(vault)) = match request_dispatch
             .dispatch_direct::<FetchVault>(&mut profile_stream, &profile_hash.sign)
             .await
             .unwrap()
-            .unwrap();
+        {
+            Ok((n, v)) => (n + 1, v),
+            Err(_) => Default::default(),
+        };
 
-        let vault = if !vault.is_empty() {
+        let vault = if vault.is_empty() && account_nonce == 0 {
+            let proof = Proof::for_profile(&keys.sign, &mut account_nonce);
+            request_dispatch
+                .dispatch_direct::<CreateAccount>(
+                    &mut profile_stream,
+                    &(proof, keys.enc.public_key().into_bytes()),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+
             Default::default()
         } else {
-            // not ideal
             let mut vault = vault.to_vec();
-            let vault = decrypt(&mut vault, keys.vault).unwrap();
-            Vault::decode(&mut &*vault).unwrap()
+            decrypt(&mut vault, keys.vault)
+                .and_then(|v| Vault::decode(&mut &*v))
+                .unwrap_or_default()
         };
 
         let _ = vault.theme.apply();
@@ -354,21 +387,30 @@ impl Node {
             stream: profile_stream,
         };
 
+        // we clone a lot, but fuck it
         let mut topology = HashMap::<PeerId, HashSet<ChatName>>::new();
         let mut discovered = 0;
         for (peers, chat) in request_dispatch
-            .dispatch_direct_batch::<SearchPeers<ChatQ>>(
+            .dispatch_direct_batch::<SearchPeers>(
                 &mut profile_sub.stream,
-                vault.chats.keys().copied(),
+                vault
+                    .chats
+                    .keys()
+                    .copied()
+                    .map(|c| c.to_bytes())
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .map(|c| Reminder(c.as_slice())),
             )
             .await
             .unwrap()
         {
             if peers.contains(&profile_sub.peer_id) {
-                profile_sub.topics.insert(chat.to_bytes());
+                profile_sub.topics.insert(chat.0.to_owned());
                 continue;
             }
 
+            let chat = ChatName::decode(&mut &*chat.0).unwrap();
             for peer in peers {
                 topology.entry(peer).or_default().insert(chat);
             }
@@ -432,19 +474,17 @@ impl Node {
         Ok((
             Self {
                 swarm,
-                _nodes: nodes,
+                nodes,
                 peer_search,
                 subscriptions,
                 pending_requests: vec![],
                 active_subs: vec![],
+                pending_topic_search: vec![],
                 requests: commands,
             },
-            UserState {
-                keys: Some(keys),
-                requests: Some(request_dispatch),
-                vault,
-                account_nonce,
-            },
+            vault,
+            request_dispatch,
+            account_nonce,
         ))
     }
 
@@ -483,17 +523,38 @@ impl Node {
         }
     }
 
+    fn handle_topic_search(&mut self, command: RequestInit) {
+        let mut buf = Vec::new();
+        let sub = self.subscriptions.iter_mut().next().unwrap();
+        let search_key = match &command {
+            RequestInit::Request(req) => req.topic.as_ref().unwrap(),
+            RequestInit::Subscription(sub) => &sub.topic,
+            _ => unreachable!(),
+        };
+        let id = RequestDispatch::<Server>::build_packet::<SearchPeers>(
+            &Reminder(search_key.as_slice()),
+            &mut buf,
+        );
+        sub.stream.write(&mut buf);
+        log::debug!("searching for {:?}", search_key);
+        self.pending_topic_search.push((Ok(id), command));
+    }
+
     fn handle_request(&mut self, mut req: RawRequest) {
         let Some(sub) = self
             .subscriptions
             .iter_mut()
             .find(|s| req.topic.as_ref().map_or(true, |t| s.topics.contains(t)))
         else {
-            todo!("find the node with the topic");
+            self.handle_topic_search(RequestInit::Request(req));
+            return;
         };
+
+        assert!(!req.payload.is_empty());
 
         sub.stream.write(&mut req.payload);
         self.pending_requests.push((req.request_id, req.channel));
+        log::warn!("request sent, {:?}", req.request_id);
     }
 
     fn handle_subscription_request(&mut self, mut sub: SubscriptionInit) {
@@ -502,9 +563,13 @@ impl Node {
             .iter_mut()
             .find(|s| s.topics.contains(&sub.topic))
         else {
-            todo!("find the node with the topic");
+            self.handle_topic_search(RequestInit::Subscription(sub));
+            return;
         };
 
+        assert!(!sub.payload.is_empty());
+
+        log::debug!("subscription request sent");
         subs.stream.write(&mut sub.payload);
         self.active_subs.push((sub.request_id, sub.channel));
     }
@@ -526,8 +591,32 @@ impl Node {
 
     fn handle_swarm_event(&mut self, event: SE) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(..))) => {
-                todo!()
+            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
+                stream,
+                id,
+                peer_id,
+            ))) => {
+                if let Some(index) = self
+                    .pending_topic_search
+                    .iter()
+                    .position(|(pid, ..)| *pid == Err(id))
+                {
+                    let (_, req) = self.pending_topic_search.swap_remove(index);
+                    let topic = match &req {
+                        RequestInit::Request(req) => req.topic.as_ref().unwrap(),
+                        RequestInit::Subscription(sub) => &sub.topic,
+                        _ => unreachable!(),
+                    };
+                    self.subscriptions.push(Subscription {
+                        id,
+                        peer_id,
+                        topics: [topic.to_owned()].into(),
+                        stream,
+                    });
+
+                    self.handle_command(req);
+                    return;
+                }
             }
             e if Self::try_handle_common_event(&e, &mut self.swarm, &mut self.peer_search) => {}
             e => log::debug!("{:?}", e),
@@ -574,7 +663,52 @@ impl Node {
             return;
         }
 
-        log::error!("chat subscription response not found");
+        if let Some(index) = self
+            .pending_topic_search
+            .iter()
+            .position(|(id, ..)| *id == Ok(request_id))
+        {
+            log::debug!("chat subscription response found");
+            let (_, req) = self.pending_topic_search.swap_remove(index);
+            let Ok(resp) = RequestDispatch::<Server>::parse_response::<SearchPeers>(content) else {
+                log::error!("invalid chat subscription response");
+                return;
+            };
+
+            if let Some(sub) = self
+                .subscriptions
+                .iter_mut()
+                .find(|s| resp.iter().any(|p| s.peer_id == *p))
+            {
+                log::debug!("chat subscription response found");
+                let topic = match &req {
+                    RequestInit::Request(req) => req.topic.as_ref().unwrap(),
+                    RequestInit::Subscription(sub) => &sub.topic,
+                    _ => unreachable!(),
+                };
+                sub.topics.insert(topic.to_owned());
+
+                let (_, req) = self.pending_topic_search.swap_remove(index);
+                self.handle_command(req);
+                return;
+            }
+
+            log::debug!("chat subscription response not found");
+            let Some(pick) = resp.into_iter().choose(&mut rand::thread_rng()) else {
+                log::error!("no peers found");
+                return;
+            };
+
+            let path = pick_route(&self.nodes, pick);
+            let pid = self.swarm.behaviour_mut().onion.open_path(path).unwrap();
+            self.pending_topic_search.push((Err(pid), req));
+            return;
+        }
+
+        log::error!(
+            "request does not exits enev though we recieived it {:?}",
+            request_id
+        );
     }
 }
 

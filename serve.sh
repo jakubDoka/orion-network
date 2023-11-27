@@ -7,6 +7,8 @@ export NODE_COUNT=5
 export FRONTEND_PORT=7777
 export RUST_LOG="info"
 export RUST_BACKTRACE=1
+export NODE_START=8800
+export NETWORK_BOOT_NODE="/ip4/127.0.0.1/tcp/$((NODE_START + 100))/ws"
 
 RELEASE=""
 TARGET_DIR="target/debug"
@@ -46,7 +48,7 @@ cargo build $RELEASE --workspace \
 (cd nodes/client && trunk build $RELEASE --features building || exit 1)
 
 (cd nodes/client && trunk serve $RELEASE --port $FRONTEND_PORT --features building > /dev/null &)
-target/debug/runner --node-count $NODE_COUNT &
+target/debug/runner --node-count $NODE_COUNT --first-port $NODE_START &
 
 read -p "press enter to exit"
 

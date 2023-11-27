@@ -39,19 +39,19 @@ fn is_at_bottom(messages_div: HtmlElement<leptos::html::Div>) -> bool {
 }
 
 #[leptos::component]
-pub fn Chat(state: crate::LoggedState) -> impl IntoView {
-    let crate::LoggedState { user_state } = state;
-
-    let Some(keys) = user_state.with_untracked(|us| us.keys.clone()) else {
+pub fn Chat(state: crate::State) -> impl IntoView {
+    let Some(keys) = state.keys.get_untracked() else {
         return view! { <Redirect path="/login"/> }.into_view();
     };
     let my_name = keys.name;
-
+    let secret = keys.vault;
     let identity = crypto::hash::new(&keys.sign.public_key());
-    let ed = move || user_state.with_untracked(|us| us.requests.clone()).unwrap();
+    let my_enc = keys.enc.into_bytes();
+    let ed = move || state.requests.get_untracked().unwrap();
     let selected: Option<ChatName> = leptos_router::use_query_map()
         .with_untracked(|m| m.get("id").and_then(|v| v.as_str().try_into().ok()))
-        .filter(|v| user_state.with_untracked(|us| us.vault.chats.contains_key(v)));
+        .filter(|v| state.vault.with_untracked(|vl| vl.chats.contains_key(v)));
+
     let current_chat = create_rw_signal(selected);
     let (show_chat, set_show_chat) = create_signal(false);
     let messages = create_node_ref::<leptos::html::Div>();
@@ -98,7 +98,6 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             .await
             .unwrap()
             .unwrap();
-        let secret = user_state.with_untracked(|us| us.vault.chats.get(&chat).unwrap().secret);
         for message in chat_logic::unpack_messages(&mut messages) {
             let decrypted = crypto::decrypt(message, secret).unwrap();
             let RawChatMessage { sender, content } =
@@ -119,8 +118,6 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             while let Some((proof, Reminder(message))) = sub.next().await {
                 assert!(proof.verify_chat(chat));
                 let mut message = message.to_vec();
-                let secret =
-                    user_state.with_untracked(|us| us.vault.chats.get(&chat).unwrap().secret);
                 let message = crypto::decrypt(&mut message, secret).unwrap();
                 let RawChatMessage { sender, content } =
                     RawChatMessage::decode(&mut &*message).unwrap();
@@ -158,7 +155,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                 return Err("invalid chat name".to_owned());
             };
 
-            if user_state.with_untracked(|us| us.vault.chats.contains_key(&chat)) {
+            if state.vault.with_untracked(|v| v.chats.contains_key(&chat)) {
                 return Err("chat already exists, you are part of it".to_owned());
             }
 
@@ -167,15 +164,8 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                 .unwrap()
                 .unwrap();
 
-            user_state.update(|us| {
-                us.vault.chats.insert(
-                    chat,
-                    node::ChatMeta {
-                        secret: crypto::new_secret(),
-                        action_no: 1,
-                    },
-                );
-            });
+            let meta = node::ChatMeta::new();
+            state.vault.update(|v| _ = v.chats.insert(chat, meta));
 
             Ok(())
         },
@@ -214,7 +204,7 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                 Err(e) => return Err(format!("failed to fetch user: {e}")),
             };
 
-            let Some(Some(proof)) = user_state.try_update(|us| us.next_chat_proof(chat)) else {
+            let Some(proof) = state.next_chat_proof(chat) else {
                 return Err("failed to generate proof".to_owned());
             };
             ed().dispatch::<AddUser>(chat, (invitee.sign, chat, proof))
@@ -228,10 +218,11 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
                 .unwrap()
                 .unwrap();
 
-            let my_kp = user_state.with_untracked(|us| us.keys.as_ref().unwrap().enc.clone());
-            let secret = user_state.with_untracked(|us| us.vault.chats.get(&chat).unwrap().secret);
+            let Some(secret) = state.chat_secret(chat) else {
+                return Err("we are not part of this chat".to_owned());
+            };
 
-            let cp = my_kp
+            let cp = enc::KeyPair::from_bytes(my_enc)
                 .encapsulate_choosen(enc::PublicKey::from_ref(&user_data.enc), secret)
                 .unwrap()
                 .into_bytes();
@@ -278,14 +269,12 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
             return;
         }
 
-        let secret = user_state.with_untracked(|us| us.vault.chats.get(&chat).unwrap().secret);
+        let secret = state
+            .chat_secret(chat)
+            .expect("we are not part of this chat");
         let mut content = content.into_bytes();
         crypto::encrypt(&mut content, secret);
-
-        let proof = user_state
-            .try_update_untracked(|us| us.next_chat_proof(chat))
-            .unwrap()
-            .unwrap();
+        let proof = state.next_chat_proof(chat).expect("universe to work");
 
         spawn_local(async move {
             ed().dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
@@ -310,15 +299,11 @@ pub fn Chat(state: crate::LoggedState) -> impl IntoView {
     };
 
     let chats_view = move || {
-        user_state.with(|us| {
-            us.vault
-                .chats
-                .keys()
-                .map(|&chat| side_chat(chat))
-                .collect_view()
-        })
+        state
+            .vault
+            .with(|v| v.chats.keys().map(|&chat| side_chat(chat)).collect_view())
     };
-    let chats_are_empty = move || user_state.with(|us| us.vault.chats.is_empty());
+    let chats_are_empty = move || state.vault.with(|v| v.chats.is_empty());
     let chat_selected = move || current_chat.with(Option::is_some);
     let get_chat = move || current_chat.get().unwrap_or_default().to_string();
 

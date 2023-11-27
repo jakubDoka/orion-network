@@ -3,7 +3,19 @@
 #![feature(mem_copy_fn)]
 #![feature(macro_metavar_expr)]
 
-use chat_logic::{ChatName, Proof};
+use std::time::Duration;
+
+use {
+    chat_logic::{RequestDispatch, Server},
+    leptos::leptos_dom::helpers::TimeoutHandle,
+};
+
+use {chat_logic::SetVault, component_utils::Reminder};
+
+use {
+    chat_logic::{ChatName, Proof},
+    component_utils::Codec,
+};
 
 use {
     self::web_sys::wasm_bindgen::JsValue,
@@ -31,6 +43,26 @@ use {
     },
     web_sys::js_sys::wasm_bindgen,
 };
+
+#[macro_export]
+macro_rules! update {
+    ($($ident:ident)? | | $expr:expr) => {
+        $expr
+    };
+
+    ($($ident:ident)? |$($mapping:expr)? => $arg:ident $(,$($mappingN:expr)? => $argN:ident)* $(,)?| $expr:expr) => {
+        $crate::update!(@param_expr $($mapping)? => $arg).try_update($($ident)? |$arg|
+            $crate::update!($($ident)? |$($($mappingN)? => $argN),*| $expr)).flatten()
+    };
+
+    (@param_expr $expr:expr => $arg:ident) => {
+        $expr
+    };
+
+    (@param_expr => $arg:ident) => {
+        $arg
+    };
+}
 
 mod chat;
 mod login;
@@ -166,8 +198,8 @@ async fn chain_node(name: UserName) -> Result<chain_api::Client<WebSigner>, chai
 }
 
 fn boot_node() -> Multiaddr {
-    build_env!(BOOTSTRAP_NODE);
-    BOOTSTRAP_NODE.parse().unwrap()
+    build_env!(NETWORK_BOOT_NODE);
+    NETWORK_BOOT_NODE.parse().unwrap()
 }
 
 fn user_contract() -> ContractId {
@@ -249,45 +281,73 @@ impl UserKeys {
     }
 }
 
-#[derive(Default)]
-struct UserState {
-    keys: Option<UserKeys>,
-    requests: Option<chat_logic::RequestDispatch<chat_logic::Server>>,
-    vault: Vault,
-    account_nonce: Nonce,
+#[derive(Default, Clone, Copy)]
+struct State {
+    keys: RwSignal<Option<UserKeys>>,
+    requests: RwSignal<Option<chat_logic::RequestDispatch<chat_logic::Server>>>,
+    vault: RwSignal<Vault>,
+    account_nonce: RwSignal<Nonce>,
 }
 
-impl UserState {
-    pub fn next_chat_proof(&mut self, chat_name: ChatName) -> Option<chat_logic::Proof> {
+impl State {
+    pub fn next_chat_proof(self, chat_name: ChatName) -> Option<chat_logic::Proof> {
+        update!(|self.keys => keys, self.vault => vault| vault.next_chat_proof(chat_name, &keys.as_ref()?.sign))
+    }
+
+    pub fn next_profile_proof(self) -> Option<chat_logic::Proof> {
+        update!(|self.keys => keys, self.account_nonce => nonce| Some(Proof::for_profile(&keys.as_ref()?.sign, nonce)))
+    }
+
+    pub fn chat_secret(self, chat_name: ChatName) -> Option<crypto::SharedSecret> {
         self.vault
-            .next_chat_proof(chat_name, &self.keys.as_ref()?.sign)
+            .with_untracked(|vault| vault.chats.get(&chat_name).map(|c| c.secret))
     }
-
-    pub fn next_profile_proof(&mut self) -> Option<chat_logic::Proof> {
-        Some(Proof::for_profile(
-            &self.keys.as_ref()?.sign,
-            &mut self.account_nonce,
-        ))
-    }
-}
-
-#[derive(Clone, Copy)]
-struct LoggedState {
-    user_state: RwSignal<UserState>,
 }
 
 fn App() -> impl IntoView {
     let (rboot_phase, wboot_phase) = create_signal(None::<BootPhase>);
-    let user_state = create_rw_signal(UserState::default());
+    let state = State::default();
+
+    let serialized_vault = create_memo(move |_| state.vault.with(Codec::to_bytes));
+    let timeout = store_value(None::<TimeoutHandle>);
+    let save_vault = move |keys: UserKeys, mut ed: RequestDispatch<Server>| {
+        let identity = crypto::hash::new(&keys.sign.public_key());
+        let mut vault_bytes = serialized_vault.get();
+        let proof = state.next_profile_proof().unwrap();
+        crypto::encrypt(&mut vault_bytes, keys.vault);
+        spawn_local(async move {
+            ed.dispatch::<SetVault>(identity, (proof, Reminder(&vault_bytes)))
+                .await
+                .unwrap()
+                .unwrap();
+        });
+    };
+    create_effect(move |init| {
+        if init.is_none() {
+            serialized_vault.track();
+            return;
+        }
+        let Some(keys) = state.keys.get_untracked() else {
+            return;
+        };
+        let Some(ed) = state.requests.get_untracked() else {
+            return;
+        };
+
+        timeout.get_value().map(|handle| handle.clear());
+        let handle =
+            set_timeout_with_handle(move || save_vault(keys, ed), Duration::from_secs(5)).unwrap();
+        timeout.set_value(Some(handle));
+    });
 
     create_effect(move |_| {
-        let Some(keys) = user_state.with(|u| u.keys.clone()) else {
+        let Some(keys) = state.keys.get() else {
             return;
         };
 
         spawn_local(async move {
             navigate_to("/");
-            let (n, us) = match Node::new(keys, wboot_phase).await {
+            let (node, vault, dispatch, nonce) = match Node::new(keys, wboot_phase).await {
                 Ok(n) => n,
                 Err(e) => {
                     log::error!("failed to create node: {e}");
@@ -295,18 +355,18 @@ fn App() -> impl IntoView {
                 }
             };
 
-            user_state.set(us);
+            state.requests.set(Some(dispatch));
+            state.vault.set(vault);
+            state.account_nonce.set(nonce);
             navigate_to("/chat");
-            n.run().await;
+            node.run().await;
         });
     });
 
-    let state = LoggedState { user_state };
-
     let chat = move || view! { <Chat state/> };
     let profile = move || view! { <Profile state/> };
-    let login = move || view! { <Login user_state/> };
-    let register = move || view! { <Register user_state/> };
+    let login = move || view! { <Login state/> };
+    let register = move || view! { <Register state/> };
     let boot = move || view! { <Boot rboot_phase/> };
 
     view! {
@@ -329,6 +389,10 @@ pub enum BootPhase {
     FetchTopology,
     #[error("initiating orion connection...")]
     InitiateConnection,
+    #[error("creating network topology...")]
+    InitiateKad,
+    #[error("collecting server keys... ({0} left)")]
+    CollecringKeys(usize),
     #[error("initiating search path...")]
     InitialRoute,
     #[error("searching profile...")]
@@ -343,13 +407,22 @@ pub enum BootPhase {
     ChatRun,
 }
 
+impl BootPhase {
+    fn discriminant(&self) -> u8 {
+        // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
+        // between `repr(C)` structs, each of which has the `u8` discriminant as its first
+        // field, so we can read the discriminant without offsetting the pointer.
+        unsafe { *<*const _>::from(self).cast::<u8>() }
+    }
+}
+
 #[component]
 fn Boot(rboot_phase: ReadSignal<Option<BootPhase>>) -> impl IntoView {
-    let phases = (0..BootPhase::ChatRun as usize)
+    let phases = (0..BootPhase::ChatRun.discriminant())
         .map(|i| {
             let margin = if i == 0 { "" } else { "lbm" };
             let compute_class = move || {
-                rboot_phase.with(|phase| match phase.map(|p| i.cmp(&(p as usize))) {
+                rboot_phase.with(|phase| match phase.map(|p| i.cmp(&(p.discriminant()))) {
                     Some(Ordering::Less) => "bar-loaded",
                     Some(Ordering::Equal) => "bar-loading",
                     Some(Ordering::Greater) => "bar-unloaded",

@@ -1,6 +1,6 @@
 use primitives::UserName;
 
-use crate::{RawUserKeys, UserKeys, UserState};
+use crate::{RawUserKeys, State, UserKeys};
 
 use {
     crypto::TransmutationCircle,
@@ -11,7 +11,7 @@ use {
 };
 
 #[component]
-pub fn Login(user_state: RwSignal<UserState>) -> impl IntoView {
+pub fn Login(state: State) -> impl IntoView {
     let key_file = create_node_ref::<Input>();
     let on_change = move |_| {
         let file = key_file.get_untracked().expect("universe to work");
@@ -47,7 +47,7 @@ pub fn Login(user_state: RwSignal<UserState>) -> impl IntoView {
                 return;
             };
 
-            user_state.update(|s| s.keys = Some(keys));
+            state.keys.set(Some(keys));
         });
     };
 
@@ -62,7 +62,7 @@ pub fn Login(user_state: RwSignal<UserState>) -> impl IntoView {
 }
 
 #[component]
-pub fn Register(user_state: RwSignal<UserState>) -> impl IntoView {
+pub fn Register(state: State) -> impl IntoView {
     let username = create_node_ref::<Input>();
     let download_link = create_node_ref::<leptos::html::A>();
 
@@ -77,9 +77,9 @@ pub fn Register(user_state: RwSignal<UserState>) -> impl IntoView {
             let client = crate::chain_node(username_content).await.unwrap();
 
             if client
-                .get_profile_by_name(crate::user_contract(), username_content)
+                .user_exists(crate::user_contract(), username_content)
                 .await
-                .is_ok()
+                .unwrap()
             {
                 username.set_custom_validity("username already exists");
                 username.report_validity();
@@ -121,7 +121,7 @@ pub fn Register(user_state: RwSignal<UserState>) -> impl IntoView {
                 return;
             }
 
-            user_state.update(|s| s.keys = Some(key));
+            state.keys.set(Some(key));
         });
     };
 
