@@ -102,6 +102,12 @@ mod node_staker {
         stake_list: Vec<NodeIdentity>,
     }
 
+    impl Default for NodeStaker {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl NodeStaker {
         /// Constructor that initializes the `bool` value to the given `init_value`.
         #[ink(constructor)]
@@ -141,9 +147,9 @@ mod node_staker {
         ) {
             let identity = NodeIdentity::from_bytes(identity);
             let target = NodeIdentity::from_bytes(target);
-            let mut stake = self.stakes.get(&identity).expect("no stake to wote with");
+            let mut stake = self.stakes.get(identity).expect("no stake to wote with");
             assert!(stake.owner == self.env().caller(), "not owner");
-            let mut target_stake = self.stakes.get(&target).expect("target does not exist");
+            let mut target_stake = self.stakes.get(target).expect("target does not exist");
             assert!(
                 target_stake.owner != Self::env().caller(),
                 "cannot vote for self"
@@ -176,13 +182,13 @@ mod node_staker {
         #[ink(message)]
         pub fn reclaim(&mut self, identity: Serialized<StoredNodeIdentity>) {
             let identity = NodeIdentity::from_bytes(identity);
-            let stake = self.stakes.get(&identity).expect("not joined");
+            let stake = self.stakes.get(identity).expect("not joined");
             assert!(stake.owner == self.env().caller(), "not owner");
             assert!(
                 stake.created_at + STAKE_DURATION_MILIS <= self.env().block_timestamp(),
                 "still locked"
             );
-            self.stakes.remove(&identity);
+            self.stakes.remove(identity);
             ink::env::debug_println!("current balance: {}", self.env().balance());
             self.env()
                 .transfer(Self::env().caller(), stake.apply_slashes())
@@ -274,7 +280,7 @@ mod node_staker {
             let [identity, ..] = identities();
             let [alice, ..] = accounts();
             join(&mut node_staker, STAKE_AMOUNT, identity, alice);
-            assert_eq!(node_staker.stakes.get(&identity).unwrap().owner, alice);
+            assert_eq!(node_staker.stakes.get(identity).unwrap().owner, alice);
         }
 
         #[ink::test]
@@ -305,10 +311,10 @@ mod node_staker {
             join(&mut node_staker, STAKE_AMOUNT, target, bob);
             vote(&mut node_staker, identity, target, -1, alice);
             assert_eq!(
-                node_staker.stakes.get(&identity).unwrap().votes.pool,
+                node_staker.stakes.get(identity).unwrap().votes.pool,
                 INIT_VOTE_POOL - 1
             );
-            assert_eq!(node_staker.stakes.get(&target).unwrap().votes.rating, 1);
+            assert_eq!(node_staker.stakes.get(target).unwrap().votes.rating, 1);
         }
 
         #[ink::test]
@@ -346,7 +352,7 @@ mod node_staker {
             let [alice, ..] = accounts();
             join(&mut node_staker, STAKE_AMOUNT, identity, alice);
             reclaim(&mut node_staker, identity, STAKE_DURATION_MILIS, alice);
-            assert!(node_staker.stakes.get(&identity).is_none());
+            assert!(node_staker.stakes.get(identity).is_none());
         }
 
         #[ink::test]

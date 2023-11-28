@@ -206,9 +206,9 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 return Err("no chat selected".to_owned());
             };
 
-            let client = crate::chain_node(my_name).await.unwrap();
+            let client = crate::chain::node(my_name).await.unwrap();
             let invitee = match client
-                .get_profile_by_name(crate::user_contract(), name)
+                .get_profile_by_name(crate::chain::user_contract(), name)
                 .await
             {
                 Ok(Some(u)) => StoredUserIdentity::from_bytes(u).to_data(name),

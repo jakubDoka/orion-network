@@ -44,6 +44,12 @@ mod user_manager {
         identities: ink::storage::Mapping<AccountId, Profile>,
     }
 
+    impl Default for UserManager {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl UserManager {
         #[ink(constructor)]
         pub fn new() -> Self {
@@ -72,27 +78,27 @@ mod user_manager {
 
         #[ink(message)]
         pub fn pick_name(&mut self, name: RawUserName) {
-            assert!(self.has_name.insert(&Self::env().caller(), &name).is_none());
+            assert!(self.has_name.insert(Self::env().caller(), &name).is_none());
             assert!(self.usernames.insert(name, &Self::env().caller()).is_none());
         }
 
         #[ink(message)]
         pub fn give_up_name(&mut self, name: RawUserName) {
-            assert_eq!(self.usernames.take(&name), Some(Self::env().caller()));
-            assert_eq!(self.has_name.take(&Self::env().caller()), Some(name));
+            assert_eq!(self.usernames.take(name), Some(Self::env().caller()));
+            assert_eq!(self.has_name.take(Self::env().caller()), Some(name));
         }
 
         #[ink(message)]
         pub fn transfere_name(&mut self, name: RawUserName, target: AccountId) {
             self.give_up_name(name);
-            assert!(self.has_name.insert(&target, &name).is_none());
+            assert!(self.has_name.insert(target, &name).is_none());
             assert!(self.usernames.insert(name, &target).is_none());
         }
 
         #[ink(message)]
         pub fn get_profile(&self, account: AccountId) -> Option<Serialized<StoredUserIdentity>> {
             self.identities
-                .get(&account)
+                .get(account)
                 .map(|profile| profile.to_bytes())
         }
 
@@ -102,7 +108,7 @@ mod user_manager {
             name: RawUserName,
         ) -> Option<Serialized<StoredUserIdentity>> {
             self.usernames
-                .get(&name)
+                .get(name)
                 .and_then(|account| self.identities.get(account))
                 .map(|profile| profile.to_bytes())
         }

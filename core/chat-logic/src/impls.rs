@@ -50,8 +50,7 @@ pub fn unpack_messages_ref(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
     let mut iter = buffer.iter();
     iter::from_fn(move || {
         let len = iter
-            .by_ref()
-            .map(|b| *b)
+            .by_ref().copied()
             .next_chunk()
             .map(u16::from_be_bytes)
             .ok()?;

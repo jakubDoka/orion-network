@@ -84,8 +84,8 @@ impl Miner {
             .join(
                 node_contract,
                 NodeData {
-                    sign: sig_keys.public_key().into(),
-                    enc: enc_keys.public_key().into(),
+                    sign: sig_keys.public_key(),
+                    enc: enc_keys.public_key(),
                 }
                 .to_stored(),
             )

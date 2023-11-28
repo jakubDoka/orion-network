@@ -12,7 +12,7 @@ use {
         kad::KadPeerSearch,
         Codec, LinearMap, Reminder,
     },
-    crypto::{decrypt, enc, sign, TransmutationCircle},
+    crypto::{decrypt, enc, TransmutationCircle},
     leptos::signal_prelude::*,
     libp2p::{
         core::{upgrade::Version, ConnectedPoint},
@@ -69,13 +69,6 @@ impl ChatMeta {
             secret,
             action_no: 1,
         }
-    }
-}
-
-impl Vault {
-    pub fn next_chat_proof(&mut self, chat: ChatName, kp: &sign::KeyPair) -> Option<Proof> {
-        let meta = self.chats.get_mut(&chat)?;
-        Some(Proof::for_chat(kp, &mut meta.action_no, chat))
     }
 }
 
@@ -171,9 +164,10 @@ impl Node {
 
         let mut peer_search = KadPeerSearch::default();
         let (mut request_dispatch, commands) = RequestDispatch::new();
-        let chain_api = crate::chain_node(keys.name).await.unwrap();
-        let node_request = chain_api.list(crate::node_contract());
-        let profile_request = chain_api.get_profile_by_name(crate::user_contract(), keys.name);
+        let chain_api = crate::chain::node(keys.name).await.unwrap();
+        let node_request = chain_api.list(crate::chain::node_contract());
+        let profile_request =
+            chain_api.get_profile_by_name(crate::chain::user_contract(), keys.name);
         let (node_data, profile_hash) = futures::join!(node_request, profile_request);
         let (node_data, profile_hash) = (
             node_data.map_err(BootError::FetchNodes)?,
@@ -222,7 +216,7 @@ impl Node {
         );
         swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
 
-        swarm.dial(crate::boot_node()).unwrap();
+        swarm.dial(crate::chain::boot_node()).unwrap();
         loop {
             match swarm.select_next_some().await {
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
@@ -624,7 +618,6 @@ impl Node {
                     });
 
                     self.handle_command(req);
-                    return;
                 }
             }
             e if Self::try_handle_common_event(&e, &mut self.swarm, &mut self.peer_search) => {}

@@ -48,7 +48,7 @@ impl crate::Handler for FetchProfile {
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
     ) -> Result<Self::Response<'static>, Self> {
-        if let Some(profile) = context.store_mut().profiles.get(&request) {
+        if let Some(profile) = context.store_mut().profiles.get(request) {
             return Ok(Ok(profile.into()));
         }
 
@@ -204,7 +204,7 @@ impl crate::SyncHandler for FetchVault {
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
     ) -> Self::Response<'a> {
-        let profile = context.store_mut().profiles.get(&request);
+        let profile = context.store_mut().profiles.get(request);
         crate::ensure!(let Some(profile) = profile, FetchVaultError::NotFound);
         Ok((profile.action, Reminder(profile.vault.as_slice())))
     }

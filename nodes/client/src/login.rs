@@ -74,10 +74,10 @@ pub fn Register(state: State) -> impl IntoView {
         let key = UserKeys::new(username_content);
 
         spawn_local(async move {
-            let client = crate::chain_node(username_content).await.unwrap();
+            let client = crate::chain::node(username_content).await.unwrap();
 
             if client
-                .user_exists(crate::user_contract(), username_content)
+                .user_exists(crate::chain::user_contract(), username_content)
                 .await
                 .unwrap()
             {
@@ -88,8 +88,8 @@ pub fn Register(state: State) -> impl IntoView {
 
             let data = UserData {
                 name: username_content,
-                enc: key.enc.public_key().into(),
-                sign: key.sign.public_key().into(),
+                enc: key.enc.public_key(),
+                sign: key.sign.public_key(),
             };
 
             let key_bytes = key.clone().into_raw().into_bytes();
@@ -110,7 +110,7 @@ pub fn Register(state: State) -> impl IntoView {
 
             if let Err(e) = client
                 .register(
-                    crate::user_contract(),
+                    crate::chain::user_contract(),
                     username_content,
                     data.to_identity().to_stored(),
                 )

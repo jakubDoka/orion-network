@@ -15,10 +15,10 @@ mod profile;
 
 pub use {chat::*, nodes::*, profile::*};
 
-fn replicate<'a, H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
+fn replicate<H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
     kad: &mut H::Context,
     key: &H::Topic,
-    value: &H::Request<'a>,
+    value: &H::Request<'_>,
     meta: crate::RequestMeta,
 ) {
     if kad.store_mut().replicating {
@@ -39,6 +39,12 @@ pub struct Storage {
 
     // this is true if we are dispatching put_record
     replicating: bool,
+}
+
+impl Default for Storage {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Storage {

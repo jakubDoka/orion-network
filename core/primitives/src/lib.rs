@@ -23,5 +23,5 @@ pub fn username_to_raw(u: UserName) -> RawUserName {
 pub fn username_from_raw(name: RawUserName) -> Option<UserName> {
     let len = name.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
     let name = &name[..len];
-    UserName::from_str(core::str::from_utf8(&name).ok()?).ok()
+    UserName::from_str(core::str::from_utf8(name).ok()?).ok()
 }

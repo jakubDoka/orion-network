@@ -555,6 +555,12 @@ pub struct PacketBuffer<M> {
     bounds: Vec<(usize, M)>,
 }
 
+impl<M> Default for PacketBuffer<M> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<M> PacketBuffer<M> {
     pub fn new() -> Self {
         Self {
