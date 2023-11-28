@@ -7,18 +7,18 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.75"
-chat-logic = { version = "0.1.0", path = "../../utils/chat-logic" }
+chat-logic = { version = "0.1.0", path = "../../core/chat-logic" }
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 console_error_panic_hook = "0.1.7"
 console_log = { version = "1.0.0", features = ["wasm-bindgen"] }
-crypto = { version = "0.1.0", path = "../../utils/crypto" }
+crypto = { version = "0.1.0", path = "../../core/crypto" }
 hex = "0.4.3"
 leptos = { version = "0.5.1", default-features = false, features = ["nightly", "csr"] }
 leptos_router = { version = "0.5.2", features = ["nightly", "csr"] }
 libp2p = { version = "0.53.0", features = ["noise", "kad", "macros", "yamux", "wasm-bindgen", "identify"] }
 log = "0.4.20"
-onion = { version = "0.1.0", path = "../../utils/onion", features = ["wasm"] }
-primitives = { version = "0.1.0", path = "../../utils/primitives", features = ["std"] }
+onion = { version = "0.1.0", path = "../../core/onion", features = ["wasm"] }
+primitives = { version = "0.1.0", path = "../../core/primitives", features = ["std"] }
 rand = "0.8.5"
 thiserror = "1.0.50"
 wasm-bindgen-futures = "0.4.38"
@@ -26,13 +26,13 @@ websocket-websys = { version = "0.1.0", path = "../../utils/websocket-websys" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.chain-api]
 version = "0.1.0"
-path = "../../utils/chain-api"
+path = "../../core/chain-api"
 features = ["native"]
 default-features = false 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.chain-api]
 version = "0.1.0"
-path = "../../utils/chain-api"
+path = "../../core/chain-api"
 features = ["web"]
 default-features = false 
 

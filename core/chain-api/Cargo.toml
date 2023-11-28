@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 blake2 = "0.10.6"
-component-utils = { version = "0.1.0", path = "../component-utils" }
-contract-macro = { version = "0.1.0", path = "../contract_macro" }
+component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
+contract-macro = { version = "0.1.0", path = "../../utils/contract_macro" }
 crypto = { version = "0.1.0", path = "../crypto" }
 futures = { version = "0.3.29", features = ["executor"] }
 hex = "0.4.3"

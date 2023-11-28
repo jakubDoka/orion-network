@@ -6,16 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chain-api = { version = "0.1.0", path = "../../utils/chain-api", features = ["native"] }
-chat-logic = { version = "0.1.0", path = "../../utils/chat-logic" }
+chain-api = { version = "0.1.0", path = "../../core/chain-api", features = ["native"] }
+chat-logic = { version = "0.1.0", path = "../../core/chat-logic" }
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 config = { version = "0.1.0", path = "../../utils/config" }
-crypto = { version = "0.1.0", path = "../../utils/crypto" }
+crypto = { version = "0.1.0", path = "../../core/crypto" }
 env_logger = "0.10.0"
 libp2p = { version = "0.53.0", features = ["tcp", "noise", "kad", "macros", "tokio", "yamux", "identify", "websocket", "dns"] }
 log = "0.4.20"
-onion = { version = "0.1.0", path = "../../utils/onion" }
-primitives = { version = "0.1.0", path = "../../utils/primitives", features = ["std"] }
+onion = { version = "0.1.0", path = "../../core/onion" }
+primitives = { version = "0.1.0", path = "../../core/primitives", features = ["std"] }
 smallvec = "1.11.1"
 thiserror = "1.0.50"
 tokio = { version = "1.32.0", features = ["rt", "macros", "time"] }
