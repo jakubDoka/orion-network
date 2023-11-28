@@ -329,15 +329,13 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
     type Future = impl Future<Output = Result<Self::Output, Self::Error>>;
 
     fn upgrade_outbound(self, mut stream: libp2p::swarm::Stream, _: Self::Info) -> Self::Future {
-        log::warn!("upgrading outbound stream");
+        log::debug!("upgrading outbound stream");
         async move {
             let Self {
                 keypair,
                 incoming,
                 buffer_cap,
             } = self;
-
-            log::warn!("sending init packet");
 
             let mut written_packet = vec![];
             let mut ss = [0; 32];
@@ -355,12 +353,10 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                 .write_all(&(buffer.len() as u16).to_be_bytes())
                 .await
                 .map_err(OUpgradeError::WritePacketLength)?;
-            log::warn!("wrote packet length: {}", buffer.len());
             stream
                 .write_all(buffer)
                 .await
                 .map_err(OUpgradeError::WritePacket)?;
-            log::warn!("wrote packet");
 
             let request = match incoming {
                 IncomingOrRequest::Incoming(i) => {
@@ -379,7 +375,6 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                 .await
                 .map_err(OUpgradeError::ReadPacketKind)?;
 
-            log::debug!("received init packet kind: {}", kind);
             match kind {
                 crate::packet::OK => {
                     let mut buffer = written_packet;
@@ -388,7 +383,6 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                         .read(&mut buffer)
                         .await
                         .map_err(OUpgradeError::ReadPacket)?;
-                    log::warn!("received confirm packet");
 
                     if !packet::verify_confirm(&ss, &mut buffer) {
                         Err(OUpgradeError::AuthenticationFailed)

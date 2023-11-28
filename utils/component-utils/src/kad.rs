@@ -1,4 +1,5 @@
 use {
+    crate::LinearMap,
     libp2p::{
         identity::PeerId,
         kad::{store::RecordStore, QueryId, QueryResult},
@@ -83,7 +84,7 @@ macro_rules! impl_kad_search {
 
 #[derive(Default)]
 pub struct KadPeerSearch {
-    discovery_queries: VecDeque<(QueryId, PeerId)>,
+    discovery_queries: LinearMap<QueryId, PeerId>,
 }
 
 pub enum KadSearchResult {
@@ -100,7 +101,7 @@ impl KadPeerSearch {
         kad: &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>,
     ) {
         let query_id = kad.get_closest_peers(peer_id);
-        self.discovery_queries.push_back((query_id, peer_id));
+        self.discovery_queries.insert(query_id, peer_id);
     }
 
     pub fn try_handle_kad_event(
@@ -118,10 +119,9 @@ impl KadPeerSearch {
             return KadSearchResult::Ignored;
         };
 
-        let Some(index) = self.discovery_queries.iter().position(|(q, _)| q == id) else {
+        let Some(target) = self.discovery_queries.remove(id) else {
             return KadSearchResult::Ignored;
         };
-        let (_, target) = self.discovery_queries.swap_remove_front(index).unwrap();
 
         if closest_peers.peers.contains(&target) {
             if let Some(mut q) = kad.query_mut(id) {
@@ -131,7 +131,7 @@ impl KadPeerSearch {
         }
 
         if !step.last {
-            self.discovery_queries.push_back((*id, target));
+            self.discovery_queries.insert(*id, target);
             return KadSearchResult::Pending;
         }
 

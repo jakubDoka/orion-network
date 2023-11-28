@@ -429,7 +429,7 @@ impl<'a, T: Codec<'a>, const SIZE: usize> Codec<'a> for [T; SIZE] {
         if tries.iter().any(|t| t.is_none()) {
             return None;
         }
-        Some(tries.map(|t| t.unwrap()))
+        Some(tries.map(|t| t.expect("to be some, since we checked")))
     }
 }
 

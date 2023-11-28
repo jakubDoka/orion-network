@@ -331,9 +331,15 @@ impl<S: TransactionHandler> Client<S> {
         let res = r.result.map_err(|e| match e {
             DispatchError::Module(me) => {
                 let meta = self.inner.client.metadata();
-                let pallet = meta.pallet_by_index(me.index).unwrap();
-                let error = pallet.error_variant_by_index(me.error[0]).unwrap();
-                Error::Other(format!("dispatch error: {}.{}", pallet.name(), error.name))
+                let pallet = meta.pallet_by_index(me.index);
+                let error = pallet
+                    .as_ref()
+                    .and_then(|p| p.error_variant_by_index(me.error[0]));
+                Error::Other(format!(
+                    "dispatch error: {}.{}",
+                    pallet.map_or("unknown", |p| p.name()),
+                    error.map_or("unknown", |e| &e.name)
+                ))
             }
             e => Error::Other(format!("dispatch error: {:?}", e)),
         })?;

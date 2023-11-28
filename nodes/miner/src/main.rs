@@ -3,6 +3,7 @@
 #![feature(map_try_insert)]
 
 use {
+    anyhow::Context,
     chain_api::ContractId,
     chat_logic::{DispatchResponse, PublishNode, RootPacketBuffer, SubContext, REPLICATION_FACTOR},
     component_utils::{
@@ -11,7 +12,7 @@ use {
         libp2p::kad::{InboundRequest, StoreInserts},
         Reminder,
     },
-    crypto::TransmutationCircle,
+    crypto::{enc, sign, TransmutationCircle},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
         futures::{self, StreamExt},
@@ -21,32 +22,26 @@ use {
     },
     onion::{EncryptedStream, PathId},
     primitives::contracts::{NodeData, NodeIdentity},
-    std::{io, mem, net::Ipv4Addr, time::Duration},
+    std::{fs, io, mem, time::Duration},
 };
 
+#[derive(Default, Clone)]
+struct NodeKeys {
+    enc: enc::KeyPair,
+    sign: sign::KeyPair,
+}
+
+crypto::impl_transmute! {
+    NodeKeys,
+}
+
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    config::env_config! {
-        PORT: u16,
-        BOOTSTRAP_NODE: String,
-        NODE_ACCOUNT: String,
-        NODE_CONTRACT: ContractId,
-    }
+    Miner::new().await?.run().await;
 
-    let account = if NODE_ACCOUNT.starts_with("//") {
-        chain_api::dev_keypair(&NODE_ACCOUNT)
-    } else {
-        chain_api::mnemonic_keypair(&NODE_ACCOUNT)
-    };
-
-    log::info!("booting up node");
-
-    Miner::new(PORT, BOOTSTRAP_NODE, account, NODE_CONTRACT)
-        .await
-        .run()
-        .await;
+    Ok(())
 }
 
 struct Miner {
@@ -61,34 +56,48 @@ struct Miner {
 }
 
 impl Miner {
-    async fn new(
-        port: u16,
-        boot_chain_node: String,
-        node_account: chain_api::Keypair,
-        node_contract: chain_api::ContractId,
-    ) -> Self {
-        let enc_keys = crypto::enc::KeyPair::new();
-        let sig_keys = crypto::sign::KeyPair::new();
-        let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sig_keys.ed).unwrap();
+    async fn new() -> anyhow::Result<Self> {
+        config::env_config! {
+            PORT: u16,
+            WS_PORT: u16,
+            BOOTSTRAP_NODE: String,
+            NODE_ACCOUNT: String,
+            NODE_CONTRACT: ContractId,
+            KEY_PATH: String,
+            BOOT_NODES: config::List<Multiaddr>,
+        }
+
+        let account = if NODE_ACCOUNT.starts_with("//") {
+            chain_api::dev_keypair(&NODE_ACCOUNT)
+        } else {
+            chain_api::mnemonic_keypair(&NODE_ACCOUNT)
+        };
+
+        let (enc_keys, sign_keys, is_new) =
+            Self::load_keys(KEY_PATH).context("key file loading")?;
+        let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sign_keys.ed)
+            .context("deriving ed signature")?;
         let peer_id = local_key.public().to_peer_id();
 
         log::info!("peer id: {}", peer_id);
-        let client = chain_api::Client::with_signer(&boot_chain_node, node_account)
-            .await
-            .unwrap();
-        log::info!("joined chain");
-        client
-            .join(
-                node_contract,
-                NodeData {
-                    sign: sig_keys.public_key(),
-                    enc: enc_keys.public_key(),
-                }
-                .to_stored(),
-            )
-            .await
-            .unwrap();
-        log::info!("registered on chain");
+
+        if is_new {
+            let client = chain_api::Client::with_signer(&BOOTSTRAP_NODE, account)
+                .await
+                .context("connecting to chain")?;
+            client
+                .join(
+                    NODE_CONTRACT,
+                    NodeData {
+                        sign: sign_keys.public_key(),
+                        enc: enc_keys.public_key(),
+                    }
+                    .to_stored(),
+                )
+                .await
+                .context("registeing to chain")?;
+            log::info!("registered on chain");
+        }
 
         let behaviour = Behaviour {
             onion: onion::Behaviour::new(
@@ -110,17 +119,18 @@ impl Miner {
                 local_key.public(),
             )),
         };
-
         let transport = libp2p::websocket::WsConfig::new(libp2p::tcp::tokio::Transport::new(
             libp2p::tcp::Config::default(),
         ))
         .upgrade(Version::V1)
-        .authenticate(libp2p::noise::Config::new(&local_key).unwrap())
+        .authenticate(libp2p::noise::Config::new(&local_key).context("noise initialization")?)
         .multiplex(libp2p::yamux::Config::default())
         .or_transport(
             libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
                 .upgrade(Version::V1)
-                .authenticate(libp2p::noise::Config::new(&local_key).unwrap())
+                .authenticate(
+                    libp2p::noise::Config::new(&local_key).context("noise initialization")?,
+                )
                 .multiplex(libp2p::yamux::Config::default()),
         )
         .map(|t, _| match t {
@@ -128,7 +138,6 @@ impl Miner {
             futures::future::Either::Right((p, m)) => (p, StreamMuxerBox::new(m)),
         })
         .boxed();
-
         let mut swarm = libp2p::swarm::Swarm::new(
             transport,
             behaviour,
@@ -137,39 +146,30 @@ impl Miner {
                 .with_idle_connection_timeout(Duration::MAX),
         );
 
-        swarm
-            .listen_on(
-                Multiaddr::empty()
-                    .with(multiaddr::Protocol::Ip4([0; 4].into()))
-                    .with(multiaddr::Protocol::Tcp(port)),
-            )
-            .unwrap();
-
-        swarm
-            .listen_on(
-                Multiaddr::empty()
-                    .with(multiaddr::Protocol::Ip4([0; 4].into()))
-                    .with(multiaddr::Protocol::Tcp(port + 100))
-                    .with(multiaddr::Protocol::Ws("/".into())),
-            )
-            .unwrap();
-
-        // very fucking important
         swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
 
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        swarm
+            .listen_on(
+                Multiaddr::empty()
+                    .with(multiaddr::Protocol::Ip4([0; 4].into()))
+                    .with(multiaddr::Protocol::Tcp(PORT)),
+            )
+            .context("starting to listen for peers")?;
 
-        for back_ref in (0..5).filter_map(|i| port.checked_sub(8800 + i)) {
-            swarm
-                .dial(
-                    Multiaddr::empty()
-                        .with(multiaddr::Protocol::Ip4(Ipv4Addr::LOCALHOST))
-                        .with(multiaddr::Protocol::Tcp(back_ref + 8800)),
-                )
-                .unwrap();
+        swarm
+            .listen_on(
+                Multiaddr::empty()
+                    .with(multiaddr::Protocol::Ip4([0; 4].into()))
+                    .with(multiaddr::Protocol::Tcp(WS_PORT))
+                    .with(multiaddr::Protocol::Ws("/".into())),
+            )
+            .context("starting to isten for clients")?;
+
+        for boot_node in BOOT_NODES.0 {
+            swarm.dial(boot_node).context("dialing a boot peer")?;
         }
 
-        Self {
+        Ok(Self {
             swarm,
             peer_discovery: Default::default(),
             clients: Default::default(),
@@ -177,8 +177,26 @@ impl Miner {
             bootstrapped: None,
             server: Default::default(),
             packets: RootPacketBuffer::new(),
-            sign: sig_keys,
-        }
+            sign: sign_keys,
+        })
+    }
+
+    fn load_keys(path: String) -> io::Result<(enc::KeyPair, sign::KeyPair, bool)> {
+        let file = match fs::read(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                let nk = NodeKeys::default();
+                fs::write(&path, nk.as_bytes())?;
+                return Ok((nk.enc, nk.sign, true));
+            }
+            Err(e) => return Err(e),
+        };
+
+        let Some(nk) = NodeKeys::try_from_slice(&file).cloned() else {
+            return Err(io::Error::other("invalid key file"));
+        };
+
+        Ok((nk.enc, nk.sign, false))
     }
 
     fn handle_put_record(&mut self, record: kad::Record) {
@@ -220,7 +238,13 @@ impl Miner {
                 }
 
                 if self.bootstrapped.is_none() {
-                    self.bootstrapped = Some(self.swarm.behaviour_mut().kad.bootstrap().unwrap());
+                    self.bootstrapped = Some(
+                        self.swarm
+                            .behaviour_mut()
+                            .kad
+                            .bootstrap()
+                            .expect("we now have at least one node connected"),
+                    );
                 }
             }
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
@@ -264,7 +288,9 @@ impl Miner {
                         request_id: rid,
                         response: Reminder(packet),
                     };
-                    let stream = self.clients.iter_mut().find(|s| s.assoc == id).unwrap();
+                    let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == id) else {
+                        continue;
+                    };
                     send_response(resp, &mut stream.inner, &mut self.buffer);
                 }
 
@@ -294,9 +320,14 @@ impl Miner {
                 .dispatch(self.swarm.behaviour_mut(), req, Some(id), &mut self.packets)
         {
             log::error!("failed to dispatch init request: {}", e);
+            return;
         };
 
-        let stream = self.clients.iter_mut().find(|s| s.assoc == id).unwrap();
+        let stream = self
+            .clients
+            .iter_mut()
+            .find(|s| s.assoc == id)
+            .expect("we just received message");
         for ((rid, _), packet) in self.packets.drain() {
             let resp = DispatchResponse {
                 request_id: rid,
@@ -320,7 +351,9 @@ impl Miner {
                     request_id,
                     response: Reminder(event),
                 };
-                let stream = self.clients.iter_mut().find(|s| s.assoc == target).unwrap();
+                let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == target) else {
+                    continue;
+                };
                 send_response(resp, &mut stream.inner, &mut self.buffer);
             }
         }
@@ -336,7 +369,7 @@ impl Miner {
                 .config()
                 .secret
                 .clone()
-                .unwrap()
+                .expect("we are the server")
                 .public_key(),
         };
         self.server.dispatch_local::<PublishNode>(

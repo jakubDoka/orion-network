@@ -293,19 +293,14 @@ async fn settle_down() {
         streams: &mut SelectAll<AsocStream<PathId, EncryptedStream>>,
         counter: &mut usize,
     ) {
-        let mut packet = match packet {
-            Ok(packet) => packet,
-            Err(e) => {
-                log::info!("stream terminated with {e:?}");
-                return;
-            }
+        let Ok(mut packet) = packet.inspect_err(|e| log::error!("closing stream with error: {e}"))
+        else {
+            return;
         };
-
-        //log::info!("received {packet:?} bytes from {id}");
 
         *counter += 1;
         if *counter % 10 == 0 {
-            log::info!("received {counter} packets");
+            log::debug!("received {counter} packets");
         }
 
         let stream = streams.iter_mut().find(|s| s.assoc == id).unwrap();

@@ -87,7 +87,7 @@ pub fn encrypt(data: &mut Vec<u8>, secret: SharedSecret) {
     let cipher = Aes256Gcm::new(&GenericArray::from(secret));
     let tag = cipher
         .encrypt_in_place_detached(&nonce, enc::ASOC_DATA, data)
-        .unwrap();
+        .expect("data to not be that big");
 
     data.extend_from_slice(tag.as_slice());
     data.extend_from_slice(nonce.as_slice());

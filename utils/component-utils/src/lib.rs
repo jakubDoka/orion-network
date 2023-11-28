@@ -196,7 +196,7 @@ impl<F: FnOnce()> DropFn<F> {
 
 impl<F: FnOnce()> Drop for DropFn<F> {
     fn drop(&mut self) {
-        self.0.take().unwrap()()
+        self.0.take().expect("we drop only once")()
     }
 }
 
@@ -211,6 +211,10 @@ pub fn array_to_arrstr<const SIZE: usize>(arr: [u8; SIZE]) -> Option<arrayvec::A
     let len = arr.iter().rposition(|&x| x != 0xff).map_or(0, |x| x + 1);
     s.push_str(core::str::from_utf8(&arr[..len]).ok()?);
     Some(s)
+}
+
+pub fn find_and_remove<T>(v: &mut Vec<T>, q: impl FnMut(&T) -> bool) -> Option<T> {
+    v.iter().position(q).map(|i| v.swap_remove(i))
 }
 
 #[cfg(test)]

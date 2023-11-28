@@ -11,7 +11,11 @@ use {
         node::{ChatMeta, Node},
         profile::Profile,
     },
-    chat_logic::{ChatName, Nonce, Proof, ReadMail, RequestDispatch, SendMail, Server, SetVault},
+    anyhow::Context,
+    chat_logic::{
+        ChatName, Identity, Nonce, Proof, ReadMail, RequestDispatch, SendMail, Server, SetVault,
+        SubsOwner,
+    },
     component_utils::{Codec, Reminder},
     crypto::{
         enc::{self, ChoosenCiphertext},
@@ -19,6 +23,7 @@ use {
     },
     leptos::{html::Input, leptos_dom::helpers::TimeoutHandle, signal_prelude::*, *},
     leptos_router::*,
+    libp2p::futures::FutureExt,
     node::Vault,
     primitives::{contracts::UserIdentity, RawUserName, UserName},
     std::{
@@ -40,7 +45,11 @@ mod profile;
 
 pub fn main() {
     console_error_panic_hook::set_once();
-    _ = console_log::init_with_level(log::Level::Debug);
+    _ = console_log::init_with_level(if cfg!(debug_assertions) {
+        log::Level::Debug
+    } else {
+        log::Level::Error
+    });
     mount_to_body(App)
 }
 
@@ -73,6 +82,10 @@ impl UserKeys {
             enc,
             vault,
         }
+    }
+
+    pub fn identity_hash(&self) -> Identity {
+        crypto::hash::new(&self.sign.public_key())
     }
 
     pub fn to_identity(&self) -> UserIdentity {
@@ -154,24 +167,25 @@ impl State {
 
 fn App() -> impl IntoView {
     let (rboot_phase, wboot_phase) = create_signal(None::<BootPhase>);
+    let (errors, set_errors) = create_signal(None::<anyhow::Error>);
+    provide_context(Errors(set_errors));
     let state = State::default();
 
     let serialized_vault = create_memo(move |_| {
-        log::info!("vault serialized");
+        log::debug!("vault serialized");
         state.vault.with(Codec::to_bytes)
     });
     let timeout = store_value(None::<TimeoutHandle>);
     let save_vault = move |keys: UserKeys, mut ed: RequestDispatch<Server>| {
-        let identity = crypto::hash::new(&keys.sign.public_key());
+        let identity = keys.identity_hash();
         let mut vault_bytes = serialized_vault.get_untracked();
-        let proof = state.next_profile_proof().unwrap();
+        let proof = state.next_profile_proof().expect("logged in");
         crypto::encrypt(&mut vault_bytes, keys.vault);
-        spawn_local(async move {
+        handled_spawn_local(async move {
             ed.dispatch::<SetVault>(identity, (proof, Reminder(&vault_bytes)))
-                .await
-                .unwrap()
-                .unwrap();
-            log::info!("vault saved");
+                .await??;
+            log::debug!("saved vault");
+            Ok(())
         });
     };
     create_effect(move |init| {
@@ -194,6 +208,7 @@ fn App() -> impl IntoView {
         timeout.set_value(Some(handle));
     });
 
+    let account_sub = store_value(None::<SubsOwner<SendMail>>);
     create_effect(move |_| {
         let Some(keys) = state.keys.get() else {
             return;
@@ -202,59 +217,62 @@ fn App() -> impl IntoView {
         let enc = keys.enc.clone();
         let handle_chat_invite = move |mail: &[u8]| {
             let Some(Mail::ChatInvite(ChatInvite { chat, cp })) = <_>::decode(&mut &*mail) else {
-                log::error!("malfirmed mail");
-                return;
+                anyhow::bail!("failed to decode chat message");
             };
 
-            let Ok(secret) = enc.decapsulate_choosen(ChoosenCiphertext::from_bytes(cp)) else {
-                log::error!("cp but not for us");
-                return;
-            };
+            let secret = enc
+                .decapsulate_choosen(ChoosenCiphertext::from_bytes(cp))
+                .context("failed to decapsulate invite")?;
 
             state
                 .vault
                 .update(|v| _ = v.chats.insert(chat, ChatMeta::from_secret(secret)));
+
+            Ok(())
         };
 
-        // TODO: manage the future somehow
-        spawn_local(async move {
+        handled_spawn_local(async move {
             navigate_to("/");
-            let identity = crypto::hash::new(&keys.sign.public_key());
-            let (node, vault, mut dispatch, nonce) = match Node::new(keys, wboot_phase).await {
-                Ok(n) => n,
-                Err(e) => {
-                    log::error!("failed to create node: {e}");
-                    return;
-                }
-            };
+            let identity = keys.identity_hash();
+            let (node, vault, mut dispatch, nonce) = Node::new(keys, wboot_phase)
+                .await
+                .inspect_err(|_| navigate_to("/login"))
+                .context("failed to create node")?;
 
             let mut dispatch_clone = dispatch.clone();
             let handle_chat_invite_clone = handle_chat_invite.clone();
-            let read_mail = async move {
+            handled_spawn_local(async move {
                 let proof = state.next_profile_proof().unwrap();
                 let list = dispatch_clone
                     .dispatch::<ReadMail>(identity, proof)
-                    .await
-                    .unwrap()
-                    .unwrap();
+                    .await??;
 
                 for mail in chat_logic::unpack_messages_ref(list.0) {
-                    handle_chat_invite_clone(mail);
+                    handle_chat_invite_clone(mail)?;
                 }
-            };
 
-            let (mut account, _) = dispatch.subscribe::<SendMail>(identity).unwrap();
+                anyhow::Result::Ok(())
+            });
+
+            let (mut account, id) = dispatch.subscribe::<SendMail>(identity).unwrap();
+            account_sub.set_value(Some(id));
             let listen = async move {
                 while let Some(Reminder(mail)) = account.next().await {
-                    handle_chat_invite(mail);
+                    handle_chat_invite(mail)?;
                 }
+
+                anyhow::Result::Ok(())
             };
 
             state.requests.set_untracked(Some(dispatch));
             state.vault.set_untracked(vault);
             state.account_nonce.set_untracked(nonce);
             navigate_to("/chat");
-            libp2p::futures::join!(node.run(), listen, read_mail);
+
+            libp2p::futures::select! {
+                e = node.run().fuse() => e,
+                e = listen.fuse() => e,
+            }
         });
     });
 
@@ -274,18 +292,55 @@ fn App() -> impl IntoView {
             <Route path="/" view=boot></Route>
         </Routes>
         </Router>
+        <ErrorPanel errors/>
+    }
+}
+
+#[component]
+fn ErrorPanel(errors: ReadSignal<Option<anyhow::Error>>) -> impl IntoView {
+    let error_nodes = create_node_ref::<html::Div>();
+    let error_message = move |message: String| {
+        let elem = create_node_ref::<html::Div>();
+        let remove = move || {
+            elem.get_untracked().unwrap().remove();
+        };
+        set_timeout(remove, Duration::from_secs(6));
+
+        view! {
+            <div class="notification-box" node_ref=elem on:click=move |_| remove()>
+                <div class="notification-text">{message}</div>
+            </div>
+        }
+    };
+
+    create_effect(move |_| {
+        errors.with(|e| {
+            if let Some(e) = e {
+                error_nodes
+                    .get_untracked()
+                    .unwrap()
+                    .append_child(&error_message(e.to_string()))
+                    .unwrap();
+            }
+        });
+    });
+
+    view! {
+        <div class="fs" style="display: flex; justify-content: flex-end;">
+            <div class="errors" style="align-self: flex-end; margin: 10px;" node_ref=error_nodes />
+        </div>
     }
 }
 
 #[derive(Debug, Clone, Copy, thiserror::Error)]
 #[repr(u8)]
 pub enum BootPhase {
-    #[error("fetch topology...")]
-    FetchTopology,
+    #[error("fetching nodes and profile from chain...")]
+    FetchNodesAndProfile,
     #[error("initiating orion connection...")]
     InitiateConnection,
-    #[error("creating network topology...")]
-    InitiateKad,
+    #[error("bootstrapping kademlia...")]
+    Bootstrapping,
     #[error("collecting server keys... ({0} left)")]
     CollecringKeys(usize),
     #[error("initiating search path...")]
@@ -327,6 +382,7 @@ fn Boot(rboot_phase: ReadSignal<Option<BootPhase>>) -> impl IntoView {
             view! { <span class=move || format!("bp hc fg1 tac {} {margin}", compute_class()) /> }
         })
         .collect_view();
+
     let message = move || match rboot_phase() {
         Some(s) => format!("{s}"),
         None => {
@@ -462,4 +518,70 @@ fn navigate_to(path: impl Display) {
 
 fn not(signal: impl Fn() -> bool + Copy) -> impl Fn() -> bool + Copy {
     move || !signal()
+}
+
+fn handle_js_err(jv: JsValue) -> anyhow::Error {
+    anyhow::anyhow!("{jv:?}")
+}
+
+#[derive(Clone, Copy)]
+struct Errors(WriteSignal<Option<anyhow::Error>>);
+
+fn _handled_closure(
+    f: impl Fn() -> anyhow::Result<()> + 'static + Copy,
+) -> impl Fn() + 'static + Copy {
+    let Errors(errors) = use_context().unwrap();
+    move || {
+        if let Err(e) = f() {
+            errors.set(Some(e));
+        }
+    }
+}
+
+fn handled_callback<T>(
+    f: impl Fn(T) -> anyhow::Result<()> + 'static + Copy,
+) -> impl Fn(T) + 'static + Copy {
+    let Errors(errors) = use_context().unwrap();
+    move |v| {
+        if let Err(e) = f(v) {
+            errors.set(Some(e));
+        }
+    }
+}
+
+fn handled_async_closure<F: Future<Output = anyhow::Result<()>> + 'static>(
+    f: impl Fn() -> F + 'static + Copy,
+) -> impl Fn() + 'static + Copy {
+    let Errors(errors) = use_context().unwrap();
+    move || {
+        let fut = f();
+        spawn_local(async move {
+            if let Err(e) = fut.await {
+                errors.set(Some(e));
+            }
+        });
+    }
+}
+
+fn handled_async_callback<T, F: Future<Output = anyhow::Result<()>> + 'static>(
+    f: impl Fn(T) -> F + 'static + Copy,
+) -> impl Fn(T) + 'static + Copy {
+    let Errors(errors) = use_context().unwrap();
+    move |v| {
+        let fut = f(v);
+        spawn_local(async move {
+            if let Err(e) = fut.await {
+                errors.set(Some(e));
+            }
+        });
+    }
+}
+
+fn handled_spawn_local(f: impl Future<Output = anyhow::Result<()>> + 'static) {
+    let Errors(errors) = use_context().unwrap();
+    spawn_local(async move {
+        if let Err(e) = f.await {
+            errors.set(Some(e));
+        }
+    });
 }

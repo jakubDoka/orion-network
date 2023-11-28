@@ -2,3 +2,4 @@ imports_granularity = "One"
 group_imports = "One"
 reorder_impl_items = true
 unstable_features = false
+overflow_delimited_expr = true

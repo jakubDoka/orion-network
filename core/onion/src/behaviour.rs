@@ -176,7 +176,7 @@ impl Behaviour {
         let requests = component_utils::drain_filter(&mut self.pending_requests, |p| p.to != to)
             .map(IncomingOrRequest::Request);
 
-        log::warn!(
+        log::debug!(
             "adding connection to {to} from {}",
             self.config.current_peer_id
         );

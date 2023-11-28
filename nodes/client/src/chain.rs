@@ -37,6 +37,11 @@ pub fn node_contract() -> ContractId {
     ContractId::from_str(NODE_CONTRACT).unwrap()
 }
 
+pub fn min_nodes() -> usize {
+    build_env!(MIN_NODES);
+    MIN_NODES.parse().unwrap()
+}
+
 async fn sign_with_wallet(payload: &str) -> Result<Vec<u8>, JsValue> {
     #[wasm_bindgen::prelude::wasm_bindgen]
     extern "C" {

@@ -76,7 +76,7 @@ pub fn new_initial(
     for (pk, id) in path {
         let prev_len = buffer.len();
         let mh = Multihash::from(id);
-        mh.write(&mut *buffer).unwrap();
+        mh.write(&mut *buffer).expect("write to vector cannot fail");
         buffer.push((buffer.len() - prev_len) as u8);
 
         wrap(client_kp, &pk, buffer)?;

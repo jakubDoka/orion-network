@@ -476,7 +476,7 @@ impl<S> RequestDispatch<S> {
     pub fn subscribe<H: Handler>(
         &mut self,
         topic: H::Topic,
-    ) -> Result<(Subscription<H>, RequestId), RequestError>
+    ) -> Result<(Subscription<H>, SubsOwner<H>), RequestError>
     where
         S: Dispatches<H>,
     {
@@ -497,8 +497,36 @@ impl<S> RequestDispatch<S> {
                 events: rx,
                 phantom: std::marker::PhantomData,
             },
-            request_id,
+            SubsOwner {
+                id: request_id,
+                send_back: self.sink.clone(),
+                phantom: std::marker::PhantomData,
+            },
         ))
+    }
+}
+
+pub struct SubsOwner<H: Handler> {
+    id: RequestId,
+    send_back: libp2p::futures::channel::mpsc::Sender<RequestInit>,
+    phantom: std::marker::PhantomData<H>,
+}
+
+impl<H: Handler> Clone for SubsOwner<H> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            send_back: self.send_back.clone(),
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<H: Handler> Drop for SubsOwner<H> {
+    fn drop(&mut self) {
+        let _ = self
+            .send_back
+            .try_send(RequestInit::CloseSubscription(self.id));
     }
 }
 
@@ -508,6 +536,16 @@ pub enum RequestInit {
     Request(RawRequest),
     Subscription(SubscriptionInit),
     CloseSubscription(RequestId),
+}
+
+impl RequestInit {
+    pub fn topic(&self) -> &[u8] {
+        match self {
+            RequestInit::Request(r) => r.topic.as_deref().unwrap_or_default(),
+            RequestInit::Subscription(s) => &s.topic,
+            RequestInit::CloseSubscription(_) => &[],
+        }
+    }
 }
 
 pub struct Subscription<H> {

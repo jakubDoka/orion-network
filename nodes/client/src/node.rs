@@ -1,11 +1,13 @@
 use {
     crate::{BootPhase, UserKeys},
+    anyhow::Context,
     chat_logic::{
         ChatName, CreateAccount, DispatchResponse, FetchVault, Nonce, Proof, RawRequest,
         RawResponse, RequestDispatch, RequestId, RequestInit, RequestStream, SearchPeers, Server,
         SubscriptionInit, SubscriptionMessage,
     },
     component_utils::{
+        find_and_remove,
         futures::{self},
         kad::KadPeerSearch,
         Codec, LinearMap, Reminder,
@@ -140,15 +142,9 @@ pub struct Node {
     swarm: Swarm<Behaviour>,
     peer_search: KadPeerSearch,
     subscriptions: futures::stream::SelectAll<Subscription>,
-    pending_requests: Vec<(
-        RequestId,
-        libp2p::futures::channel::oneshot::Sender<RawResponse>,
-    )>,
-    pending_topic_search: Vec<(Result<RequestId, PathId>, RequestInit)>,
-    active_subs: Vec<(
-        RequestId,
-        libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>,
-    )>,
+    pending_requests: LinearMap<RequestId, libp2p::futures::channel::oneshot::Sender<RawResponse>>,
+    pending_topic_search: LinearMap<Result<RequestId, PathId>, RequestInit>,
+    active_subs: LinearMap<RequestId, libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>>,
     nodes: HashMap<PeerId, enc::PublicKey>,
     requests: RequestStream,
 }
@@ -157,39 +153,37 @@ impl Node {
     pub async fn new(
         keys: UserKeys,
         wboot_phase: WriteSignal<Option<BootPhase>>,
-    ) -> Result<(Self, Vault, RequestDispatch<Server>, Nonce), BootError> {
-        wboot_phase(Some(BootPhase::FetchTopology));
+    ) -> anyhow::Result<(Self, Vault, RequestDispatch<Server>, Nonce)> {
+        macro_rules! set_state { ($($t:tt)*) => {wboot_phase(Some(BootPhase::$($t)*))}; }
+
+        set_state!(FetchNodesAndProfile);
 
         let mut peer_search = KadPeerSearch::default();
         let (mut request_dispatch, commands) = RequestDispatch::new();
-        let chain_api = crate::chain::node(keys.name).await.unwrap();
+        let chain_api = crate::chain::node(keys.name).await?;
         let node_request = chain_api.list(crate::chain::node_contract());
         let profile_request =
             chain_api.get_profile_by_name(crate::chain::user_contract(), keys.name);
-        let (node_data, profile_hash) = futures::join!(node_request, profile_request);
-        let (node_data, profile_hash) = (
-            node_data.map_err(BootError::FetchNodes)?,
-            profile_hash
-                .map_err(BootError::FetchProfile)?
-                .ok_or(BootError::ProfileNotFound)?,
-        );
-        let profile = keys.to_identity();
+        let (node_data, profile_hash) = futures::try_join!(node_request, profile_request)?;
+        let profile_hash = profile_hash.context("profile not found")?;
         let profile_hash = StoredUserIdentity::from_bytes(profile_hash);
-        if !profile_hash.verify(&profile) {
-            return Err(BootError::InvalidProfileKeys);
-        }
+        let profile = keys.to_identity();
 
-        if node_data.len() < MIN_NODES {
-            return Err(BootError::NotEnoughNodes(node_data.len()));
-        }
+        anyhow::ensure!(
+            profile_hash.verify(&profile),
+            "profile hash does not match our account"
+        );
 
-        wboot_phase(Some(BootPhase::InitiateConnection));
+        anyhow::ensure!(
+            node_data.len() >= crate::chain::min_nodes(),
+            "not enough nodes in network, needed {}, got {}",
+            crate::chain::min_nodes(),
+            node_data.len()
+        );
+
+        set_state!(InitiateConnection);
+
         let keypair = identity::Keypair::generate_ed25519();
-        let transport = websocket_websys::Transport::new(100)
-            .upgrade(Version::V1)
-            .authenticate(noise::Config::new(&keypair).unwrap())
-            .multiplex(yamux::Config::default())
-            .boxed();
         let peer_id = keypair.public().to_peer_id();
 
         let behaviour = Behaviour {
@@ -205,6 +199,11 @@ impl Node {
             ),
             identify: identify::Behaviour::new(identify::Config::new("l".into(), keypair.public())),
         };
+        let transport = websocket_websys::Transport::new(100)
+            .upgrade(Version::V1)
+            .authenticate(noise::Config::new(&keypair).unwrap())
+            .multiplex(yamux::Config::default())
+            .boxed();
 
         let mut swarm = swarm::Swarm::new(
             transport,
@@ -230,9 +229,13 @@ impl Node {
             }
         }
 
-        wboot_phase(Some(BootPhase::InitiateKad));
+        set_state!(Bootstrapping);
 
-        let qid = swarm.behaviour_mut().kad.bootstrap().unwrap();
+        let qid = swarm
+            .behaviour_mut()
+            .kad
+            .bootstrap()
+            .expect("to have enough peers");
         loop {
             match swarm.select_next_some().await {
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
@@ -248,7 +251,8 @@ impl Node {
             }
         }
 
-        wboot_phase(Some(BootPhase::CollecringKeys(node_data.len())));
+        set_state!(CollecringKeys(node_data.len()));
+
         let mut query_pool = node_data
             .iter()
             .map(|nd| nd.sign.0.to_vec().into())
@@ -256,7 +260,7 @@ impl Node {
             .zip(node_data.iter())
             .collect::<Vec<_>>();
         let mut nodes = HashMap::new();
-        while node_data.len() - nodes.len() > 0 {
+        while query_pool.is_empty() {
             let (result, id, last) = match swarm.select_next_some().await {
                 SwarmEvent::Behaviour(BehaviourEvent::Kad(
                     kad::Event::OutboundQueryProgressed {
@@ -270,14 +274,15 @@ impl Node {
                 _ => continue,
             };
 
-            let Some(index) = query_pool.iter().position(|q| q.0 == id) else {
+            let Some((.., nd)) = find_and_remove(&mut query_pool, |&(qid, ..)| qid == id) else {
                 continue;
             };
-            let (.., nd) = query_pool.swap_remove(index);
 
             let Ok(GetRecordOk::FoundRecord(PeerRecord { record, .. })) = result else {
                 if last {
                     log::error!("failed to fetch node record {:#?}", result);
+                } else {
+                    query_pool.push((id, nd));
                 }
                 continue;
             };
@@ -286,28 +291,27 @@ impl Node {
                 continue;
             };
 
-            let pk: libp2p::identity::PublicKey =
-                libp2p::identity::ed25519::PublicKey::try_from_bytes(&nd.id)
-                    .unwrap()
-                    .into();
+            let Ok(pk) = libp2p::identity::ed25519::PublicKey::try_from_bytes(&nd.id)
+                .map(libp2p::identity::PublicKey::from)
+                .inspect_err(|e| log::error!("failed to construct node publick key: {e}"))
+            else {
+                continue;
+            };
 
             nodes.insert(pk.to_peer_id(), identity.enc);
-            wboot_phase(Some(BootPhase::CollecringKeys(
-                node_data.len() - nodes.len(),
-            )));
+            set_state!(CollecringKeys(query_pool.len()));
         }
+
+        set_state!(InitialRoute);
 
         let route = nodes
             .iter()
             .map(|(a, b)| (*b, *a))
-            .take(3)
-            .collect::<Vec<_>>()
+            .choose_multiple(&mut rand::thread_rng(), 3)
             .try_into()
             .unwrap();
 
-        wboot_phase(Some(BootPhase::InitialRoute));
-
-        let pid = swarm.behaviour_mut().onion.open_path(route).unwrap();
+        let pid = swarm.behaviour_mut().onion.open_path(route)?;
         let (mut init_stream, init_stream_id, init_stream_per) = loop {
             match swarm.select_next_some().await {
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
@@ -316,48 +320,42 @@ impl Node {
                     peer,
                 ))) if id == pid => break (stream, id, peer),
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
-                e => log::error!("{:?}", e),
+                e => log::debug!("{:?}", e),
             }
         };
 
-        wboot_phase(Some(BootPhase::ProfileSearch));
+        set_state!(ProfileSearch);
 
         let members = request_dispatch
             .dispatch_direct::<SearchPeers>(&mut init_stream, &Reminder(&profile_hash.sign.0))
-            .await
-            .unwrap();
+            .await?;
 
-        wboot_phase(Some(BootPhase::ProfileLoad));
+        set_state!(ProfileLoad);
 
         let (mut profile_stream, profile_stream_id, profile_stream_peer) =
             if members.contains(&init_stream_per) {
                 (init_stream, init_stream_id, init_stream_per)
             } else {
-                let Some(pick) = members.into_iter().choose(&mut rand::thread_rng()) else {
-                    todo!("error handling")
-                };
+                let pick = members.into_iter().choose(&mut rand::thread_rng()).unwrap();
                 let route = pick_route(&nodes, pick);
-                let pid = swarm.behaviour_mut().onion.open_path(route).unwrap();
+                let pid = swarm.behaviour_mut().onion.open_path(route)?;
                 loop {
                     match swarm.select_next_some().await {
                         SwarmEvent::Behaviour(BehaviourEvent::Onion(
                             onion::Event::OutboundStream(stream, id, _),
                         )) if id == pid => break (stream, id, pick),
                         e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
-                        e => log::error!("{:?}", e),
+                        e => log::debug!("{:?}", e),
                     }
                 }
             };
-
         let (mut account_nonce, Reminder(vault)) = match request_dispatch
             .dispatch_direct::<FetchVault>(&mut profile_stream, &profile_hash.sign)
-            .await
-            .unwrap()
+            .await?
         {
             Ok((n, v)) => (n + 1, v),
             Err(_) => Default::default(),
         };
-
         let vault = if vault.is_empty() && account_nonce == 0 {
             let proof = Proof::for_profile(&keys.sign, &mut account_nonce);
             request_dispatch
@@ -365,9 +363,7 @@ impl Node {
                     &mut profile_stream,
                     &(proof, keys.enc.public_key().into_bytes()),
                 )
-                .await
-                .unwrap()
-                .unwrap();
+                .await??;
 
             Default::default()
         } else {
@@ -376,10 +372,9 @@ impl Node {
                 .and_then(|v| Vault::decode(&mut &*v))
                 .unwrap_or_default()
         };
-
         let _ = vault.theme.apply();
 
-        wboot_phase(Some(BootPhase::ChatSearch));
+        set_state!(ChatSearch);
 
         let mut profile_sub = Subscription {
             id: profile_stream_id,
@@ -403,22 +398,22 @@ impl Node {
                     .iter()
                     .map(|c| Reminder(c.as_slice())),
             )
-            .await
-            .unwrap()
+            .await?
         {
             if peers.contains(&profile_sub.peer_id) {
                 profile_sub.topics.insert(chat.0.to_owned());
                 continue;
             }
 
-            let chat = ChatName::decode(&mut &*chat.0).unwrap();
+            let chat =
+                ChatName::decode(&mut &*chat.0).expect("for just encoded chat to be decodable");
             for peer in peers {
                 topology.entry(peer).or_default().insert(chat);
             }
             discovered += 1;
         }
 
-        wboot_phase(Some(BootPhase::ChatLoad));
+        set_state!(ChatLoad);
 
         let mut topology = topology.into_iter().collect::<Vec<_>>();
         topology.sort_by_key(|(_, v)| v.len());
@@ -437,7 +432,11 @@ impl Node {
             .into_iter()
             .map(|(pick, set)| {
                 let route = pick_route(&nodes, pick);
-                let pid = swarm.behaviour_mut().onion.open_path(route).unwrap();
+                let pid = swarm
+                    .behaviour_mut()
+                    .onion
+                    .open_path(route)
+                    .expect("client to never fail");
                 (pid, pick, set)
             })
             .collect::<Vec<_>>();
@@ -451,8 +450,9 @@ impl Node {
                         SwarmEvent::Behaviour(BehaviourEvent::Onion(
                             onion::Event::OutboundStream(stream, id, pid),
                         )) => {
-                            if let Some(i) = awaiting.iter().position(|&(i, ..)| i == id) {
-                                let (.., peer_id, subs) = awaiting.swap_remove(i);
+                            if let Some((.., peer_id, subs)) =
+                                find_and_remove(&mut awaiting, |&(i, ..)| i == id)
+                            {
                                 debug_assert!(peer_id == pid);
                                 break (stream, subs, peer_id, id);
                             }
@@ -470,7 +470,7 @@ impl Node {
             });
         }
 
-        wboot_phase(Some(BootPhase::ChatRun));
+        set_state!(ChatRun);
 
         Ok((
             Self {
@@ -478,9 +478,9 @@ impl Node {
                 nodes,
                 peer_search,
                 subscriptions,
-                pending_requests: vec![],
-                active_subs: vec![],
-                pending_topic_search: vec![],
+                pending_requests: Default::default(),
+                active_subs: Default::default(),
+                pending_topic_search: Default::default(),
                 requests: commands,
             },
             vault,
@@ -514,7 +514,7 @@ impl Node {
         true
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self) -> anyhow::Result<()> {
         loop {
             futures::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event),
@@ -527,18 +527,12 @@ impl Node {
     fn handle_topic_search(&mut self, command: RequestInit) {
         let mut buf = Vec::new();
         let sub = self.subscriptions.iter_mut().next().unwrap();
-        let search_key = match &command {
-            RequestInit::Request(req) => req.topic.as_ref().unwrap(),
-            RequestInit::Subscription(sub) => &sub.topic,
-            _ => unreachable!(),
-        };
-        let id = RequestDispatch::<Server>::build_packet::<SearchPeers>(
-            &Reminder(search_key.as_slice()),
-            &mut buf,
-        );
+        let search_key = command.topic();
+        let id =
+            RequestDispatch::<Server>::build_packet::<SearchPeers>(&Reminder(search_key), &mut buf);
         sub.stream.write(&mut buf);
         log::debug!("searching for {:?}", search_key);
-        self.pending_topic_search.push((Ok(id), command));
+        self.pending_topic_search.insert(Ok(id), command);
     }
 
     fn handle_request(&mut self, mut req: RawRequest) {
@@ -554,8 +548,8 @@ impl Node {
         assert!(!req.payload.is_empty());
 
         sub.stream.write(&mut req.payload);
-        self.pending_requests.push((req.id, req.channel));
-        log::warn!("request sent, {:?}", req.id);
+        self.pending_requests.insert(req.id, req.channel);
+        log::debug!("request sent, {:?}", req.id);
     }
 
     fn handle_subscription_request(&mut self, mut sub: SubscriptionInit) {
@@ -570,23 +564,16 @@ impl Node {
 
         assert!(!sub.payload.is_empty());
 
-        log::debug!("subscription request sent");
         subs.stream.write(&mut sub.payload);
-        self.active_subs.push((sub.request_id, sub.channel));
+        self.active_subs.insert(sub.request_id, sub.channel);
+        log::debug!("subscription request send, {:?}", sub.request_id);
     }
 
     fn handle_command(&mut self, command: RequestInit) {
         match command {
             RequestInit::Request(req) => self.handle_request(req),
             RequestInit::Subscription(sub) => self.handle_subscription_request(sub),
-            RequestInit::CloseSubscription(id) => {
-                let index = self
-                    .active_subs
-                    .iter()
-                    .position(|(rid, ..)| *rid == id)
-                    .expect("subscription not found");
-                self.active_subs.swap_remove(index);
-            }
+            RequestInit::CloseSubscription(id) => _ = self.active_subs.remove(&id).unwrap(),
         }
     }
 
@@ -597,21 +584,11 @@ impl Node {
                 id,
                 peer_id,
             ))) => {
-                if let Some(index) = self
-                    .pending_topic_search
-                    .iter()
-                    .position(|(pid, ..)| *pid == Err(id))
-                {
-                    let (_, req) = self.pending_topic_search.swap_remove(index);
-                    let topic = match &req {
-                        RequestInit::Request(req) => req.topic.as_ref().unwrap(),
-                        RequestInit::Subscription(sub) => &sub.topic,
-                        _ => unreachable!(),
-                    };
+                if let Some(req) = self.pending_topic_search.remove(&Err(id)) {
                     self.subscriptions.push(Subscription {
                         id,
                         peer_id,
-                        topics: [topic.to_owned()].into(),
+                        topics: [req.topic().to_owned()].into(),
                         stream,
                     });
 
@@ -637,41 +614,22 @@ impl Node {
             return;
         };
 
-        if let Some(index) = self
-            .pending_requests
-            .iter()
-            .position(|(rid, ..)| *rid == request_id)
-        {
-            let (_, channel) = self.pending_requests.swap_remove(index);
+        if let Some(channel) = self.pending_requests.remove(&request_id) {
             _ = channel.send(content.to_owned());
             return;
         }
 
-        if let Some((_, channel)) = self
-            .active_subs
-            .iter_mut()
-            .find(|(id, ..)| *id == request_id)
-        {
+        if let Some(channel) = self.active_subs.get_mut(&request_id) {
             if channel.send(content.to_owned()).await.is_err() {
-                let index = self
-                    .active_subs
-                    .iter()
-                    .position(|(id, ..)| *id == request_id)
-                    .expect("subscription not found");
-                self.active_subs.swap_remove(index);
-            };
+                self.active_subs.remove(&request_id).unwrap();
+            }
             return;
         }
 
-        if let Some(index) = self
-            .pending_topic_search
-            .iter()
-            .position(|(id, ..)| *id == Ok(request_id))
-        {
-            log::debug!("chat subscription response found");
-            let (_, req) = self.pending_topic_search.swap_remove(index);
+        if let Some(req) = self.pending_topic_search.remove(&Ok(request_id)) {
+            log::debug!("received pending topic search query");
             let Ok(resp) = RequestDispatch::<Server>::parse_response::<SearchPeers>(content) else {
-                log::error!("invalid chat subscription response");
+                log::error!("search query response is invalid");
                 return;
             };
 
@@ -680,26 +638,20 @@ impl Node {
                 .iter_mut()
                 .find(|s| resp.iter().any(|p| s.peer_id == *p))
             {
-                log::debug!("chat subscription response found");
-                let topic = match &req {
-                    RequestInit::Request(req) => req.topic.as_ref().unwrap(),
-                    RequestInit::Subscription(sub) => &sub.topic,
-                    _ => unreachable!(),
-                };
-                sub.topics.insert(topic.to_owned());
+                log::debug!("shortcut topic found");
+                sub.topics.insert(req.topic().to_owned());
                 self.handle_command(req);
                 return;
             }
 
-            log::debug!("chat subscription response not found");
             let Some(pick) = resp.into_iter().choose(&mut rand::thread_rng()) else {
-                log::error!("no peers found");
+                log::error!("search response does not contain any peers");
                 return;
             };
 
             let path = pick_route(&self.nodes, pick);
             let pid = self.swarm.behaviour_mut().onion.open_path(path).unwrap();
-            self.pending_topic_search.push((Err(pid), req));
+            self.pending_topic_search.insert(Err(pid), req);
             return;
         }
 
@@ -727,24 +679,6 @@ fn pick_route(
 
 #[allow(deprecated)]
 type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
-
-const MIN_NODES: usize = 5;
-
-#[derive(Debug, thiserror::Error)]
-pub enum BootError {
-    #[error("not enough nodes: {0} < {MIN_NODES}")]
-    NotEnoughNodes(usize),
-    #[error(transparent)]
-    Encapsulation(#[from] crypto::enc::EncapsulationError),
-    #[error("failed to fetch nodes: {0}")]
-    FetchNodes(chain_api::Error),
-    #[error("failed to fetch profile: {0}")]
-    FetchProfile(chain_api::Error),
-    #[error("profile not found")]
-    ProfileNotFound,
-    #[error("invalid profile keys")]
-    InvalidProfileKeys,
-}
 
 struct Subscription {
     id: PathId,

@@ -343,12 +343,9 @@ mod test {
         blob.push(b"hello".iter().cloned());
         blob.push(b"world".iter().cloned());
 
-        assert_eq!(
-            blob.data,
-            vec![
-                0, 5, b'h', b'e', b'l', b'l', b'o', 0, 5, 0, 5, b'w', b'o', b'r', b'l', b'd', 0, 5
-            ]
-        );
+        assert_eq!(blob.data, vec![
+            0, 5, b'h', b'e', b'l', b'l', b'o', 0, 5, 0, 5, b'w', b'o', b'r', b'l', b'd', 0, 5
+        ]);
 
         blob.pop();
 
