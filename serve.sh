@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export BOOTSTRAP_NODE="ws://localhost:9944"
+export CHAIN_NODE="ws://localhost:9944"
 export NODE_CONTRACT="todo"
 export USER_CONTRACT="todo"
 export NODE_COUNT=10

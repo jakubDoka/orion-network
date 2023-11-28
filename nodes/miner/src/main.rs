@@ -60,7 +60,7 @@ impl Miner {
         config::env_config! {
             PORT: u16,
             WS_PORT: u16,
-            BOOTSTRAP_NODE: String,
+            CHAIN_NODE: String,
             NODE_ACCOUNT: String,
             NODE_CONTRACT: ContractId,
             KEY_PATH: String,
@@ -82,7 +82,7 @@ impl Miner {
         log::info!("peer id: {}", peer_id);
 
         if is_new {
-            let client = chain_api::Client::with_signer(&BOOTSTRAP_NODE, account)
+            let client = chain_api::Client::with_signer(&CHAIN_NODE, account)
                 .await
                 .context("connecting to chain")?;
             client
