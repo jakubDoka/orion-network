@@ -1,5 +1,3 @@
-use onion::SharedSecret;
-
 use {
     crate::{BootPhase, UserKeys},
     chat_logic::{
@@ -21,7 +19,7 @@ use {
         swarm::{NetworkBehaviour, SwarmEvent},
         PeerId, Swarm, *,
     },
-    onion::{EncryptedStream, PathId},
+    onion::{EncryptedStream, PathId, SharedSecret},
     primitives::{
         contracts::{NodeIdentity, StoredUserIdentity},
         UserName,

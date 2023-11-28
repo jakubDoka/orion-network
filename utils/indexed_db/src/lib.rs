@@ -1,8 +1,7 @@
 #![allow(dead_code)]
-use std::{cell::Cell, convert::identity, future::Future, rc::Rc, task::Waker};
-
 use {
     futures::{future::FusedFuture, stream::FusedStream, Stream},
+    std::{cell::Cell, convert::identity, future::Future, rc::Rc, task::Waker},
     web_sys::{
         js_sys::{Array, Function},
         wasm_bindgen::{prelude::Closure, JsCast, JsValue},

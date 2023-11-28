@@ -1,6 +1,8 @@
-use std::{collections::VecDeque, fmt, io, iter, slice, sync::Arc, task::Poll};
-
 use {
+    crate::{
+        packet::{self, CONFIRM_PACKET_SIZE},
+        EncryptedStream, KeyPair, PathId, PublicKey, SharedSecret, Stream,
+    },
     futures::{AsyncReadExt, AsyncWriteExt, Future},
     libp2p::{
         core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo},
@@ -10,12 +12,8 @@ use {
             ConnectionHandler, ConnectionHandlerEvent, StreamProtocol,
         },
     },
+    std::{collections::VecDeque, fmt, io, iter, slice, sync::Arc, task::Poll},
     thiserror::Error,
-};
-
-use crate::{
-    packet::{self, CONFIRM_PACKET_SIZE},
-    EncryptedStream, KeyPair, PathId, PublicKey, SharedSecret, Stream,
 };
 
 const ROUTING_PROTOCOL: StreamProtocol = StreamProtocol::new(concat!(

@@ -1,17 +1,16 @@
 #![feature(iter_next_chunk)]
-use std::{
-    cell::Cell,
-    fmt,
-    future::Future,
-    io,
-    ops::DerefMut,
-    pin::Pin,
-    rc::Rc,
-    task::{Poll, Waker},
-};
-
 use {
     libp2p_core::{multiaddr::Protocol as MP, transport::TransportError as TE, Multiaddr},
+    std::{
+        cell::Cell,
+        fmt,
+        future::Future,
+        io,
+        ops::DerefMut,
+        pin::Pin,
+        rc::Rc,
+        task::{Poll, Waker},
+    },
     wasm_bindgen::{prelude::Closure, JsCast, JsValue},
     web_sys::{window, CloseEvent, MessageEvent, WebSocket},
 };

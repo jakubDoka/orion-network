@@ -1,10 +1,9 @@
-use crypto::TransmutationCircle;
-
-use crate::Identity;
-
-use super::replicate;
-
-use {crypto::Serialized, primitives::contracts::NodeIdentity};
+use {
+    super::replicate,
+    crate::Identity,
+    crypto::{Serialized, TransmutationCircle},
+    primitives::contracts::NodeIdentity,
+};
 
 pub enum PublishNode {}
 

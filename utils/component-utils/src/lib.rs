@@ -105,7 +105,6 @@ pub mod kad;
 pub mod stream;
 
 pub use arrayvec;
-
 #[cfg(feature = "std")]
 pub use {codec::*, futures, kad::*, libp2p, stream::*, thiserror};
 

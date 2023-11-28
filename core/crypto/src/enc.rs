@@ -1,10 +1,11 @@
 #[cfg(feature = "getrandom")]
 use aes_gcm::aead::OsRng;
-use pqc_kyber::KyberError;
 #[cfg(feature = "std")]
 use thiserror::Error;
-
-use crate::{FixedAesPayload, SharedSecret, TransmutationCircle, SHARED_SECRET_SIZE};
+use {
+    crate::{FixedAesPayload, SharedSecret, TransmutationCircle, SHARED_SECRET_SIZE},
+    pqc_kyber::KyberError,
+};
 
 impl_transmute! {
     KeyPair,

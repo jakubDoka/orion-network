@@ -1,7 +1,5 @@
-use crate::PathId;
-
 use {
-    crate::EncryptedStream,
+    crate::{EncryptedStream, PathId},
     component_utils::{impl_kad_search, AsocStream, KadPeerSearch},
     futures::{stream::SelectAll, FutureExt, StreamExt},
     libp2p::{

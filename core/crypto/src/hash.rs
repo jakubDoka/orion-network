@@ -1,6 +1,7 @@
-use core::marker::PhantomData;
-
-use crate::{Serialized, TransmutationCircle};
+use {
+    crate::{Serialized, TransmutationCircle},
+    core::marker::PhantomData,
+};
 
 pub type Hash<T> = (AnyHash, PhantomData<T>);
 pub type AnyHash = [u8; 32];

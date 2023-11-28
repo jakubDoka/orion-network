@@ -2,9 +2,8 @@
 
 #[ink::contract]
 mod user_manager {
-    use core::marker::PhantomData;
-
     use {
+        core::marker::PhantomData,
         crypto::{Serialized, TransmutationCircle},
         primitives::{contracts::StoredUserIdentity, RawUserName},
     };

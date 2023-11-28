@@ -1,12 +1,8 @@
-use std::{iter, num::NonZeroUsize};
-
-use component_utils::Reminder;
-
-use crate::RequestId;
-
 use {
-    component_utils::arrayvec::ArrayString,
+    crate::RequestId,
+    component_utils::{arrayvec::ArrayString, Reminder},
     crypto::{sign, Serialized, TransmutationCircle},
+    std::{iter, num::NonZeroUsize},
 };
 
 pub const CHAT_NAME_CAP: usize = 32;
@@ -50,7 +46,8 @@ pub fn unpack_messages_ref(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
     let mut iter = buffer.iter();
     iter::from_fn(move || {
         let len = iter
-            .by_ref().copied()
+            .by_ref()
+            .copied()
             .next_chunk()
             .map(u16::from_be_bytes)
             .ok()?;

@@ -2,19 +2,16 @@
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
 
-use {chat_logic::RootPacketBuffer, crypto::TransmutationCircle};
-
-use {chat_logic::PublishNode, primitives::contracts::NodeIdentity};
-
 use {
     chain_api::ContractId,
-    chat_logic::{DispatchResponse, SubContext, REPLICATION_FACTOR},
+    chat_logic::{DispatchResponse, PublishNode, RootPacketBuffer, SubContext, REPLICATION_FACTOR},
     component_utils::{
         codec::Codec,
         kad::KadPeerSearch,
         libp2p::kad::{InboundRequest, StoreInserts},
         Reminder,
     },
+    crypto::TransmutationCircle,
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
         futures::{self, StreamExt},
@@ -23,7 +20,7 @@ use {
         Multiaddr, Transport,
     },
     onion::{EncryptedStream, PathId},
-    primitives::contracts::NodeData,
+    primitives::contracts::{NodeData, NodeIdentity},
     std::{io, mem, net::Ipv4Addr, time::Duration},
 };
 

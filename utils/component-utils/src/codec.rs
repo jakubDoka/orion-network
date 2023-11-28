@@ -1,15 +1,12 @@
-use {
-    core::marker::PhantomData,
-    std::{sync::Arc, u32, usize},
-};
-
-use core::convert::Infallible;
-
-use arrayvec::{ArrayString, ArrayVec};
 #[cfg(feature = "std")]
 use libp2p::core::multihash::Multihash;
 #[cfg(feature = "std")]
 use libp2p::identity::PeerId;
+use {
+    arrayvec::{ArrayString, ArrayVec},
+    core::{convert::Infallible, marker::PhantomData},
+    std::{sync::Arc, u32, usize},
+};
 
 pub fn encode_len(len: usize) -> [u8; 4] {
     (len as u32).to_be_bytes()
@@ -289,11 +286,8 @@ impl<'a> Codec<'a> for u8 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Reminder<'a>(pub &'a [u8]);
-
-
 
 impl<'a> Codec<'a> for Reminder<'a> {
     fn encode(&self, buffer: &mut Vec<u8>) {

@@ -99,9 +99,10 @@ fn fnv_hash(bytes: &[u8]) -> u64 {
     hash
 }
 
-use futures::Future;
-
-use crate::{decode_len, encode_len, Codec};
+use {
+    crate::{decode_len, encode_len, Codec},
+    futures::Future,
+};
 
 type PacketSize = u32;
 const PACKET_SIZE_WIDTH: usize = core::mem::size_of::<PacketSize>();

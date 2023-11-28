@@ -4,9 +4,7 @@
 #![feature(ip_in_core)]
 #![feature(macro_metavar_expr)]
 
-use core::str::FromStr;
-
-use component_utils::arrayvec::ArrayString;
+use {component_utils::arrayvec::ArrayString, core::str::FromStr};
 
 pub mod contracts;
 

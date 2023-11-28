@@ -1,12 +1,9 @@
-use primitives::UserName;
-
-use crate::{RawUserKeys, State, UserKeys};
-
 use {
+    crate::{RawUserKeys, State, UserKeys},
     crypto::TransmutationCircle,
     leptos::{html::Input, *},
     leptos_router::A,
-    primitives::contracts::UserData,
+    primitives::{contracts::UserData, UserName},
     web_sys::js_sys::{Array, Uint8Array},
 };
 

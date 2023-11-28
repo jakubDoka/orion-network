@@ -1,6 +1,7 @@
-use std::{process, thread::sleep};
-
-use clap::Parser;
+use {
+    clap::Parser,
+    std::{process, thread::sleep},
+};
 
 #[derive(Parser)]
 struct Command {

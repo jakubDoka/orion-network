@@ -1,6 +1,4 @@
 #![feature(lazy_cell)]
-use std::{str::FromStr, u64};
-
 use {
     crypto::{Serialized, TransmutationCircle},
     parity_scale_codec::{Decode, Encode as _},
@@ -16,6 +14,7 @@ use {
         contracts::{StoredNodeData, StoredNodeIdentity, StoredUserIdentity},
         UserName,
     },
+    std::{str::FromStr, u64},
     subxt::{
         backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
         tx::{Payload, Signer},
@@ -23,7 +22,6 @@ use {
     },
     subxt_signer::bip39::Mnemonic,
 };
-
 pub use {serde_json::json, subxt::tx::TxPayload};
 
 pub type Config = PolkadotConfig;

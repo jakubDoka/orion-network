@@ -4,7 +4,6 @@ use aes_gcm::{
     aes::cipher::Unsigned,
     AeadCore, AeadInPlace, Aes256Gcm, KeyInit, KeySizeUser, Nonce,
 };
-
 #[cfg(feature = "getrandom")]
 use {aes_gcm::aead::OsRng, pqc_kyber::RngCore};
 

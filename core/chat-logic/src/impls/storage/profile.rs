@@ -1,6 +1,4 @@
-use std::convert::Infallible;
-
-use crate::advance_nonce;
+use {crate::advance_nonce, std::convert::Infallible};
 
 const MAIL_BOX_CAP: usize = 1024 * 1024;
 

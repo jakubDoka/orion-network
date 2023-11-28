@@ -1,5 +1,3 @@
-use crypto::{enc::ChoosenCiphertext, Serialized};
-
 use {
     crate::{
         node,
@@ -10,7 +8,10 @@ use {
     },
     component_utils::{Codec, DropFn, Reminder},
     core::fmt,
-    crypto::{enc, TransmutationCircle},
+    crypto::{
+        enc::{self, ChoosenCiphertext},
+        Serialized, TransmutationCircle,
+    },
     leptos::{
         html::{Input, Textarea},
         *,

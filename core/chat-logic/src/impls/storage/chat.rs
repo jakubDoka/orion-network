@@ -1,7 +1,5 @@
-use crate::{advance_nonce, impls::storage::replicate, Proof};
-
 use {
-    crate::{ChatName, Identity, Nonce, Storage},
+    crate::{advance_nonce, impls::storage::replicate, ChatName, Identity, Nonce, Proof, Storage},
     component_utils::Reminder,
     std::collections::VecDeque,
 };

@@ -1,5 +1,3 @@
-use std::{mem, usize};
-
 use {
     aes_gcm::{
         aead::{generic_array::GenericArray, OsRng},
@@ -8,6 +6,7 @@ use {
     },
     crypto::{enc::Ciphertext, Serialized, TransmutationCircle},
     libp2p::{core::multihash::Multihash, identity::PeerId},
+    std::{mem, usize},
 };
 
 pub const OK: u8 = 0;

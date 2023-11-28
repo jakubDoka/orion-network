@@ -1,7 +1,6 @@
-use component_utils::Reminder;
-
 use {
     super::Storage,
+    component_utils::Reminder,
     libp2p::{
         kad::{GetClosestPeersOk, QueryId, QueryResult},
         PeerId,

@@ -1,8 +1,8 @@
-use core::u128;
-
-use crypto::{enc, impl_transmute, sign};
-
-use crate::{username_from_raw, RawUserName, UserName};
+use {
+    crate::{username_from_raw, RawUserName, UserName},
+    core::u128,
+    crypto::{enc, impl_transmute, sign},
+};
 
 type Balance = u128;
 type Timestamp = u64;

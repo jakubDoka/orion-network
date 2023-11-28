@@ -1,11 +1,11 @@
-use std::collections::VecDeque;
-
-use libp2p::{
-    identity::PeerId,
-    kad::{store::RecordStore, QueryId, QueryResult},
+use {
+    libp2p::{
+        identity::PeerId,
+        kad::{store::RecordStore, QueryId, QueryResult},
+        swarm::Swarm,
+    },
+    std::collections::VecDeque,
 };
-
-use libp2p::swarm::Swarm;
 
 pub trait KadSearchComponent: libp2p::swarm::NetworkBehaviour {
     fn redail(&mut self, peer: PeerId);

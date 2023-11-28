@@ -1,8 +1,11 @@
-use {chain_api::ContractId, libp2p::Multiaddr};
-
 use {
-    self::web_sys::wasm_bindgen::JsValue, chain_api::TransactionHandler, leptos::*,
-    primitives::UserName, std::str::FromStr, web_sys::js_sys::wasm_bindgen,
+    self::web_sys::wasm_bindgen::JsValue,
+    chain_api::{ContractId, TransactionHandler},
+    leptos::*,
+    libp2p::Multiaddr,
+    primitives::UserName,
+    std::str::FromStr,
+    web_sys::js_sys::wasm_bindgen,
 };
 
 macro_rules! build_env {

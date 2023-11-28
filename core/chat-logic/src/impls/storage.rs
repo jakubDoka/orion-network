@@ -1,11 +1,9 @@
-use crate::Handler;
-
-use {crypto::TransmutationCircle, primitives::contracts::NodeIdentity};
-
 use {
-    crate::Identity,
+    crate::{Handler, Identity},
     component_utils::Codec,
+    crypto::TransmutationCircle,
     libp2p::PeerId,
+    primitives::contracts::NodeIdentity,
     std::{borrow::Cow, collections::HashMap, iter},
 };
 
