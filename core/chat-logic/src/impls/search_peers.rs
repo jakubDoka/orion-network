@@ -14,9 +14,9 @@ pub struct SearchPeers {
 }
 
 impl crate::Handler for SearchPeers {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = Reminder<'a>;
     type Response<'a> = Vec<PeerId>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = Infallible;
 
     fn spawn(

@@ -48,11 +48,11 @@ impl Handler {
 
 impl ConnectionHandler for Handler {
     type FromBehaviour = FromBehaviour;
-    type ToBehaviour = ToBehaviour;
-    type InboundProtocol = IUpgrade;
-    type OutboundProtocol = OUpgrade;
     type InboundOpenInfo = ();
+    type InboundProtocol = IUpgrade;
     type OutboundOpenInfo = ();
+    type OutboundProtocol = OUpgrade;
+    type ToBehaviour = ToBehaviour;
 
     fn listen_protocol(
         &self,
@@ -208,8 +208,9 @@ pub struct StreamRequest {
 }
 
 impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
-    type Output = Option<IncomingOrResponse>;
     type Error = IUpgradeError;
+    type Output = Option<IncomingOrResponse>;
+
     type Future = impl Future<Output = Result<Self::Output, Self::Error>>;
 
     fn upgrade_inbound(self, mut stream: libp2p::swarm::Stream, proto: Self::Info) -> Self::Future {
@@ -322,8 +323,9 @@ pub struct ChannelMeta {
 }
 
 impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
-    type Output = ChannelMeta;
     type Error = OUpgradeError;
+    type Output = ChannelMeta;
+
     type Future = impl Future<Output = Result<Self::Output, Self::Error>>;
 
     fn upgrade_outbound(self, mut stream: libp2p::swarm::Stream, _: Self::Info) -> Self::Future {

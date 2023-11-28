@@ -35,9 +35,9 @@ pub struct FetchProfile {
 }
 
 impl crate::Handler for FetchProfile {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = Identity;
     type Response<'a> = Result<FetchProfileResp, FetchProfileError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = Infallible;
 
     fn spawn(
@@ -108,9 +108,9 @@ impl From<&FullProfile> for FetchProfileResp {
 pub enum CreateAccount {}
 
 impl crate::SyncHandler for CreateAccount {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = (Proof, Serialized<enc::PublicKey>);
     type Response<'a> = Result<(), CreateAccountError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = crate::Identity;
 
     fn execute(
@@ -149,9 +149,9 @@ component_utils::gen_simple_error! {
 pub enum SetVault {}
 
 impl crate::SyncHandler for SetVault {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = (Proof, Reminder<'a>);
     type Response<'a> = Result<(), SetVaultError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = crate::Identity;
 
     fn execute(
@@ -191,9 +191,9 @@ component_utils::gen_simple_error! {
 pub enum FetchVault {}
 
 impl crate::SyncHandler for FetchVault {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = Identity;
     type Response<'a> = Result<(Nonce, Reminder<'a>), FetchVaultError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = Identity;
 
     fn execute<'a>(
@@ -217,9 +217,9 @@ component_utils::gen_simple_error! {
 pub enum ReadMail {}
 
 impl crate::SyncHandler for ReadMail {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = Proof;
     type Response<'a> = Result<Reminder<'a>, ReadMailError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = crate::Identity;
 
     fn execute<'a>(
@@ -254,11 +254,11 @@ component_utils::gen_simple_error! {
 pub enum SendMail {}
 
 impl crate::SyncHandler for SendMail {
+    type Context = libp2p::kad::Behaviour<Storage>;
+    type Event<'a> = Reminder<'a>;
     type Request<'a> = (Identity, Reminder<'a>);
     type Response<'a> = Result<(), SendMailError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = crate::Identity;
-    type Event<'a> = Reminder<'a>;
 
     fn execute(
         context: &mut Self::Context,

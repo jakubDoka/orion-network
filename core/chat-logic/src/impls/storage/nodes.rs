@@ -8,10 +8,10 @@ use {
 pub enum PublishNode {}
 
 impl crate::SyncHandler for PublishNode {
+    type Context = libp2p::kad::Behaviour<crate::Storage>;
+    type Event<'a> = std::convert::Infallible;
     type Request<'a> = Serialized<NodeIdentity>;
     type Response<'a> = ();
-    type Event<'a> = std::convert::Infallible;
-    type Context = libp2p::kad::Behaviour<crate::Storage>;
     type Topic = Identity;
 
     fn execute<'a>(

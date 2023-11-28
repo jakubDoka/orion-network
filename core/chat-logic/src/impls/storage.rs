@@ -65,11 +65,10 @@ impl Storage {
 }
 
 impl libp2p::kad::store::RecordStore for Storage {
-    type RecordsIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::Record>>
+    type ProvidedIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::ProviderRecord>>
     where
         Self: 'a;
-
-    type ProvidedIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::ProviderRecord>>
+    type RecordsIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::Record>>
     where
         Self: 'a;
 

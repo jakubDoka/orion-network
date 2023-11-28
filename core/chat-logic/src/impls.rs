@@ -99,8 +99,8 @@ component_utils::protocol! {'a:
 }
 
 impl Proof {
-    const PROFILE_CONTEXT: ProofContext = [0xff - 1; CHAT_NAME_CAP];
     const PAYLOAD_SIZE: usize = std::mem::size_of::<Nonce>() + CHAT_NAME_CAP;
+    const PROFILE_CONTEXT: ProofContext = [0xff - 1; CHAT_NAME_CAP];
 
     pub fn for_profile(kp: &sign::KeyPair, nonce: &mut Nonce) -> Self {
         Self::new(kp, nonce, Self::PROFILE_CONTEXT)

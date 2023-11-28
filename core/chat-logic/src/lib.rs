@@ -284,10 +284,10 @@ pub trait SyncHandler: Sized {
 }
 
 impl<T: SyncHandler> Handler for T {
+    type Context = T::Context;
+    type Event<'a> = T::Event<'a>;
     type Request<'a> = T::Request<'a>;
     type Response<'a> = T::Response<'a>;
-    type Event<'a> = T::Event<'a>;
-    type Context = T::Context;
     type Topic = T::Topic;
 
     fn spawn<'a>(

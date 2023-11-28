@@ -15,9 +15,9 @@ pub type Cursor = u32;
 pub enum CreateChat {}
 
 impl crate::SyncHandler for CreateChat {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = (Identity, ChatName);
     type Response<'a> = Result<(), CreateChatError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = ChatName;
 
     fn execute<'a>(
@@ -48,9 +48,9 @@ component_utils::gen_simple_error! {
 pub enum AddUser {}
 
 impl crate::SyncHandler for AddUser {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = (Identity, ChatName, Proof);
     type Response<'a> = Result<(), AddUserError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = ChatName;
 
     fn execute<'a>(
@@ -103,10 +103,10 @@ component_utils::gen_simple_error! {
 pub enum SendMessage {}
 
 impl crate::SyncHandler for SendMessage {
-    type Request<'a> = (ChatName, Proof, Reminder<'a>);
-    type Response<'a> = Result<(), SendMessageError>;
     type Context = libp2p::kad::Behaviour<Storage>;
     type Event<'a> = (Proof, Reminder<'a>);
+    type Request<'a> = (ChatName, Proof, Reminder<'a>);
+    type Response<'a> = Result<(), SendMessageError>;
     type Topic = ChatName;
 
     fn execute<'a>(
@@ -161,9 +161,9 @@ component_utils::gen_simple_error! {
 pub enum FetchMessages {}
 
 impl crate::SyncHandler for FetchMessages {
+    type Context = libp2p::kad::Behaviour<Storage>;
     type Request<'a> = (ChatName, Cursor);
     type Response<'a> = Result<(Vec<u8>, Cursor), FetchMessagesError>;
-    type Context = libp2p::kad::Behaviour<Storage>;
     type Topic = ChatName;
 
     fn execute<'a>(

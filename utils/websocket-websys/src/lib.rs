@@ -40,13 +40,10 @@ impl Transport {
 }
 
 impl libp2p_core::Transport for Transport {
-    type Output = Connection;
-
-    type Error = Error;
-
-    type ListenerUpgrade = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
-
     type Dial = ConnectionFut;
+    type Error = Error;
+    type ListenerUpgrade = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
+    type Output = Connection;
 
     fn listen_on(
         &mut self,

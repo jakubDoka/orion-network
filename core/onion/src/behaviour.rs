@@ -240,7 +240,6 @@ impl component_utils::KadSearchComponent for Behaviour {
 
 impl NetworkBehaviour for Behaviour {
     type ConnectionHandler = Handler;
-
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
