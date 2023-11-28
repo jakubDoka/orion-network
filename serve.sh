@@ -3,7 +3,7 @@
 export BOOTSTRAP_NODE="ws://localhost:9944"
 export NODE_CONTRACT="todo"
 export USER_CONTRACT="todo"
-export NODE_COUNT=5
+export NODE_COUNT=10
 export FRONTEND_PORT=7777
 export RUST_LOG="info"
 export RUST_BACKTRACE=1
@@ -45,10 +45,9 @@ cargo build $RELEASE --workspace \
 	--exclude node_staker \
 	--exclude user_manager \
 	--exclude indexed_db || exit 1
-(cd nodes/client && trunk build $RELEASE --features building || exit 1)
 
+$TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START &
 (cd nodes/client && trunk serve $RELEASE --port $FRONTEND_PORT --features building > /dev/null &)
-target/debug/runner --node-count $NODE_COUNT --first-port $NODE_START &
 
 read -p "press enter to exit"
 
