@@ -46,6 +46,23 @@ pub fn unpack_messages(buffer: &mut [u8]) -> impl Iterator<Item = &mut [u8]> {
     })
 }
 
+pub fn unpack_messages_ref(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let mut iter = buffer.iter();
+    iter::from_fn(move || {
+        let len = iter
+            .by_ref()
+            .map(|b| *b)
+            .next_chunk()
+            .map(u16::from_be_bytes)
+            .ok()?;
+
+        let (slice, rest) = iter.as_slice().split_at(len as usize);
+        iter = rest.iter();
+
+        Some(slice)
+    })
+}
+
 mod search_peers;
 mod storage;
 

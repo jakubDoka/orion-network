@@ -1,33 +1,39 @@
-use {chat_logic::FetchProfile, component_utils::Codec};
-
-use {chat_logic::SendMail, crypto::enc};
-
-use crate::node::RawChatMessage;
+use crypto::{enc::ChoosenCiphertext, Serialized};
 
 use {
-    chat_logic::{AddUser, CreateChat, FetchMessages, SendMessage},
-    component_utils::Reminder,
-};
-
-use {chat_logic::ChatName, primitives::UserName};
-
-use {
-    crate::{node, node::MessageContent},
-    component_utils::DropFn,
+    crate::{
+        node,
+        node::{MessageContent, RawChatMessage},
+    },
+    chat_logic::{
+        AddUser, ChatName, CreateChat, FetchMessages, FetchProfile, SendMail, SendMessage,
+    },
+    component_utils::{Codec, DropFn, Reminder},
     core::fmt,
-    crypto::TransmutationCircle,
+    crypto::{enc, TransmutationCircle},
     leptos::{
         html::{Input, Textarea},
         *,
     },
     leptos_router::Redirect,
-    primitives::contracts::StoredUserIdentity,
+    primitives::{contracts::StoredUserIdentity, UserName},
     std::{
         future::Future,
         ops::Deref,
         sync::atomic::{AtomicUsize, Ordering},
     },
 };
+
+component_utils::protocol! {'a:
+    enum Mail {
+        ChatInvite: ChatInvite,
+    }
+
+    struct ChatInvite {
+        chat: ChatName,
+        cp: Serialized<ChoosenCiphertext>,
+    }
+}
 
 fn is_at_bottom(messages_div: HtmlElement<leptos::html::Div>) -> bool {
     let scroll_bottom = messages_div.scroll_top();
@@ -232,7 +238,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 .encapsulate_choosen(enc::PublicKey::from_ref(&user_data.enc), secret)
                 .unwrap()
                 .into_bytes();
-            ed().dispatch::<SendMail>(None, (invitee.sign, Reminder(cp.as_slice())))
+            let invite = Mail::ChatInvite(ChatInvite { chat, cp }).to_bytes();
+            ed().dispatch::<SendMail>(None, (invitee.sign, Reminder(invite.as_slice())))
                 .await
                 .unwrap()
                 .unwrap();

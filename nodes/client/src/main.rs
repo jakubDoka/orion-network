@@ -3,32 +3,22 @@
 #![feature(mem_copy_fn)]
 #![feature(macro_metavar_expr)]
 
-use std::time::Duration;
-
-use {
-    chat_logic::{RequestDispatch, Server},
-    leptos::leptos_dom::helpers::TimeoutHandle,
-};
-
-use {chat_logic::SetVault, component_utils::Reminder};
-
-use {
-    chat_logic::{ChatName, Proof},
-    component_utils::Codec,
-};
-
 use {
     self::web_sys::wasm_bindgen::JsValue,
     crate::{
-        chat::Chat,
+        chat::{Chat, ChatInvite, Mail},
         login::{Login, Register},
-        node::Node,
+        node::{ChatMeta, Node},
         profile::Profile,
     },
     chain_api::{ContractId, TransactionHandler},
-    chat_logic::Nonce,
-    crypto::{enc, sign},
-    leptos::{html::Input, signal_prelude::*, *},
+    chat_logic::{ChatName, Nonce, Proof, ReadMail, RequestDispatch, SendMail, Server, SetVault},
+    component_utils::{Codec, Reminder},
+    crypto::{
+        enc::{self, ChoosenCiphertext},
+        sign, TransmutationCircle,
+    },
+    leptos::{html::Input, leptos_dom::helpers::TimeoutHandle, signal_prelude::*, *},
     leptos_router::*,
     libp2p::Multiaddr,
     node::Vault,
@@ -40,6 +30,7 @@ use {
         rc::Rc,
         str::FromStr,
         task::{Poll, Waker},
+        time::Duration,
     },
     web_sys::js_sys::wasm_bindgen,
 };
@@ -365,9 +356,28 @@ fn App() -> impl IntoView {
             return;
         };
 
+        let enc = keys.enc.clone();
+        let handle_chat_invite = move |mail: &[u8]| {
+            let Some(Mail::ChatInvite(ChatInvite { chat, cp })) = <_>::decode(&mut &*mail) else {
+                log::error!("malfirmed mail");
+                return;
+            };
+
+            let Ok(secret) = enc.decapsulate_choosen(ChoosenCiphertext::from_bytes(cp)) else {
+                log::error!("cp but not for us");
+                return;
+            };
+
+            state
+                .vault
+                .update(|v| drop(v.chats.insert(chat, ChatMeta::from_secret(secret))));
+        };
+
+        // TODO: manage the future somehow
         spawn_local(async move {
             navigate_to("/");
-            let (node, vault, dispatch, nonce) = match Node::new(keys, wboot_phase).await {
+            let identity = crypto::hash::new(&keys.sign.public_key());
+            let (node, vault, mut dispatch, nonce) = match Node::new(keys, wboot_phase).await {
                 Ok(n) => n,
                 Err(e) => {
                     log::error!("failed to create node: {e}");
@@ -375,11 +385,33 @@ fn App() -> impl IntoView {
                 }
             };
 
+            let mut dispatch_clone = dispatch.clone();
+            let handle_chat_invite_clone = handle_chat_invite.clone();
+            let read_mail = async move {
+                let proof = state.next_profile_proof().unwrap();
+                let list = dispatch_clone
+                    .dispatch::<ReadMail>(identity, proof)
+                    .await
+                    .unwrap()
+                    .unwrap();
+
+                for mail in chat_logic::unpack_messages_ref(list.0) {
+                    handle_chat_invite_clone(mail);
+                }
+            };
+
+            let (mut account, _) = dispatch.subscribe::<SendMail>(identity).unwrap();
+            let listen = async move {
+                while let Some(Reminder(mail)) = account.next().await {
+                    handle_chat_invite(mail);
+                }
+            };
+
             state.requests.set_untracked(Some(dispatch));
             state.vault.set_untracked(vault);
             state.account_nonce.set_untracked(nonce);
             navigate_to("/chat");
-            node.run().await;
+            libp2p::futures::join!(node.run(), listen, read_mail);
         });
     });
 

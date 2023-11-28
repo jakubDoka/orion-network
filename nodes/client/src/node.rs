@@ -1,3 +1,5 @@
+use onion::SharedSecret;
+
 use {
     crate::{BootPhase, UserKeys},
     chat_logic::{
@@ -58,6 +60,13 @@ impl ChatMeta {
     pub fn new() -> Self {
         Self {
             secret: crypto::new_secret(),
+            action_no: 1,
+        }
+    }
+
+    pub fn from_secret(secret: SharedSecret) -> Self {
+        Self {
+            secret,
             action_no: 1,
         }
     }
@@ -464,7 +473,7 @@ impl Node {
             subscriptions.push(Subscription {
                 id,
                 peer_id,
-                topics: subs.into_iter().map(|c| c.as_bytes().to_vec()).collect(),
+                topics: subs.into_iter().map(|c| c.to_bytes()).collect(),
                 stream,
             });
         }
