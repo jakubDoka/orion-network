@@ -186,7 +186,9 @@ fn App() -> impl IntoView {
             return;
         };
 
-        if let Some(handle) = timeout.get_value() { handle.clear() }
+        if let Some(handle) = timeout.get_value() {
+            handle.clear()
+        }
         let handle =
             set_timeout_with_handle(move || save_vault(keys, ed), Duration::from_secs(3)).unwrap();
         timeout.set_value(Some(handle));
@@ -211,7 +213,7 @@ fn App() -> impl IntoView {
 
             state
                 .vault
-                .update(|v| drop(v.chats.insert(chat, ChatMeta::from_secret(secret))));
+                .update(|v| _ = v.chats.insert(chat, ChatMeta::from_secret(secret)));
         };
 
         // TODO: manage the future somehow

@@ -32,7 +32,7 @@ macro_rules! impl_transmute {
 
             fn try_from_slice(slice: &[u8]) -> Option<&Self> {
                 if slice.len() == core::mem::size_of::<Self>() {
-                    Some(unsafe { core::mem::transmute(slice.as_ptr()) })
+                    Some(unsafe { &*(slice.as_ptr() as *const Self) })
                 } else {
                     None
                 }
