@@ -9,6 +9,7 @@ edition = "2021"
 component-utils = { version = "0.1.0", path = "../../utils/component-utils", features = ["std"] }
 crypto = { version = "0.1.0", path = "../crypto", features = ["std"] }
 libp2p = { version = "0.53.1", features = ["macros", "kad"] }
+log = "0.4.20"
 onion = { version = "0.1.0", path = "../onion" }
 primitives = { version = "0.1.0", path = "../primitives" }
 thiserror = "1.0.50"

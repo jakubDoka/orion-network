@@ -51,6 +51,10 @@ macro_rules! gen_unique_id {
                     std::sync::atomic::AtomicUsize::new(0);
                 Self(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
             }
+
+            pub fn whatever() -> Self {
+                Self(usize::MAX)
+            }
         }
 
         impl $crate::Codec<'_> for $ty {
@@ -213,6 +217,7 @@ pub fn array_to_arrstr<const SIZE: usize>(arr: [u8; SIZE]) -> Option<arrayvec::A
     Some(s)
 }
 
+#[cfg(feature = "std")]
 pub fn find_and_remove<T>(v: &mut Vec<T>, q: impl FnMut(&T) -> bool) -> Option<T> {
     v.iter().position(q).map(|i| v.swap_remove(i))
 }

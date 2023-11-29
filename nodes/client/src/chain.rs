@@ -18,8 +18,8 @@ macro_rules! build_env {
 }
 
 pub async fn node(name: UserName) -> Result<chain_api::Client<WebSigner>, chain_api::Error> {
-    build_env!(BOOTSTRAP_NODE);
-    chain_api::Client::with_signer(BOOTSTRAP_NODE, WebSigner(name)).await
+    build_env!(CHAIN_NODE);
+    chain_api::Client::with_signer(CHAIN_NODE, WebSigner(name)).await
 }
 
 pub fn boot_node() -> Multiaddr {

@@ -262,8 +262,8 @@ impl<S: TransactionHandler> Client<S> {
             .call_dry_low(value, dest.clone(), call_data.to_bytes())
             .await?;
 
-        weight.ref_time *= 2;
-        weight.proof_size *= 2;
+        weight.ref_time *= 10;
+        weight.proof_size *= 10;
 
         self.signer
             .handle(

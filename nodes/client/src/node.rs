@@ -174,13 +174,6 @@ impl Node {
             "profile hash does not match our account"
         );
 
-        anyhow::ensure!(
-            node_data.len() >= crate::chain::min_nodes(),
-            "not enough nodes in network, needed {}, got {}",
-            crate::chain::min_nodes(),
-            node_data.len()
-        );
-
         set_state!(InitiateConnection);
 
         let keypair = identity::Keypair::generate_ed25519();
@@ -260,7 +253,7 @@ impl Node {
             .zip(node_data.iter())
             .collect::<Vec<_>>();
         let mut nodes = HashMap::new();
-        while query_pool.is_empty() {
+        while !query_pool.is_empty() {
             let (result, id, last) = match swarm.select_next_some().await {
                 SwarmEvent::Behaviour(BehaviourEvent::Kad(
                     kad::Event::OutboundQueryProgressed {
@@ -273,6 +266,8 @@ impl Node {
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => continue,
                 _ => continue,
             };
+
+            log::debug!("got node record {:#?}", result);
 
             let Some((.., nd)) = find_and_remove(&mut query_pool, |&(qid, ..)| qid == id) else {
                 continue;
@@ -301,6 +296,13 @@ impl Node {
             nodes.insert(pk.to_peer_id(), identity.enc);
             set_state!(CollecringKeys(query_pool.len()));
         }
+
+        anyhow::ensure!(
+            nodes.len() >= crate::chain::min_nodes(),
+            "not enough nodes in network, needed {}, got {}",
+            crate::chain::min_nodes(),
+            nodes.len(),
+        );
 
         set_state!(InitialRoute);
 

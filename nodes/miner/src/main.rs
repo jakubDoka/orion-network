@@ -22,7 +22,7 @@ use {
     },
     onion::{EncryptedStream, PathId},
     primitives::contracts::{NodeData, NodeIdentity},
-    std::{fs, io, mem, time::Duration},
+    std::{fs, io, mem, thread, time::Duration},
 };
 
 #[derive(Default, Clone)]
@@ -165,6 +165,8 @@ impl Miner {
             )
             .context("starting to isten for clients")?;
 
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
         for boot_node in BOOT_NODES.0 {
             swarm.dial(boot_node).context("dialing a boot peer")?;
         }
@@ -225,6 +227,7 @@ impl Miner {
         _ = self.packets.drain();
 
         self.dispatch_events();
+        log::info!("put record message");
     }
 
     fn handle_event(&mut self, event: SE) {

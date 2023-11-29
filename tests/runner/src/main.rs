@@ -1,6 +1,6 @@
 use {
     clap::Parser,
-    std::{process, thread::sleep},
+    std::{fmt::Write, process, thread::sleep},
 };
 
 #[derive(Parser)]
@@ -24,16 +24,21 @@ fn main() {
                 sleep(std::time::Duration::from_secs(7));
             }
             let mut command = process::Command::new(&cmd.miner);
-            if let Some(i) = i.checked_sub(1) {
-                command.env(
-                    "BOOT_NODES",
-                    format!("/ip4/127.0.0.1/tcp/{}", cmd.first_port + i as u16),
-                );
+            let mut boot_nodes = String::new();
+            for _ in 1..2 {
+                if let Some(i) = i.checked_sub(1) {
+                    write!(
+                        boot_nodes,
+                        "/ip4/127.0.0.1/tcp/{},",
+                        cmd.first_port + i as u16
+                    )
+                    .unwrap();
+                }
             }
-
             command
                 .env("PORT", (cmd.first_port + i as u16).to_string())
                 .env("WS_PORT", (cmd.first_port + i as u16 + 100).to_string())
+                .env("BOOT_NODES", boot_nodes)
                 .env(
                     "NODE_ACCOUNT",
                     format!("//{}", accounts[i % accounts.len()]),

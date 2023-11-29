@@ -1,5 +1,5 @@
 use {
-    crate::{Handler, Identity},
+    crate::{Dispatches, Handler, Identity, RequestId, Server},
     component_utils::Codec,
     crypto::TransmutationCircle,
     libp2p::PeerId,
@@ -13,6 +13,28 @@ mod profile;
 
 pub use {chat::*, nodes::*, profile::*};
 
+fn make_new_replication_record<H, S>(key: &H::Topic, value: &H::Request<'_>) -> libp2p::kad::Record
+where
+    H: Handler<Context = libp2p::kad::Behaviour<Storage>>,
+    S: Dispatches<H>,
+{
+    let mut rec = libp2p::kad::Record::new(key.to_bytes(), vec![]);
+    (S::PREFIX, RequestId::whatever()).encode(&mut rec.value);
+    value.encode(&mut rec.value);
+    rec
+}
+
+fn make_replication_record<H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
+    key: &H::Topic,
+    value: &H::Request<'_>,
+    meta: crate::RequestMeta,
+) -> libp2p::kad::Record {
+    let mut rec = libp2p::kad::Record::new(key.to_bytes(), vec![]);
+    meta.encode(&mut rec.value);
+    value.encode(&mut rec.value);
+    rec
+}
+
 fn replicate<H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
     kad: &mut H::Context,
     key: &H::Topic,
@@ -23,9 +45,7 @@ fn replicate<H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
         return;
     }
 
-    let mut rec = libp2p::kad::Record::new(key.to_bytes(), vec![]);
-    meta.encode(&mut rec.value);
-    value.encode(&mut rec.value);
+    let rec = make_replication_record::<H>(key, value, meta);
     kad.put_record(rec, super::QUORUM)
         .expect("storage to ignore and accept the record");
 }
@@ -68,7 +88,7 @@ impl libp2p::kad::store::RecordStore for Storage {
     type ProvidedIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::ProviderRecord>>
     where
         Self: 'a;
-    type RecordsIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::Record>>
+    type RecordsIter<'a> = std::vec::IntoIter<Cow<'a, libp2p::kad::Record>>
     where
         Self: 'a;
 
@@ -79,6 +99,8 @@ impl libp2p::kad::store::RecordStore for Storage {
                     k.clone(),
                     FetchProfileResp::from(profile).to_bytes(),
                 )));
+            } else {
+                log::info!("failed to find profile");
             }
 
             if let Some(node) = self.nodes.get(&id) {
@@ -86,7 +108,11 @@ impl libp2p::kad::store::RecordStore for Storage {
                     k.clone(),
                     node.into_bytes().to_vec(),
                 )));
+            } else {
+                log::info!("failed to find node");
             }
+        } else {
+            log::info!("failed to decode record key");
         }
 
         None
@@ -99,7 +125,16 @@ impl libp2p::kad::store::RecordStore for Storage {
     fn remove(&mut self, _: &libp2p::kad::RecordKey) {}
 
     fn records(&self) -> Self::RecordsIter<'_> {
-        iter::empty()
+        self.nodes
+            .iter()
+            .map(|(id, node)| {
+                Cow::Owned(make_new_replication_record::<PublishNode, Server>(
+                    id,
+                    node.as_bytes(),
+                ))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     fn add_provider(&mut self, _: libp2p::kad::ProviderRecord) -> libp2p::kad::store::Result<()> {

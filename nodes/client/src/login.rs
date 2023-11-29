@@ -51,7 +51,7 @@ pub fn Login(state: State) -> impl IntoView {
         <div class="sc flx fdc bp ma">
             <Nav/>
             <form class="flx fdc">
-                <input class="pc hov bp tbm" type="file"
+                <input class="pc hov bp tbm" type="file" style:width="250px"
                     node_ref=key_file on:change=on_change required />
             </form>
         </div>

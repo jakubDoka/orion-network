@@ -1,6 +1,6 @@
 use {
     crate::{
-        handled_async_callback, handled_async_closure, handled_callback,
+        handled_async_callback, handled_async_closure, handled_callback, handled_spawn_local,
         node::{self, MessageContent, RawChatMessage},
     },
     anyhow::Context,
@@ -143,42 +143,45 @@ pub fn Chat(state: crate::State) -> impl IntoView {
     });
 
     let subscription_owner = store_value(None::<SubsOwner<SendMessage>>);
-    create_effect(handled_async_callback(move |_| async move {
+    create_effect(move |_| {
         let Some(chat) = current_chat() else {
-            return Ok(());
+            return;
         };
 
         let Some(secret) = state.chat_secret(chat) else {
             log::warn!("received message for chat we are not part of");
-            return Ok(());
+            return;
         };
 
-        let (mut sub, owner) = requests().subscribe::<SendMessage>(chat)?;
-        subscription_owner.set_value(Some(owner)); // drop old subscription
-        while let Some((proof, Reminder(message))) = sub.next().await {
-            if !proof.verify_chat(chat) {
-                log::warn!("received message with invalid proof");
-                continue;
+        handled_spawn_local(async move {
+            let (mut sub, owner) = requests().subscribe::<SendMessage>(chat)?;
+            subscription_owner.set_value(Some(owner)); // drop old subscription
+            while let Some((proof, Reminder(message))) = sub.next().await {
+                if !proof.verify_chat(chat) {
+                    log::warn!("received message with invalid proof");
+                    continue;
+                }
+
+                let mut message = message.to_vec();
+                let Some(message) = crypto::decrypt(&mut message, secret) else {
+                    log::warn!("message cannot be decrypted: {:?}", message);
+                    continue;
+                };
+
+                let Some(RawChatMessage { sender, content }) =
+                    RawChatMessage::decode(&mut &*message)
+                else {
+                    log::warn!("message cannot be decoded: {:?}", message);
+                    continue;
+                };
+
+                append_message(sender, content.into());
+                log::info!("received message: {:?}", content);
             }
 
-            let mut message = message.to_vec();
-            let Some(message) = crypto::decrypt(&mut message, secret) else {
-                log::warn!("message cannot be decrypted: {:?}", message);
-                continue;
-            };
-
-            let Some(RawChatMessage { sender, content }) = RawChatMessage::decode(&mut &*message)
-            else {
-                log::warn!("message cannot be decoded: {:?}", message);
-                continue;
-            };
-
-            append_message(sender, content.into());
-            log::info!("received message: {:?}", content);
-        }
-
-        Ok(())
-    }));
+            Ok(())
+        })
+    });
 
     let side_chat = move |chat: ChatName| {
         let select_chat = move |_| {
@@ -291,10 +294,12 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         _ = resize_input(mi);
     };
 
-    let on_input = handled_async_callback(move |e: web_sys::KeyboardEvent| async move {
+    let on_input = handled_callback(move |e: web_sys::KeyboardEvent| {
         if e.key_code() != '\r' as u32 || e.get_modifier_state("Shift") {
             return Ok(());
         }
+
+        e.prevent_default();
 
         let chat = current_chat.get_untracked().expect("universe to work");
 
@@ -314,12 +319,16 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .next_chat_proof(chat)
             .expect("we checked we are part of the chat");
 
-        requests()
-            .dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
-            .await?
-            .context("sending message")?;
-        message_input.get_untracked().unwrap().set_value("");
-        resize_input();
+        handled_spawn_local(async move {
+            requests()
+                .dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
+                .await?
+                .context("sending message")?;
+            message_input.get_untracked().unwrap().set_value("");
+            resize_input();
+            Ok(())
+        });
+
         Ok(())
     });
 
@@ -368,8 +377,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                     <div class="fg1 flx fdc bp sc fsc fy boa" node_ref=messages></div>
                 </div>
                 <textarea class="fg0 flx bm bp pc sf" type="text" rows=1 placeholder="mesg..."
-                    node_ref=message_input on:keyup=on_input on:resize=move |_| resize_input()
-                    on:keydown=move |_| resize_input()/>
+                    node_ref=message_input on:keydown=on_input on:resize=move |_| resize_input()
+                    on:keyup=move |_| resize_input()/>
             </div>
             <div class="sc fg1 flx pb fdc" hidden=chat_selected class=("off-screen", crate::not(show_chat))>
                 <div class="ma">"no chat selected"</div>

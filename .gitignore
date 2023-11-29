@@ -1,3 +1,4 @@
 /target
 /nodes/client/dist
 Cargo.lock
+/node_keys

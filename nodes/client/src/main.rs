@@ -300,17 +300,16 @@ fn App() -> impl IntoView {
 fn ErrorPanel(errors: ReadSignal<Option<anyhow::Error>>) -> impl IntoView {
     let error_nodes = create_node_ref::<html::Div>();
     let error_message = move |message: String| {
-        let elem = create_node_ref::<html::Div>();
-        let remove = move || {
-            elem.get_untracked().unwrap().remove();
-        };
-        set_timeout(remove, Duration::from_secs(6));
-
-        view! {
-            <div class="notification-box" node_ref=elem on:click=move |_| remove()>
-                <div class="notification-text">{message}</div>
+        let elem = view! {
+            <div class="tbm" onclick="this.remove()">
+                <div class="ec hov bp pea" style="cursor: pointer">{message}</div>
             </div>
-        }
+        };
+
+        let celem = elem.clone();
+        set_timeout(move || celem.remove(), Duration::from_secs(3000));
+
+        elem
     };
 
     create_effect(move |_| {
@@ -319,15 +318,15 @@ fn ErrorPanel(errors: ReadSignal<Option<anyhow::Error>>) -> impl IntoView {
                 error_nodes
                     .get_untracked()
                     .unwrap()
-                    .append_child(&error_message(e.to_string()))
+                    .append_child(&error_message(format!("{e:#}")))
                     .unwrap();
             }
         });
     });
 
     view! {
-        <div class="fs" style="display: flex; justify-content: flex-end;">
-            <div class="errors" style="align-self: flex-end; margin: 10px;" node_ref=error_nodes />
+        <div class="fsc jcfe flx pen">
+            <div class="bm" style="align-self: flex-end;" node_ref=error_nodes />
         </div>
     }
 }
