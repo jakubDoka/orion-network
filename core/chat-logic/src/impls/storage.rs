@@ -133,6 +133,7 @@ impl libp2p::kad::store::RecordStore for Storage {
                     node.as_bytes(),
                 ))
             })
+            .map(|(id, node)| )
             .collect::<Vec<_>>()
             .into_iter()
     }
