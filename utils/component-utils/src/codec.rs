@@ -120,7 +120,7 @@ impl<'a, T: Codec<'a>> Codec<'a> for std::collections::VecDeque<T> {
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
         let len = usize::decode(buffer)?;
-        if len * core::mem::size_of::<T>() > buffer.len() {
+        if len > buffer.len() {
             return None;
         }
         let mut s = Self::with_capacity(len);
@@ -381,7 +381,7 @@ impl<'a, T: Codec<'a>> Codec<'a> for Vec<T> {
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
         let len = <usize>::decode(buffer)?;
-        if len * core::mem::size_of::<T>() > buffer.len() {
+        if len > buffer.len() {
             return None;
         }
         let mut s = Self::with_capacity(len);

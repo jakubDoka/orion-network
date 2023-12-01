@@ -1,6 +1,6 @@
 use {
-    crate::{Dispatches, Handler, Identity, RequestId, Server},
-    component_utils::Codec,
+    crate::{Dispatches, Handler, Identity, Proof, RequestId, Server},
+    component_utils::{Codec, Reminder},
     crypto::TransmutationCircle,
     libp2p::PeerId,
     primitives::contracts::NodeIdentity,
@@ -51,7 +51,7 @@ fn replicate<H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
 }
 
 pub struct Storage {
-    profiles: HashMap<crate::Identity, FullProfile>,
+    profiles: HashMap<crate::Identity, Profile>,
     chats: HashMap<crate::ChatName, Chat>,
     nodes: HashMap<crate::Identity, NodeIdentity>,
 
@@ -133,7 +133,20 @@ impl libp2p::kad::store::RecordStore for Storage {
                     node.as_bytes(),
                 ))
             })
-            .map(|(id, node)| )
+            .chain(self.profiles.iter().map(|(id, profile)| {
+                Cow::Owned(make_new_replication_record::<CreateAccount, Server>(
+                    id,
+                    &(
+                        Proof {
+                            pk: profile.sign,
+                            nonce: profile.action,
+                            signature: profile.last_sig,
+                        },
+                        profile.enc,
+                        Reminder(&profile.vault),
+                    ),
+                ))
+            }))
             .collect::<Vec<_>>()
             .into_iter()
     }

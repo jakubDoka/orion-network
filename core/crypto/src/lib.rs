@@ -11,26 +11,26 @@ use {aes_gcm::aead::OsRng, pqc_kyber::RngCore};
 macro_rules! impl_transmute {
     ($($type:ty,)*) => {$(
         impl $crate::TransmutationCircle for $type {
-            type Serialized = [u8; core::mem::size_of::<Self>()];
+            type Serialized = [u8; ::core::mem::size_of::<Self>()];
 
             fn into_bytes(self) -> Self::Serialized {
-                unsafe { core::mem::transmute(self) }
+                unsafe { ::core::mem::transmute(self) }
             }
 
             fn from_bytes(bytes: Self::Serialized) -> Self {
-                unsafe { core::mem::transmute(bytes) }
+                unsafe { ::core::mem::transmute(bytes) }
             }
 
             fn as_bytes(&self) -> &Self::Serialized {
-                unsafe { core::mem::transmute(self) }
+                unsafe { ::core::mem::transmute(self) }
             }
 
             fn from_ref(bytes: &Self::Serialized) -> &Self {
-                unsafe { core::mem::transmute(bytes) }
+                unsafe { ::core::mem::transmute(bytes) }
             }
 
             fn try_from_slice(slice: &[u8]) -> Option<&Self> {
-                if slice.len() == core::mem::size_of::<Self>() {
+                if slice.len() == ::core::mem::size_of::<Self>() {
                     Some(unsafe { &*(slice.as_ptr() as *const Self) })
                 } else {
                     None
@@ -39,6 +39,16 @@ macro_rules! impl_transmute {
         }
     )*};
 }
+
+pub const ASOC_DATA: &[u8] = concat!("pqc-orion-crypto/enc/", env!("CARGO_PKG_VERSION")).as_bytes();
+
+pub type Serialized<T> = <T as TransmutationCircle>::Serialized;
+
+pub mod enc;
+pub mod hash;
+pub mod sign;
+
+pub use hash::{AnyHash, Hash};
 
 pub trait TransmutationCircle: Sized {
     type Serialized: AsRef<[u8]>;
@@ -49,14 +59,6 @@ pub trait TransmutationCircle: Sized {
     fn from_ref(bytes: &Self::Serialized) -> &Self;
     fn try_from_slice(slice: &[u8]) -> Option<&Self>;
 }
-
-pub type Serialized<T> = <T as TransmutationCircle>::Serialized;
-
-pub mod enc;
-pub mod hash;
-pub mod sign;
-
-pub use hash::{AnyHash, Hash};
 
 #[cfg(all(feature = "getrandom", feature = "std"))]
 pub fn new_secret() -> SharedSecret {
@@ -76,7 +78,7 @@ pub fn decrypt(data: &mut [u8], secret: SharedSecret) -> Option<&mut [u8]> {
     let tag = <Tag<Aes256Gcm>>::from_slice(&postfix[..TAG_SIZE]);
     let cipher = Aes256Gcm::new(&GenericArray::from(secret));
     cipher
-        .decrypt_in_place_detached(nonce, enc::ASOC_DATA, data, tag)
+        .decrypt_in_place_detached(nonce, crate::ASOC_DATA, data, tag)
         .ok()
         .map(|()| data)
 }
@@ -86,7 +88,7 @@ pub fn encrypt(data: &mut Vec<u8>, secret: SharedSecret) {
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let cipher = Aes256Gcm::new(&GenericArray::from(secret));
     let tag = cipher
-        .encrypt_in_place_detached(&nonce, enc::ASOC_DATA, data)
+        .encrypt_in_place_detached(&nonce, crate::ASOC_DATA, data)
         .expect("data to not be that big");
 
     data.extend_from_slice(tag.as_slice());
@@ -107,7 +109,7 @@ pub struct FixedAesPayload<const SIZE: usize> {
 
 impl<const SIZE: usize> FixedAesPayload<SIZE> {
     #[cfg(feature = "getrandom")]
-    fn new(mut data: [u8; SIZE], key: SharedSecret, asoc_data: &[u8]) -> Self {
+    pub fn new(mut data: [u8; SIZE], key: SharedSecret, asoc_data: &[u8]) -> Self {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let cipher = Aes256Gcm::new(&GenericArray::from(key));
         let tag = cipher
@@ -116,7 +118,11 @@ impl<const SIZE: usize> FixedAesPayload<SIZE> {
         Self { data, tag, nonce }
     }
 
-    fn decrypt(self, key: SharedSecret, asoc_data: &[u8]) -> Result<[u8; SIZE], aes_gcm::Error> {
+    pub fn decrypt(
+        self,
+        key: SharedSecret,
+        asoc_data: &[u8],
+    ) -> Result<[u8; SIZE], aes_gcm::Error> {
         let mut data = self.data;
         let cipher = Aes256Gcm::new(&GenericArray::from(key));
         cipher

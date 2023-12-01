@@ -22,7 +22,7 @@ use {
     },
     onion::{EncryptedStream, PathId},
     primitives::contracts::{NodeData, NodeIdentity},
-    std::{fs, io, mem, thread, time::Duration},
+    std::{fs, io, mem, time::Duration},
 };
 
 #[derive(Default, Clone)]

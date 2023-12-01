@@ -13,16 +13,17 @@ use {
 
 component_utils::protocol! {'a:
     #[derive(Clone)]
-    struct FullProfile {
+    struct Profile {
         sign: Serialized<sign::PublicKey>,
         enc: Serialized<enc::PublicKey>,
+        last_sig: Serialized<sign::Signature>,
         action: Nonce,
         vault: Vec<u8>,
         mail: Vec<u8>,
     }
 }
 
-impl FullProfile {
+impl Profile {
     fn read_mail(&mut self) -> &[u8] {
         let slice = unsafe { std::mem::transmute(self.mail.as_slice()) };
         unsafe { self.mail.set_len(0) };
@@ -96,8 +97,8 @@ component_utils::protocol! {'a:
     }
 }
 
-impl From<&FullProfile> for FetchProfileResp {
-    fn from(profile: &FullProfile) -> Self {
+impl From<&Profile> for FetchProfileResp {
+    fn from(profile: &Profile) -> Self {
         Self {
             sign: profile.sign,
             enc: profile.enc,
@@ -109,33 +110,45 @@ pub enum CreateAccount {}
 
 impl crate::SyncHandler for CreateAccount {
     type Context = libp2p::kad::Behaviour<Storage>;
-    type Request<'a> = (Proof, Serialized<enc::PublicKey>);
+    type Request<'a> = (Proof, Serialized<enc::PublicKey>, Reminder<'a>);
     type Response<'a> = Result<(), CreateAccountError>;
     type Topic = crate::Identity;
 
     fn execute(
         context: &mut Self::Context,
-        &(proof, enc): &Self::Request<'_>,
+        &(proof, enc, vault): &Self::Request<'_>,
         _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> Self::Response<'static> {
         crate::ensure!(proof.verify_profile(), CreateAccountError::InvalidProof);
 
         let user_id = crypto::hash::new_raw(&proof.pk);
+        let replicating = context.store_mut().replicating;
         let entry = context.store_mut().profiles.entry(user_id);
 
-        crate::ensure!(let Entry::Vacant(entry) = entry, CreateAccountError::AlreadyExists);
-
-        entry.insert(FullProfile {
-            sign: proof.pk,
-            enc,
-            action: proof.nonce,
-            vault: Vec::new(),
-            mail: Vec::new(),
-        });
-        replicate::<Self>(context, &user_id, &(proof, enc), meta);
-
-        Ok(())
+        match entry {
+            Entry::Vacant(entry) => {
+                entry.insert(Profile {
+                    sign: proof.pk,
+                    enc,
+                    last_sig: proof.signature,
+                    action: proof.nonce,
+                    vault: vault.0.to_vec(),
+                    mail: Vec::new(),
+                });
+                replicate::<Self>(context, &user_id, &(proof, enc, vault), meta);
+                Ok(())
+            }
+            Entry::Occupied(mut entry) if replicating && entry.get().action < proof.nonce => {
+                let account = entry.get_mut();
+                account.action = proof.nonce;
+                account.last_sig = proof.signature;
+                account.vault.clear();
+                account.vault.extend(vault.0);
+                Ok(())
+            }
+            _ => Err(CreateAccountError::AlreadyExists),
+        }
     }
 }
 
@@ -171,6 +184,7 @@ impl crate::SyncHandler for SetVault {
             advance_nonce(&mut profile.action, proof.nonce),
             SetVaultError::InvalidAction
         );
+        profile.last_sig = proof.signature;
 
         profile.vault.clear();
         profile.vault.extend_from_slice(content.0.as_ref());

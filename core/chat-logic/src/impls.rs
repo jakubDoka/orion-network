@@ -10,6 +10,7 @@ pub const QUORUM: libp2p::kad::Quorum = libp2p::kad::Quorum::Majority;
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(4) };
 
 pub type ChatName = ArrayString<CHAT_NAME_CAP>;
+pub type RawChatName = [u8; CHAT_NAME_CAP];
 pub type Nonce = u64;
 pub type ProofContext = [u8; CHAT_NAME_CAP];
 pub type Identity = crypto::Hash<sign::PublicKey>;

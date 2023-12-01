@@ -6,26 +6,33 @@
 use {
     self::web_sys::wasm_bindgen::JsValue,
     crate::{
-        chat::{Chat, ChatInvite, Mail},
+        chat::Chat,
         login::{Login, Register},
-        node::{ChatMeta, Node},
+        node::{
+            ChatInvite, ChatMeta, HardenedChatInvite, HardenedChatInvitePayload, HardenedChatMeta,
+            HardenedJoinRequest, JoinRequestPayload, Mail, MemberMeta, Node,
+            SavedHardenedChatMessage,
+        },
         profile::Profile,
     },
     anyhow::Context,
     chat_logic::{
-        ChatName, Identity, Nonce, Proof, ReadMail, RequestDispatch, SendMail, Server, SetVault,
-        SubsOwner,
+        ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, RequestDispatch, SendMail,
+        Server, SetVault, SubsOwner,
     },
     component_utils::{Codec, Reminder},
     crypto::{
-        enc::{self, ChoosenCiphertext},
-        sign, TransmutationCircle,
+        enc::{self, ChoosenCiphertext, Ciphertext},
+        sign, FixedAesPayload, TransmutationCircle,
     },
     leptos::{html::Input, leptos_dom::helpers::TimeoutHandle, signal_prelude::*, *},
     leptos_router::*,
-    libp2p::futures::FutureExt,
+    libp2p::futures::{future::join_all, FutureExt},
     node::Vault,
-    primitives::{contracts::UserIdentity, RawUserName, UserName},
+    primitives::{
+        contracts::{StoredUserIdentity, UserIdentity},
+        RawUserName, UserName,
+    },
     std::{
         cmp::Ordering,
         fmt::Display,
@@ -34,7 +41,6 @@ use {
         task::{Poll, Waker},
         time::Duration,
     },
-    web_sys::js_sys::wasm_bindgen,
 };
 
 mod chain;
@@ -132,6 +138,7 @@ struct State {
     requests: RwSignal<Option<chat_logic::RequestDispatch<chat_logic::Server>>>,
     vault: RwSignal<Vault>,
     account_nonce: RwSignal<Nonce>,
+    hardened_messages: RwSignal<Option<(ChatName, SavedHardenedChatMessage)>>,
 }
 
 impl State {
@@ -208,6 +215,187 @@ fn App() -> impl IntoView {
         timeout.set_value(Some(handle));
     });
 
+    async fn handle_invite_member(
+        name: UserName,
+        chat: ChatName,
+        my_name: UserName,
+        enc: enc::KeyPair,
+        identity: Identity,
+        mut dispatch: RequestDispatch<Server>,
+    ) -> anyhow::Result<(UserName, MemberMeta)> {
+        let client = chain::node(my_name).await?;
+        let identity_hashes = client
+            .get_profile_by_name(chain::user_contract(), name)
+            .await?
+            .map(StoredUserIdentity::from_bytes)
+            .context("user not found")?;
+        let pf = dispatch
+            .dispatch::<FetchProfile>(None, identity_hashes.sign)
+            .await??;
+
+        let (cp, secret) = enc
+            .encapsulate(&enc::PublicKey::from_bytes(pf.enc))
+            .context("failed to encapsulate invite")?;
+
+        let payload = JoinRequestPayload {
+            chat: component_utils::arrstr_to_array(chat),
+            name: component_utils::arrstr_to_array(name),
+            identity,
+        }
+        .into_bytes();
+        let mail = Mail::HardenedJoinRequest(HardenedJoinRequest {
+            cp: cp.into_bytes(),
+            payload: unsafe {
+                std::mem::transmute(FixedAesPayload::new(payload, secret, crypto::ASOC_DATA))
+            },
+        })
+        .to_bytes();
+
+        dispatch
+            .dispatch::<SendMail>(None, (identity_hashes.sign, Reminder(&mail)))
+            .await??;
+
+        Ok((name, MemberMeta {
+            secret,
+            identity: identity_hashes.sign,
+        }))
+    }
+
+    let handle_mail = move |mail: &[u8],
+                            dispatch: &RequestDispatch<Server>,
+                            enc: enc::KeyPair,
+                            my_id: Identity,
+                            my_name: UserName| {
+        let Some(mail) = Mail::decode(&mut &*mail) else {
+            anyhow::bail!("failed to decode chat message");
+        };
+
+        match mail {
+            Mail::ChatInvite(ChatInvite { chat, cp }) => {
+                let secret = enc
+                    .decapsulate_choosen(ChoosenCiphertext::from_bytes(cp))
+                    .context("failed to decapsulate invite")?;
+
+                state
+                    .vault
+                    .update(|v| _ = v.chats.insert(chat, ChatMeta::from_secret(secret)));
+            }
+            Mail::HardenedJoinRequest(HardenedJoinRequest { cp, payload }) => {
+                log::debug!("handling hardened join request");
+                let secret = enc
+                    .decapsulate(Ciphertext::from_bytes(cp))
+                    .context("failed to decapsulate invite")?;
+
+                let payload: FixedAesPayload<{ std::mem::size_of::<JoinRequestPayload>() }> =
+                    unsafe { std::mem::transmute(payload) };
+
+                let JoinRequestPayload {
+                    chat,
+                    name,
+                    identity,
+                } = payload
+                    .decrypt(secret, crypto::ASOC_DATA)
+                    .map(JoinRequestPayload::from_bytes)
+                    .context("failed to decrypt join request payload")?;
+
+                let chat = component_utils::array_to_arrstr(chat).context("invalid chat name")?;
+                let name = component_utils::array_to_arrstr(name).context("invalid name")?;
+
+                if state.vault.with_untracked(|v| !v.chats.contains_key(&chat)) {
+                    anyhow::bail!("request to join chat we dont have");
+                }
+
+                state.vault.update(|v| {
+                    log::debug!("adding member to hardened chat");
+                    let chat = v.hardened_chats.get_mut(&chat).expect("we just checked");
+                    chat.members.insert(name, MemberMeta { secret, identity });
+                })
+            }
+            Mail::HardenedChatInvite(HardenedChatInvite { cp, payload }) => {
+                log::debug!("handling hardened chat invite");
+                let enc = enc.clone();
+                let secret = enc
+                    .decapsulate(Ciphertext::from_bytes(cp))
+                    .context("failed to decapsulate hardened invite")?;
+
+                let mut payload = payload.0.to_owned();
+                let payload = crypto::decrypt(&mut payload, secret)
+                    .context("failed to decrypt hardened invite")?;
+                let HardenedChatInvitePayload {
+                    chat,
+                    inviter,
+                    inviter_id,
+                    members,
+                } = <_>::decode(&mut &*payload).context("failed to decode hardened invite")?;
+                let dispatch = dispatch.clone();
+                handled_spawn_local(async move {
+                    let members = join_all(members.into_iter().map(|id| {
+                        handle_invite_member(
+                            id,
+                            chat,
+                            my_name,
+                            enc.clone(),
+                            my_id,
+                            dispatch.clone(),
+                        )
+                    }))
+                    .await
+                    .into_iter()
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                    state.vault.update(|v| {
+                        if !v.hardened_chats.contains_key(&chat) {
+                            v.hardened_chats.insert(chat, HardenedChatMeta::default());
+                        }
+                        let meta = v
+                            .hardened_chats
+                            .get_mut(&chat)
+                            .expect("it be there since we just inserted if it isnt");
+                        members
+                            .into_iter()
+                            .for_each(|(name, secret)| _ = meta.members.insert(name, secret));
+                        meta.members.insert(inviter, MemberMeta {
+                            secret,
+                            identity: inviter_id,
+                        });
+                    });
+
+                    Ok(())
+                });
+            }
+            Mail::HardenedChatMessage(msg) => {
+                let mut message = msg.content.0.to_owned();
+                state.vault.update(|v| {
+                    let Some((&chat, meta)) = v.hardened_chats.iter_mut().find(|(c, _)| {
+                        crypto::hash::new_with_nonce(c.as_bytes(), msg.nonce) == msg.chat
+                    }) else {
+                        log::warn!("received message for unknown chat");
+                        return;
+                    };
+
+                    let Some((&sender, content)) =
+                        meta.members.iter_mut().find_map(|(name, mm)| {
+                            let decrypted = crypto::decrypt(&mut message, mm.secret)?;
+                            Some((name, std::str::from_utf8(decrypted).ok().unwrap().into()))
+                        })
+                    else {
+                        log::warn!("received message for chat we are not in");
+                        return;
+                    };
+
+                    let message = SavedHardenedChatMessage { sender, content };
+                    if meta.messages.len() >= 128 {
+                        meta.messages.pop_front();
+                    }
+                    meta.messages.push_back(message.clone());
+                    state.hardened_messages.set(Some((chat, message)));
+                });
+            }
+        }
+
+        Ok(())
+    };
+
     let account_sub = store_value(None::<SubsOwner<SendMail>>);
     create_effect(move |_| {
         let Some(keys) = state.keys.get() else {
@@ -215,21 +403,8 @@ fn App() -> impl IntoView {
         };
 
         let enc = keys.enc.clone();
-        let handle_chat_invite = move |mail: &[u8]| {
-            let Some(Mail::ChatInvite(ChatInvite { chat, cp })) = <_>::decode(&mut &*mail) else {
-                anyhow::bail!("failed to decode chat message");
-            };
-
-            let secret = enc
-                .decapsulate_choosen(ChoosenCiphertext::from_bytes(cp))
-                .context("failed to decapsulate invite")?;
-
-            state
-                .vault
-                .update(|v| _ = v.chats.insert(chat, ChatMeta::from_secret(secret)));
-
-            Ok(())
-        };
+        let my_name = keys.name;
+        let my_id = keys.identity_hash();
 
         handled_spawn_local(async move {
             navigate_to("/");
@@ -240,25 +415,33 @@ fn App() -> impl IntoView {
                 .context("failed to create node")?;
 
             let mut dispatch_clone = dispatch.clone();
-            let handle_chat_invite_clone = handle_chat_invite.clone();
+            let cloned_enc = enc.clone();
             handled_spawn_local(async move {
                 let proof = state.next_profile_proof().unwrap();
+                let inner_dispatch = dispatch_clone.clone();
                 let list = dispatch_clone
                     .dispatch::<ReadMail>(identity, proof)
                     .await??;
 
                 for mail in chat_logic::unpack_messages_ref(list.0) {
-                    handle_chat_invite_clone(mail)?;
+                    handle_error(
+                        handle_mail(mail, &inner_dispatch, cloned_enc.clone(), my_id, my_name)
+                            .context("receiving a mail"),
+                    );
                 }
 
                 anyhow::Result::Ok(())
             });
 
             let (mut account, id) = dispatch.subscribe::<SendMail>(identity).unwrap();
+            let dispatch_clone = dispatch.clone();
             account_sub.set_value(Some(id));
             let listen = async move {
                 while let Some(Reminder(mail)) = account.next().await {
-                    handle_chat_invite(mail)?;
+                    handle_error(
+                        handle_mail(mail, &dispatch_clone, enc.clone(), my_id, my_name)
+                            .context("receiving a mail"),
+                    );
                 }
 
                 anyhow::Result::Ok(())
@@ -307,7 +490,7 @@ fn ErrorPanel(errors: ReadSignal<Option<anyhow::Error>>) -> impl IntoView {
         };
 
         let celem = elem.clone();
-        set_timeout(move || celem.remove(), Duration::from_secs(3000));
+        set_timeout(move || celem.remove(), Duration::from_secs(7));
 
         elem
     };
@@ -526,6 +709,11 @@ fn handle_js_err(jv: JsValue) -> anyhow::Error {
 #[derive(Clone, Copy)]
 struct Errors(WriteSignal<Option<anyhow::Error>>);
 
+fn handle_error<T>(r: anyhow::Result<T>) -> Option<T> {
+    let Errors(errors) = use_context().unwrap();
+    r.map_err(|e| errors.set(Some(e))).ok()
+}
+
 fn _handled_closure(
     f: impl Fn() -> anyhow::Result<()> + 'static + Copy,
 ) -> impl Fn() + 'static + Copy {
@@ -562,7 +750,7 @@ fn handled_async_closure<F: Future<Output = anyhow::Result<()>> + 'static>(
     }
 }
 
-fn handled_async_callback<T, F: Future<Output = anyhow::Result<()>> + 'static>(
+fn _handled_async_callback<T, F: Future<Output = anyhow::Result<()>> + 'static>(
     f: impl Fn(T) -> F + 'static + Copy,
 ) -> impl Fn(T) + 'static + Copy {
     let Errors(errors) = use_context().unwrap();

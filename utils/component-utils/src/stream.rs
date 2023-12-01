@@ -52,6 +52,10 @@ impl<K: Eq, V> LinearMap<K, V> {
         self.values.iter().map(|(k, v)| (k, v))
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
+        self.values.iter_mut().map(|(k, v)| (&*k, v))
+    }
+
     pub fn keys(&self) -> impl Iterator<Item = &K> {
         self.values.iter().map(|(k, _)| k)
     }
@@ -65,6 +69,10 @@ impl<K: Eq, V> LinearMap<K, V> {
             .iter_mut()
             .find(|(k, _)| k == key)
             .map(|(_, v)| v)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.values.iter().map(|(_, v)| v)
     }
 
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {

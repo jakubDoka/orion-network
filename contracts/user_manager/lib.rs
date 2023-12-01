@@ -38,8 +38,9 @@ mod user_manager {
 
     #[ink(storage)]
     pub struct UserManager {
-        usernames: ink::storage::Mapping<RawUserName, AccountId>,
-        has_name: ink::storage::Mapping<AccountId, RawUserName>,
+        username_to_owner: ink::storage::Mapping<RawUserName, AccountId>,
+        owner_to_username: ink::storage::Mapping<AccountId, RawUserName>,
+        identity_to_username: ink::storage::Mapping<crypto::AnyHash, RawUserName>,
         identities: ink::storage::Mapping<AccountId, Profile>,
     }
 
@@ -53,9 +54,10 @@ mod user_manager {
         #[ink(constructor)]
         pub fn new() -> Self {
             Self {
-                usernames: ink::storage::Mapping::new(),
+                username_to_owner: ink::storage::Mapping::new(),
                 identities: ink::storage::Mapping::new(),
-                has_name: ink::storage::Mapping::new(),
+                identity_to_username: ink::storage::Mapping::new(),
+                owner_to_username: ink::storage::Mapping::new(),
             }
         }
 
@@ -77,21 +79,60 @@ mod user_manager {
 
         #[ink(message)]
         pub fn pick_name(&mut self, name: RawUserName) {
-            assert!(self.has_name.insert(Self::env().caller(), &name).is_none());
-            assert!(self.usernames.insert(name, &Self::env().caller()).is_none());
+            assert!(self
+                .owner_to_username
+                .insert(Self::env().caller(), &name)
+                .is_none());
+            assert!(self
+                .username_to_owner
+                .insert(name, &Self::env().caller())
+                .is_none());
+            assert!(self
+                .identity_to_username
+                .insert(
+                    self.identities
+                        .get(Self::env().caller())
+                        .expect("caller to have identity")
+                        .sign,
+                    &name
+                )
+                .is_none());
         }
 
         #[ink(message)]
         pub fn give_up_name(&mut self, name: RawUserName) {
-            assert_eq!(self.usernames.take(name), Some(Self::env().caller()));
-            assert_eq!(self.has_name.take(Self::env().caller()), Some(name));
+            assert_eq!(
+                self.username_to_owner.take(name),
+                Some(Self::env().caller())
+            );
+            assert_eq!(
+                self.owner_to_username.take(Self::env().caller()),
+                Some(name)
+            );
+            assert_eq!(
+                self.identity_to_username.take(
+                    self.identities
+                        .get(Self::env().caller())
+                        .expect("caller to have identity")
+                        .sign
+                ),
+                Some(name)
+            );
         }
 
         #[ink(message)]
         pub fn transfere_name(&mut self, name: RawUserName, target: AccountId) {
             self.give_up_name(name);
-            assert!(self.has_name.insert(target, &name).is_none());
-            assert!(self.usernames.insert(name, &target).is_none());
+            assert!(self.owner_to_username.insert(target, &name).is_none());
+            assert!(self.username_to_owner.insert(name, &target).is_none());
+            let identity = self
+                .identities
+                .get(target)
+                .expect("target to have identity");
+            assert!(self
+                .identity_to_username
+                .insert(identity.sign, &name)
+                .is_none());
         }
 
         #[ink(message)]
@@ -106,10 +147,15 @@ mod user_manager {
             &self,
             name: RawUserName,
         ) -> Option<Serialized<StoredUserIdentity>> {
-            self.usernames
+            self.username_to_owner
                 .get(name)
                 .and_then(|account| self.identities.get(account))
                 .map(|profile| profile.to_bytes())
+        }
+
+        #[ink(message)]
+        pub fn get_username(&self, identity: crypto::AnyHash) -> Option<RawUserName> {
+            self.identity_to_username.get(identity)
         }
     }
 }

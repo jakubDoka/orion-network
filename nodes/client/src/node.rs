@@ -2,9 +2,9 @@ use {
     crate::{BootPhase, UserKeys},
     anyhow::Context,
     chat_logic::{
-        ChatName, CreateAccount, DispatchResponse, FetchVault, Nonce, Proof, RawRequest,
-        RawResponse, RequestDispatch, RequestId, RequestInit, RequestStream, SearchPeers, Server,
-        SubscriptionInit, SubscriptionMessage,
+        ChatName, CreateAccount, DispatchResponse, FetchVault, Identity, Nonce, Proof, RawChatName,
+        RawRequest, RawResponse, RequestDispatch, RequestId, RequestInit, RequestStream,
+        SearchPeers, Server, SubscriptionInit, SubscriptionMessage,
     },
     component_utils::{
         find_and_remove,
@@ -12,7 +12,11 @@ use {
         kad::KadPeerSearch,
         Codec, LinearMap, Reminder,
     },
-    crypto::{decrypt, enc, TransmutationCircle},
+    crypto::{
+        decrypt,
+        enc::{self, ChoosenCiphertext, Ciphertext},
+        sign, FixedAesPayload, Serialized, TransmutationCircle,
+    },
     leptos::signal_prelude::*,
     libp2p::{
         core::{upgrade::Version, ConnectedPoint},
@@ -24,11 +28,11 @@ use {
     onion::{EncryptedStream, PathId, SharedSecret},
     primitives::{
         contracts::{NodeIdentity, StoredUserIdentity},
-        UserName,
+        RawUserName, UserName,
     },
     rand::seq::IteratorRandom,
     std::{
-        collections::{HashMap, HashSet},
+        collections::{HashMap, HashSet, VecDeque},
         io, mem,
         task::Poll,
         time::Duration,
@@ -36,12 +40,21 @@ use {
     web_sys::wasm_bindgen::JsValue,
 };
 
-pub type MessageContent = std::rc::Rc<str>;
+pub type MessageContent = String;
+
+pub struct JoinRequestPayload {
+    pub name: RawUserName,
+    pub chat: RawChatName,
+    pub identity: Identity,
+}
+
+crypto::impl_transmute!(JoinRequestPayload,);
 
 component_utils::protocol! { 'a:
     #[derive(Default)]
     struct Vault {
         chats: LinearMap<ChatName, ChatMeta>,
+        hardened_chats: LinearMap<ChatName, HardenedChatMeta>,
         theme: Theme,
     }
 
@@ -50,9 +63,62 @@ component_utils::protocol! { 'a:
         action_no: Nonce,
     }
 
+    #[derive(Default)]
+    struct HardenedChatMeta {
+        members: LinearMap<UserName, MemberMeta>,
+        messages: VecDeque<SavedHardenedChatMessage>,
+    }
+
+    #[derive(Clone, Copy)]
+    struct MemberMeta {
+        secret: crypto::SharedSecret,
+        identity: crypto::Hash<sign::PublicKey>,
+    }
+
     struct RawChatMessage<'a> {
         sender: UserName,
         content: &'a str,
+    }
+
+    enum Mail<'a> {
+        ChatInvite: ChatInvite,
+        HardenedJoinRequest: HardenedJoinRequest,
+        HardenedChatInvite: HardenedChatInvite<'a>,
+        HardenedChatMessage: HardenedChatMessage<'a>,
+    }
+
+    struct ChatInvite {
+        chat: ChatName,
+        cp: Serialized<ChoosenCiphertext>,
+    }
+
+    struct HardenedJoinRequest {
+        cp: Serialized<Ciphertext>,
+        payload: [u8; std::mem::size_of::<FixedAesPayload<{ std::mem::size_of::<JoinRequestPayload>() }>>()],
+    }
+
+    struct HardenedChatMessage<'a> {
+        nonce: Nonce,
+        chat: crypto::AnyHash,
+        content: Reminder<'a>,
+    }
+
+    #[derive(Clone)]
+    struct SavedHardenedChatMessage {
+        sender: UserName,
+        content: String,
+    }
+
+    struct HardenedChatInvite<'a> {
+        cp: Serialized<Ciphertext>,
+        payload: Reminder<'a>,
+    }
+
+    struct HardenedChatInvitePayload {
+        chat: ChatName,
+        inviter: UserName,
+        inviter_id: Identity,
+        members: Vec<UserName>,
     }
 }
 
@@ -330,7 +396,8 @@ impl Node {
 
         let members = request_dispatch
             .dispatch_direct::<SearchPeers>(&mut init_stream, &Reminder(&profile_hash.sign.0))
-            .await?;
+            .await
+            .context("searching profile replicators")?;
 
         set_state!(ProfileLoad);
 
@@ -353,7 +420,8 @@ impl Node {
             };
         let (mut account_nonce, Reminder(vault)) = match request_dispatch
             .dispatch_direct::<FetchVault>(&mut profile_stream, &profile_hash.sign)
-            .await?
+            .await
+            .context("fetching vault")?
         {
             Ok((n, v)) => (n + 1, v),
             Err(_) => Default::default(),
@@ -363,9 +431,11 @@ impl Node {
             request_dispatch
                 .dispatch_direct::<CreateAccount>(
                     &mut profile_stream,
-                    &(proof, keys.enc.public_key().into_bytes()),
+                    &(proof, keys.enc.public_key().into_bytes(), Reminder(&[])),
                 )
-                .await??;
+                .await
+                .context("creating account")?
+                .context("creating account")?;
 
             Default::default()
         } else {

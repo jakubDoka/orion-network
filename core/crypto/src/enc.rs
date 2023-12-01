@@ -3,7 +3,7 @@ use aes_gcm::aead::OsRng;
 #[cfg(feature = "std")]
 use thiserror::Error;
 use {
-    crate::{FixedAesPayload, SharedSecret, TransmutationCircle, SHARED_SECRET_SIZE},
+    crate::{FixedAesPayload, SharedSecret, TransmutationCircle, ASOC_DATA, SHARED_SECRET_SIZE},
     pqc_kyber::KyberError,
 };
 
@@ -17,10 +17,12 @@ impl_transmute! {
 
 pub type EncapsulationError = KyberError;
 
-pub const ASOC_DATA: &[u8] = concat!("pqc-orion-crypto/enc/", env!("CARGO_PKG_VERSION")).as_bytes();
-
-pub type Ciphertext = FixedAesPayload<{ pqc_kyber::KYBER_CIPHERTEXTBYTES }>;
 type EncriptedKey = FixedAesPayload<{ SHARED_SECRET_SIZE }>;
+
+pub struct Ciphertext {
+    pl: FixedAesPayload<{ pqc_kyber::KYBER_CIPHERTEXTBYTES }>,
+    x: x25519_dalek::PublicKey,
+}
 
 pub struct ChoosenCiphertext {
     pl: FixedAesPayload<{ core::mem::size_of::<ChoosenPayload>() }>,
@@ -76,7 +78,10 @@ impl KeyPair {
         let (data, secret) = pqc_kyber::encapsulate(&public_key.kyb, &mut OsRng)?;
         let x_secret = self.x.diffie_hellman(&public_key.x);
         Ok((
-            Ciphertext::new(data, x_secret.to_bytes(), ASOC_DATA),
+            Ciphertext {
+                pl: FixedAesPayload::new(data, x_secret.to_bytes(), ASOC_DATA),
+                x: x25519_dalek::PublicKey::from(&self.x),
+            },
             secret,
         ))
     }
@@ -97,13 +102,10 @@ impl KeyPair {
         })
     }
 
-    pub fn decapsulate(
-        &self,
-        ciphertext: Ciphertext,
-        public_key: &PublicKey,
-    ) -> Result<SharedSecret, DecapsulationError> {
-        let x_secret = self.x.diffie_hellman(&public_key.x);
+    pub fn decapsulate(&self, ciphertext: Ciphertext) -> Result<SharedSecret, DecapsulationError> {
+        let x_secret = self.x.diffie_hellman(&ciphertext.x);
         let data = ciphertext
+            .pl
             .decrypt(x_secret.to_bytes(), ASOC_DATA)
             .map_err(DecapsulationError::Aes)?;
         pqc_kyber::decapsulate(data.as_ref(), &self.kyb.secret).map_err(DecapsulationError::Kyber)
@@ -158,7 +160,7 @@ mod tests {
         let alice = KeyPair::new();
         let bob = KeyPair::new();
         let (ciphertext, secret) = alice.encapsulate(&bob.public_key()).unwrap();
-        let dec = bob.decapsulate(ciphertext, &alice.public_key()).unwrap();
+        let dec = bob.decapsulate(ciphertext).unwrap();
         assert_eq!(secret, dec);
     }
 

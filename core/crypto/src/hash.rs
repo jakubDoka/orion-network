@@ -21,3 +21,10 @@ pub fn new_raw<T: TransmutationCircle>(data: &Serialized<T>) -> Hash<T> {
 pub fn verify<T: TransmutationCircle>(data: &T, hash: Hash<T>) -> bool {
     blake3::hash(data.as_bytes().as_ref()) == hash.0
 }
+
+pub fn new_with_nonce(data: &[u8], nonce: u64) -> AnyHash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(data);
+    hasher.update(&nonce.to_be_bytes());
+    hasher.finalize().into()
+}

@@ -1,6 +1,7 @@
 #![feature(lazy_cell)]
+
 use {
-    crypto::{Serialized, TransmutationCircle},
+    crypto::{sign, Serialized, TransmutationCircle},
     parity_scale_codec::{Decode, Encode as _},
     polkadot::{
         contracts::calls::types::Call,
@@ -12,7 +13,7 @@ use {
     },
     primitives::{
         contracts::{StoredNodeData, StoredNodeIdentity, StoredUserIdentity},
-        UserName,
+        RawUserName, UserName,
     },
     std::{str::FromStr, u64},
     subxt::{
@@ -250,6 +251,15 @@ impl<S: TransactionHandler> Client<S> {
         self.get_profile_by_name(dest, name)
             .await
             .map(|p| p.is_some())
+    }
+
+    pub async fn get_username(
+        &self,
+        dest: ContractId,
+        id: crypto::Hash<sign::PublicKey>,
+    ) -> Result<RawUserName, Error> {
+        let call = contracts::user_manager::messages::get_username(id.0);
+        self.call_dry(0, dest, call).await
     }
 
     async fn call_auto_weight<T: parity_scale_codec::Decode>(

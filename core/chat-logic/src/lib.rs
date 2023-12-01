@@ -248,10 +248,10 @@ pub enum DispatchError {
 type RequestMeta = (u8, RequestId);
 
 pub trait Handler: Sized {
+    type Context: Context;
     type Request<'a>: Codec<'a>;
     type Response<'a>: Codec<'a>;
     type Event<'a>: Codec<'a> = Infallible;
-    type Context: Context;
     type Topic: Eq + std::hash::Hash + for<'a> Codec<'a>;
 
     fn spawn<'a>(
