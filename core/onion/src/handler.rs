@@ -3,6 +3,7 @@ use {
         packet::{self, CONFIRM_PACKET_SIZE},
         EncryptedStream, KeyPair, PathId, PublicKey, SharedSecret, Stream,
     },
+    crypto::TransmutationCircle,
     futures::{AsyncReadExt, AsyncWriteExt, Future},
     libp2p::{
         core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo},
@@ -12,14 +13,21 @@ use {
             ConnectionHandler, ConnectionHandlerEvent, StreamProtocol,
         },
     },
-    std::{collections::VecDeque, fmt, io, iter, slice, sync::Arc, task::Poll},
+    std::{array, collections::VecDeque, fmt, io, iter, slice, sync::Arc, task::Poll},
     thiserror::Error,
 };
 
-const ROUTING_PROTOCOL: StreamProtocol = StreamProtocol::new(concat!(
+pub const ROUTING_PROTOCOL: StreamProtocol = StreamProtocol::new(concat!(
     "/",
     env!("CARGO_PKG_NAME"),
     "/rot/",
+    env!("CARGO_PKG_VERSION"),
+));
+
+pub const KEY_SHARE_PROTOCOL: StreamProtocol = StreamProtocol::new(concat!(
+    "/",
+    env!("CARGO_PKG_NAME"),
+    "/ksr/",
     env!("CARGO_PKG_VERSION"),
 ));
 
@@ -167,10 +175,14 @@ impl fmt::Debug for IUpgrade {
 
 impl UpgradeInfo for IUpgrade {
     type Info = StreamProtocol;
-    type InfoIter = Option<Self::Info>;
+    type InfoIter = array::IntoIter<Self::Info, 2>;
 
     fn protocol_info(&self) -> Self::InfoIter {
-        self.keypair.as_ref().and(Some(ROUTING_PROTOCOL))
+        let mut protocols = [ROUTING_PROTOCOL, KEY_SHARE_PROTOCOL].into_iter();
+        if self.keypair.is_none() {
+            protocols.by_ref().for_each(drop);
+        }
+        protocols
     }
 }
 
@@ -219,8 +231,19 @@ impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
                 keypair,
                 buffer_cap,
             } = self;
+            let keypair = keypair.expect("handshake to fail");
 
-            log::debug!("received inbound stream: {}", proto);
+            if proto == KEY_SHARE_PROTOCOL {
+                log::debug!("received key share request");
+                stream
+                    .write_all(&keypair.public_key().into_bytes())
+                    .await
+                    .map_err(IUpgradeError::WriteKeyPacket)?;
+                return Ok(None);
+            }
+            debug_assert_eq!(proto, ROUTING_PROTOCOL);
+
+            log::debug!("received inbound stream");
             let mut len = [0; 2];
             stream
                 .read_exact(&mut len)
@@ -236,9 +259,8 @@ impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
                 .map_err(IUpgradeError::ReadPacket)?;
 
             log::debug!("peeling packet: {}", len);
-            let (to, ss, new_len) =
-                crate::packet::peel_initial(&keypair.expect("handshake to fail"), &mut buffer)
-                    .ok_or(IUpgradeError::MalformedPacket)?;
+            let (to, ss, new_len) = crate::packet::peel_initial(&keypair, &mut buffer)
+                .ok_or(IUpgradeError::MalformedPacket)?;
 
             log::debug!("peeled packet to: {:?}", to);
 

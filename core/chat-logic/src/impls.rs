@@ -80,7 +80,6 @@ compose_handlers! {
         au: AddUser,
         smsg: SendMessage,
         fm: FetchMessages,
-        pn: PublishNode,
     }
 }
 

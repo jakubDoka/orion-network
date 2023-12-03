@@ -3,7 +3,7 @@
 export CHAIN_NODE="ws://localhost:9944"
 export NODE_CONTRACT="todo"
 export USER_CONTRACT="todo"
-export NODE_COUNT=6
+export NODE_COUNT=15
 export FRONTEND_PORT=7777
 export RUST_LOG="info"
 export RUST_BACKTRACE=1
@@ -47,6 +47,7 @@ cargo build $RELEASE --workspace \
 	--exclude websocket-websys \
 	--exclude node_staker \
 	--exclude user_manager \
+	--exclude topology-vis \
 	--exclude indexed_db || exit 1
 
 $TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START --miner $TARGET_DIR/miner &

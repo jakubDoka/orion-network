@@ -8,10 +8,9 @@ use {
 };
 
 mod chat;
-mod nodes;
 mod profile;
 
-pub use {chat::*, nodes::*, profile::*};
+pub use {chat::*, profile::*};
 
 fn make_new_replication_record<H, S>(key: &H::Topic, value: &H::Request<'_>) -> libp2p::kad::Record
 where
@@ -125,15 +124,9 @@ impl libp2p::kad::store::RecordStore for Storage {
     fn remove(&mut self, _: &libp2p::kad::RecordKey) {}
 
     fn records(&self) -> Self::RecordsIter<'_> {
-        self.nodes
+        self.profiles
             .iter()
-            .map(|(id, node)| {
-                Cow::Owned(make_new_replication_record::<PublishNode, Server>(
-                    id,
-                    node.as_bytes(),
-                ))
-            })
-            .chain(self.profiles.iter().map(|(id, profile)| {
+            .map(|(id, profile)| {
                 Cow::Owned(make_new_replication_record::<CreateAccount, Server>(
                     id,
                     &(
@@ -146,7 +139,7 @@ impl libp2p::kad::store::RecordStore for Storage {
                         Reminder(&profile.vault),
                     ),
                 ))
-            }))
+            })
             .collect::<Vec<_>>()
             .into_iter()
     }

@@ -5,7 +5,7 @@
 use {
     anyhow::Context,
     chain_api::ContractId,
-    chat_logic::{DispatchResponse, PublishNode, RootPacketBuffer, SubContext, REPLICATION_FACTOR},
+    chat_logic::{DispatchResponse, RootPacketBuffer, Storage, SubContext, REPLICATION_FACTOR},
     component_utils::{
         codec::Codec,
         kad::KadPeerSearch,
@@ -16,12 +16,12 @@ use {
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
         futures::{self, StreamExt},
-        kad::{self, QueryId, QueryResult},
+        kad::{self, QueryId},
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, Transport,
     },
     onion::{EncryptedStream, PathId},
-    primitives::contracts::{NodeData, NodeIdentity},
+    primitives::contracts::NodeData,
     std::{fs, io, mem, time::Duration},
 };
 
@@ -52,7 +52,6 @@ struct Miner {
     bootstrapped: Option<QueryId>,
     server: chat_logic::Server,
     packets: RootPacketBuffer,
-    sign: crypto::sign::KeyPair,
 }
 
 impl Miner {
@@ -100,12 +99,12 @@ impl Miner {
         }
 
         let behaviour = Behaviour {
-            onion: onion::Behaviour::new(
+            onion: topology_wrapper::new(onion::Behaviour::new(
                 onion::Config::new(enc_keys.clone().into(), peer_id)
                     .max_streams(10)
                     .keep_alive_interval(Duration::from_secs(100)),
-            ),
-            kad: kad::Behaviour::with_config(
+            )),
+            kad: topology_wrapper::new(kad::Behaviour::with_config(
                 peer_id,
                 chat_logic::Storage::new(),
                 mem::take(
@@ -113,11 +112,11 @@ impl Miner {
                         .set_replication_factor(REPLICATION_FACTOR)
                         .set_record_filtering(StoreInserts::FilterBoth),
                 ),
-            ),
-            identfy: libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
-                "0.1.0".into(),
-                local_key.public(),
             )),
+            identfy: topology_wrapper::new(libp2p::identify::Behaviour::new(
+                libp2p::identify::Config::new("0.1.0".into(), local_key.public()),
+            )),
+            report: topology_wrapper::report::new(),
         };
         let transport = libp2p::websocket::WsConfig::new(libp2p::tcp::tokio::Transport::new(
             libp2p::tcp::Config::default(),
@@ -179,7 +178,6 @@ impl Miner {
             bootstrapped: None,
             server: Default::default(),
             packets: RootPacketBuffer::new(),
-            sign: sign_keys,
         })
     }
 
@@ -252,15 +250,6 @@ impl Miner {
             }
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
                 component_utils::handle_conn_request(to, &mut self.swarm, &mut self.peer_discovery)
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Kad(kad::Event::OutboundQueryProgressed {
-                id,
-                result: QueryResult::Bootstrap(Ok(_)),
-                step,
-                ..
-            })) if Some(id) == self.bootstrapped && step.last => {
-                log::info!("bootstrapped");
-                self.publish_identity();
             }
             SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
                 if component_utils::try_handle_conn_response(
@@ -362,23 +351,20 @@ impl Miner {
         }
     }
 
-    fn publish_identity(&mut self) {
-        let signature = NodeIdentity {
-            sign: self.sign.public_key(),
-            enc: self
-                .swarm
-                .behaviour()
-                .onion
-                .config()
-                .secret
-                .clone()
-                .expect("we are the server")
-                .public_key(),
-        };
-        self.server.dispatch_local::<PublishNode>(
-            &mut self.swarm.behaviour_mut().kad,
-            signature.into_bytes(),
-        )
+    fn report_stats(&mut self) {
+        let beh = self.swarm.behaviour_mut();
+        topology_wrapper::report::report::<onion::Behaviour>(
+            &mut beh.report,
+            topology_wrapper::get_extra_events(&mut beh.onion),
+        );
+        topology_wrapper::report::report::<kad::Behaviour<Storage>>(
+            &mut beh.report,
+            topology_wrapper::get_extra_events(&mut beh.kad),
+        );
+        topology_wrapper::report::report::<libp2p::identify::Behaviour>(
+            &mut beh.report,
+            topology_wrapper::get_extra_events(&mut beh.identfy),
+        );
     }
 
     async fn run(mut self) {
@@ -387,6 +373,8 @@ impl Miner {
                 e = self.swarm.select_next_some() => self.handle_event(e),
                 (id, m) = self.clients.select_next_some() => self.handle_client_message(id, m),
             };
+
+            self.report_stats();
         }
     }
 }
@@ -405,9 +393,10 @@ type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {
-    onion: onion::Behaviour,
-    kad: kad::Behaviour<chat_logic::Storage>,
-    identfy: libp2p::identify::Behaviour,
+    onion: topology_wrapper::Behaviour<onion::Behaviour>,
+    kad: topology_wrapper::Behaviour<kad::Behaviour<chat_logic::Storage>>,
+    identfy: topology_wrapper::Behaviour<libp2p::identify::Behaviour>,
+    report: topology_wrapper::report::Behaviour,
 }
 
 impl From<libp2p::kad::Event> for BehaviourEvent {

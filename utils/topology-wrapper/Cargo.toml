@@ -1,0 +1,14 @@
+[package]
+name = "topology-wrapper"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+component-utils = { version = "0.1.0", path = "../component-utils" }
+libp2p = "0.53.1"
+log = "0.4.20"
+
+[features]
+disabled = []
