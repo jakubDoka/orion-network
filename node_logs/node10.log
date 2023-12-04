@@ -1,7 +1,0 @@
-[2023-12-04T23:15:16Z INFO  miner] peer id: 12D3KooWLnHW7otpCbgy5ta3dLQbH1HQ98L1tWcU1B8BhBR7TBQ3
-[2023-12-04T23:15:18Z INFO  miner] registered on chain
-[2023-12-04T23:17:02Z INFO  miner] received message from client: RequestId(0) 0
-[2023-12-04T23:17:03Z ERROR miner] failed to read from client: unexpected end of file
-[2023-12-04T23:17:06Z ERROR miner] failed to read from client: unexpected end of file
-[2023-12-04T23:17:18Z INFO  miner] put record message
-[2023-12-04T23:17:32Z INFO  miner] put record message

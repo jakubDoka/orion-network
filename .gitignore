@@ -2,5 +2,6 @@
 /nodes/client/dist
 Cargo.lock
 /node_keys
+/node_logs
 /whitepaper/*.min.js
 **/dist/
