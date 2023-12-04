@@ -46,9 +46,10 @@ pub fn try_handle_conn_response(
         KadSearchResult::Discovered(peer_id) if swarm.is_connected(&peer_id) => {
             swarm.behaviour_mut().context().0.redail(peer_id);
         }
-        KadSearchResult::Discovered(peer_id) => {
-            swarm.dial(peer_id).unwrap();
-        }
+        KadSearchResult::Discovered(peer_id) => match swarm.dial(peer_id) {
+            Ok(_) | Err(libp2p::swarm::DialError::DialPeerConditionFalse(_)) => {}
+            e => e.unwrap(),
+        },
         KadSearchResult::Pending => {}
         KadSearchResult::Failed(peer_id) => {
             swarm.behaviour_mut().context().0.mark_failed(peer_id);

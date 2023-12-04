@@ -369,19 +369,13 @@ impl<S> RequestDispatch<S> {
         S: Dispatches<H>,
     {
         let id = RequestId::new();
-
-        self.buffer.clear();
-        self.buffer.push(S::PREFIX);
-        id.encode(&mut self.buffer);
-        request.encode(&mut self.buffer);
-
         let (tx, rx) = libp2p::futures::channel::oneshot::channel();
         use libp2p::futures::SinkExt;
         self.sink
             .send(RequestInit::Request(RawRequest {
                 id,
                 topic: topic.into().as_ref().map(Codec::to_bytes),
-                payload: std::mem::take(&mut self.buffer),
+                payload: (S::PREFIX, id, request).to_bytes(),
                 channel: tx,
             }))
             .await

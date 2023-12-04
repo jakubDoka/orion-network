@@ -1,43 +1,35 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(macro_metavar_expr)]
 
-pub use impls::{get_extra_events, new, Behaviour};
-use libp2p::swarm::{handler::UpgradeInfoSend, ConnectionHandler, NetworkBehaviour};
+pub use impls::{channel, new, Behaviour, EventReceiver, EventSender};
 
-pub enum ExtraEvent<C: ConnectionHandler> {
-    Inbound(<C::InboundProtocol as UpgradeInfoSend>::Info),
-    Outbound(<C::OutboundProtocol as UpgradeInfoSend>::Info),
+pub enum ExtraEvent {
+    Stream(String),
     Disconnected,
 }
 
-pub type ExtraEventAndMeta<C> = (
-    ExtraEvent<<C as NetworkBehaviour>::ConnectionHandler>,
-    libp2p::PeerId,
-    libp2p::swarm::ConnectionId,
-);
+pub type ExtraEventAndMeta = (ExtraEvent, libp2p::PeerId, libp2p::swarm::ConnectionId);
 
 #[cfg(feature = "disabled")]
 pub mod report {
-    use {crate::ExtraEventAndMeta, libp2p::swarm::NetworkBehaviour};
+    use crate::EventReceiver;
     pub type Behaviour = libp2p::swarm::dummy::Behaviour;
-    pub fn report<T: NetworkBehaviour>(
-        _: &mut Behaviour,
-        _: impl Iterator<Item = ExtraEventAndMeta<T>>,
-    ) {
+
+    pub fn new(_: EventReceiver) -> Behaviour {
+        libp2p::swarm::dummy::Behaviour
     }
 }
 #[cfg(feature = "disabled")]
 mod impls {
-    use {crate::ExtraEventAndMeta, libp2p::swarm::NetworkBehaviour};
+    pub type EventSender = ();
+    pub type EventReceiver = ();
 
     pub type Behaviour<T> = T;
-    pub fn new<T>(inner: T) -> T {
+    pub fn new<T>(inner: T, _: EventSender) -> T {
         inner
     }
-    pub fn get_extra_events<T: NetworkBehaviour>(
-        _: &mut Behaviour<T>,
-    ) -> impl Iterator<Item = ExtraEventAndMeta<T>> {
-        std::iter::empty()
+    pub fn channel() -> (EventSender, EventReceiver) {
+        ((), ())
     }
 }
 
@@ -48,15 +40,14 @@ pub mod collector {
         component_utils::Codec,
         libp2p::{
             futures::{stream::SelectAll, StreamExt},
-            swarm::{dial_opts::DialOpts, FromSwarm, NetworkBehaviour},
+            swarm::{dial_opts::DialOpts, NetworkBehaviour},
             PeerId,
         },
         std::{convert::Infallible, io},
     };
 
     pub trait World: 'static {
-        fn handle_update(&mut self, peer: PeerId, update: Update);
-        fn disconnect(&mut self, peer: PeerId);
+        fn handle_update(&mut self, peer: PeerId, update: Update, client: bool);
     }
 
     struct UpdateStream {
@@ -80,14 +71,16 @@ pub mod collector {
     }
 
     pub struct Behaviour<W: World> {
+        peer_id: PeerId,
         world: W,
         listeners: SelectAll<UpdateStream>,
         pending_connections: Vec<PeerId>,
     }
 
     impl<W: World> Behaviour<W> {
-        pub fn new(world: W) -> Self {
+        pub fn new(peer_id: PeerId, world: W) -> Self {
             Self {
+                peer_id,
                 world,
                 listeners: Default::default(),
                 pending_connections: Default::default(),
@@ -127,11 +120,7 @@ pub mod collector {
             Ok(crate::report::Handler::connecting())
         }
 
-        fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
-            if let FromSwarm::ConnectionClosed(c) = event {
-                self.world.disconnect(c.peer_id);
-            }
-        }
+        fn on_swarm_event(&mut self, _event: libp2p::swarm::FromSwarm) {}
 
         fn on_connection_handler_event(
             &mut self,
@@ -161,27 +150,29 @@ pub mod collector {
                 });
             }
 
-            let Some((packet, peer)) = libp2p::futures::ready!(self.listeners.poll_next_unpin(cx))
-            else {
-                return std::task::Poll::Pending;
-            };
+            loop {
+                let Some((packet, peer)) =
+                    libp2p::futures::ready!(self.listeners.poll_next_unpin(cx))
+                else {
+                    return std::task::Poll::Pending;
+                };
 
-            let Ok(packet) =
-                packet.inspect_err(|e| log::info!("Error while reading update: {}", e))
-            else {
-                return std::task::Poll::Pending;
-            };
+                let Ok(packet) =
+                    packet.inspect_err(|e| log::info!("Error while reading update: {}", e))
+                else {
+                    return std::task::Poll::Pending;
+                };
 
-            let Some(update) = Vec::<Update>::decode(&mut packet.as_slice()) else {
-                log::info!("Invalid update received, {:?}", packet);
-                return std::task::Poll::Pending;
-            };
+                let Some(update) = Update::decode(&mut packet.as_slice()) else {
+                    log::info!("Invalid update received, {:?}", packet);
+                    return std::task::Poll::Pending;
+                };
 
-            for update in update {
-                self.world.handle_update(peer, update);
+                if update.peer != self.peer_id {
+                    let client = !self.listeners.iter().any(|l| l.peer == update.peer);
+                    self.world.handle_update(peer, update, client);
+                }
             }
-
-            std::task::Poll::Pending
         }
     }
 }
@@ -189,7 +180,7 @@ pub mod collector {
 #[cfg(not(feature = "disabled"))]
 pub mod report {
     use {
-        crate::{ExtraEvent, ExtraEventAndMeta},
+        crate::{EventReceiver, ExtraEvent},
         component_utils::{Codec, PacketWriter},
         libp2p::{
             core::UpgradeInfo,
@@ -197,42 +188,19 @@ pub mod report {
             swarm::{ConnectionHandler, NetworkBehaviour},
             PeerId, StreamProtocol,
         },
-        std::{convert::Infallible, io, ops::DerefMut},
+        std::{
+            collections::{HashMap, HashSet},
+            convert::Infallible,
+            io,
+            ops::DerefMut,
+        },
     };
 
-    pub fn new() -> Behaviour {
+    pub fn new(recv: EventReceiver) -> Behaviour {
         Behaviour {
             listeners: Default::default(),
-        }
-    }
-
-    pub fn report<T: NetworkBehaviour>(
-        r: &mut Behaviour,
-        events: impl Iterator<Item = ExtraEventAndMeta<T>>,
-    ) {
-        let events = events.collect::<Vec<_>>();
-        if events.is_empty() {
-            return;
-        }
-        let events = events
-            .iter()
-            .map(|(e, p, c)| {
-                let e = match e {
-                    ExtraEvent::Inbound(i) => Event::Inbound(i.as_ref()),
-                    ExtraEvent::Outbound(o) => Event::Outbound(o.as_ref()),
-                    ExtraEvent::Disconnected => Event::Disconnected,
-                };
-
-                Update {
-                    event: e,
-                    peer: *p,
-                    connection: unsafe { std::mem::transmute(*c) },
-                }
-            })
-            .collect::<Vec<_>>()
-            .to_bytes();
-        for l in r.listeners.iter_mut() {
-            l.writer.packet(events.iter().copied());
+            topology: Default::default(),
+            recv,
         }
     }
 
@@ -244,8 +212,7 @@ pub mod report {
         }
 
         enum Event<'a> {
-            Inbound: &'a str,
-            Outbound: &'a str,
+            Stream: &'a str,
             Disconnected,
         }
     }
@@ -271,6 +238,8 @@ pub mod report {
 
     pub struct Behaviour {
         listeners: FuturesUnordered<UpdateStream>,
+        topology: HashMap<PeerId, HashMap<usize, HashSet<String>>>,
+        recv: EventReceiver,
     }
 
     impl NetworkBehaviour for Behaviour {
@@ -308,11 +277,26 @@ pub mod report {
             if self.listeners.iter().any(|l| l.peer == peer_id) {
                 return;
             }
-            self.listeners.push(UpdateStream {
+            let mut stream = UpdateStream {
                 peer: peer_id,
                 inner: event,
-                writer: PacketWriter::new(1 << 14),
-            });
+                writer: PacketWriter::new(1 << 13),
+            };
+
+            for (peer, connections) in self.topology.iter() {
+                for (connection, protocols) in connections.iter() {
+                    for protocol in protocols.iter() {
+                        let update = Update {
+                            event: Event::Stream(protocol.as_str()),
+                            peer: *peer,
+                            connection: *connection,
+                        };
+                        stream.writer.packet(update.to_bytes().iter().copied());
+                    }
+                }
+            }
+
+            self.listeners.push(stream);
         }
 
         fn poll(
@@ -324,6 +308,45 @@ pub mod report {
             if let std::task::Poll::Ready(Some(Err(e))) = self.listeners.poll_next_unpin(cx) {
                 log::info!("Error while writing update: {}", e);
             }
+
+            if let std::task::Poll::Ready(Some((extra, peer, connection))) =
+                self.recv.poll_next_unpin(cx)
+            {
+                let event = match &extra {
+                    ExtraEvent::Stream(i) => Event::Stream(i.as_ref()),
+                    ExtraEvent::Disconnected => Event::Disconnected,
+                };
+
+                let connection = unsafe { std::mem::transmute(connection) };
+                let update = Update {
+                    event,
+                    peer,
+                    connection,
+                };
+                let event_bytes = update.to_bytes();
+                for l in self.listeners.iter_mut() {
+                    l.writer.packet(event_bytes.iter().copied());
+                }
+
+                match extra {
+                    ExtraEvent::Stream(p) => {
+                        self.topology
+                            .entry(peer)
+                            .or_default()
+                            .entry(connection)
+                            .or_default()
+                            .insert(p);
+                    }
+                    ExtraEvent::Disconnected => {
+                        let peer_state = self.topology.entry(peer).or_default();
+                        peer_state.remove(&update.connection);
+                        if peer_state.is_empty() {
+                            self.topology.remove(&peer);
+                        }
+                    }
+                };
+            }
+
             std::task::Poll::Pending
         }
     }
@@ -453,46 +476,56 @@ mod impls {
     use {
         crate::{ExtraEvent, ExtraEventAndMeta},
         libp2p::{
-            futures::TryFutureExt,
+            futures::{SinkExt, TryFutureExt},
             swarm::{
                 handler::{
                     DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
                     InboundUpgradeSend, ListenUpgradeError, OutboundUpgradeSend, UpgradeInfoSend,
                 },
-                ConnectionHandler, NetworkBehaviour,
+                ConnectionHandler, ConnectionId, NetworkBehaviour,
             },
         },
         std::{
             collections::VecDeque,
+            mem,
             ops::{Deref, DerefMut},
+            task::Poll,
         },
     };
 
-    pub fn new<T: NetworkBehaviour>(inner: T) -> Behaviour<T> {
-        Behaviour::new(inner)
+    pub type EventSender = libp2p::futures::channel::mpsc::Sender<ExtraEventAndMeta>;
+    pub type EventReceiver = libp2p::futures::channel::mpsc::Receiver<ExtraEventAndMeta>;
+
+    pub fn channel() -> (EventSender, EventReceiver) {
+        libp2p::futures::channel::mpsc::channel(5)
     }
 
-    pub fn get_extra_events<T: NetworkBehaviour>(
-        behaviour: &mut Behaviour<T>,
-    ) -> impl Iterator<Item = ExtraEventAndMeta<T>> + '_ {
-        behaviour.get_extra_events()
+    pub fn new<T: NetworkBehaviour>(inner: T, sender: EventSender) -> Behaviour<T> {
+        Behaviour::new(inner, sender)
     }
 
     pub struct Behaviour<T: NetworkBehaviour> {
         inner: T,
-        extra_events: VecDeque<ExtraEventAndMeta<T>>,
+        extra_events: VecDeque<ExtraEventAndMeta>,
+        sender: EventSender,
+        waker: Option<std::task::Waker>,
     }
 
     impl<T: NetworkBehaviour> Behaviour<T> {
-        fn new(inner: T) -> Self {
+        fn new(inner: T, sender: EventSender) -> Self {
             Self {
                 inner,
+                sender,
                 extra_events: VecDeque::new(),
+                waker: None,
             }
         }
 
-        fn get_extra_events(&mut self) -> impl Iterator<Item = ExtraEventAndMeta<T>> + '_ {
-            self.extra_events.drain(..)
+        fn add_event(&mut self, event: ExtraEvent, peer: libp2p::PeerId, connection: ConnectionId) {
+            self.extra_events.push_back((event, peer, connection));
+            if let Some(waker) = mem::take(&mut self.waker) {
+                waker.wake();
+            }
         }
     }
 
@@ -525,6 +558,10 @@ mod impls {
         }
 
         fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
+            if let libp2p::swarm::FromSwarm::ConnectionClosed(c) = &event {
+                self.add_event(ExtraEvent::Disconnected, c.peer_id, c.connection_id);
+            }
+
             self.inner.on_swarm_event(event)
         }
 
@@ -537,7 +574,7 @@ mod impls {
             let event = match event {
                 ToBehavior::Inner(i) => i,
                 ToBehavior::Extra(e) => {
-                    self.extra_events.push_back((e, peer_id, connection_id));
+                    self.add_event(e, peer_id, connection_id);
                     return;
                 }
             };
@@ -551,6 +588,15 @@ mod impls {
         ) -> std::task::Poll<
             libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>,
         > {
+            self.waker = Some(cx.waker().clone());
+            while let Some(event) = self.extra_events.pop_front() {
+                if let Poll::Pending | Poll::Ready(Err(_)) = self.sender.poll_ready(cx) {
+                    self.extra_events.push_front(event);
+                    break;
+                }
+                _ = self.sender.start_send(event);
+            }
+            _ = self.sender.poll_flush_unpin(cx);
             self.inner.poll(cx)
         }
 
@@ -596,7 +642,8 @@ mod impls {
 
     pub struct Handler<T: ConnectionHandler> {
         inner: T,
-        extra_events: VecDeque<ExtraEvent<T>>,
+        extra_events: VecDeque<ExtraEvent>,
+        opened: bool,
     }
 
     impl<T: ConnectionHandler> Handler<T> {
@@ -604,6 +651,7 @@ mod impls {
             Self {
                 inner,
                 extra_events: VecDeque::new(),
+                opened: true,
             }
         }
     }
@@ -663,7 +711,7 @@ mod impls {
             let event = match event {
                 CE::FullyNegotiatedInbound(i) => {
                     self.extra_events
-                        .push_back(ExtraEvent::Inbound(i.protocol.1));
+                        .push_back(ExtraEvent::Stream(i.protocol.1.as_ref().to_string()));
                     libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedInbound(
                         FullyNegotiatedInbound {
                             protocol: i.protocol.0,
@@ -673,7 +721,7 @@ mod impls {
                 }
                 CE::FullyNegotiatedOutbound(o) => {
                     self.extra_events
-                        .push_back(ExtraEvent::Outbound(o.protocol.1));
+                        .push_back(ExtraEvent::Stream(o.protocol.1.as_ref().to_string()));
                     CE::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
                         protocol: o.protocol.0,
                         info: o.info,
@@ -703,6 +751,10 @@ mod impls {
             &mut self,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Option<Self::ToBehaviour>> {
+            if self.opened {
+                self.opened = false;
+                return std::task::Poll::Ready(Some(ToBehavior::Extra(ExtraEvent::Disconnected)));
+            }
             self.inner
                 .poll_close(cx)
                 .map(|opt| opt.map(ToBehavior::Inner))
@@ -711,7 +763,7 @@ mod impls {
 
     pub enum ToBehavior<C: ConnectionHandler> {
         Inner(C::ToBehaviour),
-        Extra(ExtraEvent<C>),
+        Extra(ExtraEvent),
     }
 
     impl<C: ConnectionHandler> std::fmt::Debug for ToBehavior<C> {

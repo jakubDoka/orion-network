@@ -5,7 +5,7 @@
 use {
     anyhow::Context,
     chain_api::ContractId,
-    chat_logic::{DispatchResponse, RootPacketBuffer, Storage, SubContext, REPLICATION_FACTOR},
+    chat_logic::{DispatchResponse, RootPacketBuffer, SubContext, REPLICATION_FACTOR},
     component_utils::{
         codec::Codec,
         kad::KadPeerSearch,
@@ -64,6 +64,7 @@ impl Miner {
             NODE_CONTRACT: ContractId,
             KEY_PATH: String,
             BOOT_NODES: config::List<Multiaddr>,
+            IDLE_TIMEOUT: u64,
         }
 
         let account = if NODE_ACCOUNT.starts_with("//") {
@@ -98,25 +99,36 @@ impl Miner {
             log::info!("registered on chain");
         }
 
+        let (sender, receiver) = topology_wrapper::channel();
         let behaviour = Behaviour {
-            onion: topology_wrapper::new(onion::Behaviour::new(
-                onion::Config::new(enc_keys.clone().into(), peer_id)
-                    .max_streams(10)
-                    .keep_alive_interval(Duration::from_secs(100)),
-            )),
-            kad: topology_wrapper::new(kad::Behaviour::with_config(
-                peer_id,
-                chat_logic::Storage::new(),
-                mem::take(
-                    kad::Config::default()
-                        .set_replication_factor(REPLICATION_FACTOR)
-                        .set_record_filtering(StoreInserts::FilterBoth),
+            onion: topology_wrapper::new(
+                onion::Behaviour::new(
+                    onion::Config::new(enc_keys.clone().into(), peer_id)
+                        .max_streams(10)
+                        .keep_alive_interval(Duration::from_secs(100)),
                 ),
-            )),
-            identfy: topology_wrapper::new(libp2p::identify::Behaviour::new(
-                libp2p::identify::Config::new("0.1.0".into(), local_key.public()),
-            )),
-            report: topology_wrapper::report::new(),
+                sender.clone(),
+            ),
+            kad: topology_wrapper::new(
+                kad::Behaviour::with_config(
+                    peer_id,
+                    chat_logic::Storage::new(),
+                    mem::take(
+                        kad::Config::default()
+                            .set_replication_factor(REPLICATION_FACTOR)
+                            .set_record_filtering(StoreInserts::FilterBoth),
+                    ),
+                ),
+                sender.clone(),
+            ),
+            identfy: topology_wrapper::new(
+                libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
+                    "0.1.0".into(),
+                    local_key.public(),
+                )),
+                sender,
+            ),
+            report: topology_wrapper::report::new(receiver),
         };
         let transport = libp2p::websocket::WsConfig::new(libp2p::tcp::tokio::Transport::new(
             libp2p::tcp::Config::default(),
@@ -142,7 +154,7 @@ impl Miner {
             behaviour,
             peer_id,
             libp2p::swarm::Config::with_tokio_executor()
-                .with_idle_connection_timeout(Duration::MAX),
+                .with_idle_connection_timeout(Duration::from_millis(IDLE_TIMEOUT)),
         );
 
         swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
@@ -351,30 +363,12 @@ impl Miner {
         }
     }
 
-    fn report_stats(&mut self) {
-        let beh = self.swarm.behaviour_mut();
-        topology_wrapper::report::report::<onion::Behaviour>(
-            &mut beh.report,
-            topology_wrapper::get_extra_events(&mut beh.onion),
-        );
-        topology_wrapper::report::report::<kad::Behaviour<Storage>>(
-            &mut beh.report,
-            topology_wrapper::get_extra_events(&mut beh.kad),
-        );
-        topology_wrapper::report::report::<libp2p::identify::Behaviour>(
-            &mut beh.report,
-            topology_wrapper::get_extra_events(&mut beh.identfy),
-        );
-    }
-
     async fn run(mut self) {
         loop {
             futures::select! {
                 e = self.swarm.select_next_some() => self.handle_event(e),
                 (id, m) = self.clients.select_next_some() => self.handle_client_message(id, m),
             };
-
-            self.report_stats();
         }
     }
 }

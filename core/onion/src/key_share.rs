@@ -10,8 +10,9 @@ use {
     std::{collections::HashMap, convert::Infallible, io, iter, mem},
 };
 
+#[derive(Default)]
 pub struct Behaviour {
-    keys: HashMap<PeerId, enc::PublicKey>,
+    pub keys: HashMap<PeerId, enc::PublicKey>,
     new_keys: Vec<(PeerId, enc::PublicKey)>,
 }
 

@@ -4,6 +4,7 @@ export CHAIN_NODE="ws://localhost:9944"
 export NODE_CONTRACT="todo"
 export USER_CONTRACT="todo"
 export NODE_COUNT=15
+export IDLE_TIMEOUT=2000
 export FRONTEND_PORT=7777
 export RUST_LOG="info"
 export RUST_BACKTRACE=1

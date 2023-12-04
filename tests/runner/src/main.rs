@@ -25,7 +25,7 @@ fn main() {
             }
             let mut command = process::Command::new(&cmd.miner);
             let mut boot_nodes = String::new();
-            for _ in 1..2 {
+            for _ in 1..cmd.node_count {
                 if let Some(i) = i.checked_sub(1) {
                     write!(
                         boot_nodes,

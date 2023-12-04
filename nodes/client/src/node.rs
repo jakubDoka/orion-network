@@ -21,15 +21,12 @@ use {
     libp2p::{
         core::{upgrade::Version, ConnectedPoint},
         futures::{SinkExt, StreamExt},
-        kad::{store::MemoryStore, GetRecordOk, PeerRecord, ProgressStep, QueryResult},
+        kad::{store::MemoryStore, ProgressStep, QueryResult},
         swarm::{NetworkBehaviour, SwarmEvent},
         PeerId, Swarm, *,
     },
     onion::{EncryptedStream, PathId, SharedSecret},
-    primitives::{
-        contracts::{NodeIdentity, StoredUserIdentity},
-        RawUserName, UserName,
-    },
+    primitives::{contracts::StoredUserIdentity, RawUserName, UserName},
     rand::seq::IteratorRandom,
     std::{
         collections::{HashMap, HashSet, VecDeque},
@@ -209,9 +206,8 @@ pub struct Node {
     peer_search: KadPeerSearch,
     subscriptions: futures::stream::SelectAll<Subscription>,
     pending_requests: LinearMap<RequestId, libp2p::futures::channel::oneshot::Sender<RawResponse>>,
-    pending_topic_search: LinearMap<Result<RequestId, PathId>, RequestInit>,
+    pending_topic_search: LinearMap<Result<RequestId, PathId>, Vec<RequestInit>>,
     active_subs: LinearMap<RequestId, libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>>,
-    nodes: HashMap<PeerId, enc::PublicKey>,
     requests: RequestStream,
 }
 
@@ -249,6 +245,7 @@ impl Node {
             onion: onion::Behaviour::new(
                 onion::Config::new(None, peer_id).keep_alive_interval(Duration::from_secs(100)),
             ),
+            key_share: onion::key_share::Behaviour::default(),
             kad: kad::Behaviour::with_config(
                 peer_id,
                 kad::store::MemoryStore::new(peer_id),
@@ -268,7 +265,8 @@ impl Node {
             transport,
             behaviour,
             peer_id,
-            libp2p::swarm::Config::with_wasm_executor().with_idle_connection_timeout(Duration::MAX), // TODO: please, dont
+            libp2p::swarm::Config::with_wasm_executor()
+                .with_idle_connection_timeout(Duration::from_secs(2)),
         );
         swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
 
@@ -284,20 +282,35 @@ impl Node {
                     swarm.behaviour_mut().kad.add_address(&peer_id, address);
                     break;
                 }
-                _ => {}
+                e => log::debug!("{:?}", e),
             }
         }
 
-        set_state!(Bootstrapping);
+        set_state!(CollecringKeys(
+            node_data.len() - swarm.behaviour_mut().key_share.keys.len() - 3
+        ));
 
-        let qid = swarm
+        let mut qid = swarm
             .behaviour_mut()
             .kad
             .bootstrap()
             .expect("to have enough peers");
+        for node in node_data.iter() {
+            let key = node.id;
+            let key = libp2p::identity::ed25519::PublicKey::try_from_bytes(&key).unwrap();
+            let peer_id = libp2p::identity::PublicKey::from(key).to_peer_id();
+            peer_search.discover_peer(peer_id, &mut swarm.behaviour_mut().kad);
+        }
         loop {
             match swarm.select_next_some().await {
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
+                SwarmEvent::Behaviour(BehaviourEvent::KeyShare(..)) => {
+                    let remining = node_data.len() - swarm.behaviour_mut().key_share.keys.len() - 3;
+                    set_state!(CollecringKeys(remining));
+                    if remining == 0 {
+                        break;
+                    }
+                }
                 SwarmEvent::Behaviour(BehaviourEvent::Kad(
                     kad::Event::OutboundQueryProgressed {
                         id,
@@ -305,64 +318,14 @@ impl Node {
                         step: ProgressStep { last: true, .. },
                         ..
                     },
-                )) if id == qid => break,
-                _ => {}
+                )) if id == qid => {
+                    qid = swarm.behaviour_mut().kad.bootstrap().unwrap();
+                }
+                e => log::debug!("{:?}", e),
             }
         }
 
-        set_state!(CollecringKeys(node_data.len()));
-
-        let mut query_pool = node_data
-            .iter()
-            .map(|nd| nd.sign.0.to_vec().into())
-            .map(|id| swarm.behaviour_mut().kad.get_record(id))
-            .zip(node_data.iter())
-            .collect::<Vec<_>>();
-        let mut nodes = HashMap::new();
-        while !query_pool.is_empty() {
-            let (result, id, last) = match swarm.select_next_some().await {
-                SwarmEvent::Behaviour(BehaviourEvent::Kad(
-                    kad::Event::OutboundQueryProgressed {
-                        id,
-                        result: QueryResult::GetRecord(result),
-                        step: ProgressStep { last, .. },
-                        ..
-                    },
-                )) => (result, id, last),
-                e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => continue,
-                _ => continue,
-            };
-
-            log::debug!("got node record {:#?}", result);
-
-            let Some((.., nd)) = find_and_remove(&mut query_pool, |&(qid, ..)| qid == id) else {
-                continue;
-            };
-
-            let Ok(GetRecordOk::FoundRecord(PeerRecord { record, .. })) = result else {
-                if last {
-                    log::error!("failed to fetch node record {:#?}", result);
-                } else {
-                    query_pool.push((id, nd));
-                }
-                continue;
-            };
-
-            let Some(identity) = NodeIdentity::try_from_slice(&record.value) else {
-                continue;
-            };
-
-            let Ok(pk) = libp2p::identity::ed25519::PublicKey::try_from_bytes(&nd.id)
-                .map(libp2p::identity::PublicKey::from)
-                .inspect_err(|e| log::error!("failed to construct node publick key: {e}"))
-            else {
-                continue;
-            };
-
-            nodes.insert(pk.to_peer_id(), identity.enc);
-            set_state!(CollecringKeys(query_pool.len()));
-        }
-
+        let nodes = &swarm.behaviour_mut().key_share.keys;
         anyhow::ensure!(
             nodes.len() >= crate::chain::min_nodes(),
             "not enough nodes in network, needed {}, got {}",
@@ -406,7 +369,7 @@ impl Node {
                 (init_stream, init_stream_id, init_stream_per)
             } else {
                 let pick = members.into_iter().choose(&mut rand::thread_rng()).unwrap();
-                let route = pick_route(&nodes, pick);
+                let route = pick_route(&swarm.behaviour_mut().key_share.keys, pick);
                 let pid = swarm.behaviour_mut().onion.open_path(route)?;
                 loop {
                     match swarm.select_next_some().await {
@@ -503,7 +466,7 @@ impl Node {
         let mut awaiting = to_connect
             .into_iter()
             .map(|(pick, set)| {
-                let route = pick_route(&nodes, pick);
+                let route = pick_route(&swarm.behaviour_mut().key_share.keys, pick);
                 let pid = swarm
                     .behaviour_mut()
                     .onion
@@ -547,7 +510,6 @@ impl Node {
         Ok((
             Self {
                 swarm,
-                nodes,
                 peer_search,
                 subscriptions,
                 pending_requests: Default::default(),
@@ -600,11 +562,19 @@ impl Node {
         let mut buf = Vec::new();
         let sub = self.subscriptions.iter_mut().next().unwrap();
         let search_key = command.topic();
+        if let Some((_, l)) = self
+            .pending_topic_search
+            .iter_mut()
+            .find(|(_, v)| v.iter().any(|c| c.topic() == search_key))
+        {
+            l.push(command);
+            return;
+        }
         let id =
             RequestDispatch::<Server>::build_packet::<SearchPeers>(&Reminder(search_key), &mut buf);
         sub.stream.write(&mut buf);
         log::debug!("searching for {:?}", search_key);
-        self.pending_topic_search.insert(Ok(id), command);
+        self.pending_topic_search.insert(Ok(id), vec![command]);
     }
 
     fn handle_request(&mut self, mut req: RawRequest) {
@@ -660,11 +630,10 @@ impl Node {
                     self.subscriptions.push(Subscription {
                         id,
                         peer_id,
-                        topics: [req.topic().to_owned()].into(),
+                        topics: [req[0].topic().to_owned()].into(),
                         stream,
                     });
-
-                    self.handle_command(req);
+                    req.into_iter().for_each(|r| self.handle_command(r));
                 }
             }
             e if Self::try_handle_common_event(&e, &mut self.swarm, &mut self.peer_search) => {}
@@ -711,8 +680,8 @@ impl Node {
                 .find(|s| resp.iter().any(|p| s.peer_id == *p))
             {
                 log::debug!("shortcut topic found");
-                sub.topics.insert(req.topic().to_owned());
-                self.handle_command(req);
+                sub.topics.insert(req[0].topic().to_owned());
+                req.into_iter().for_each(|r| self.handle_command(r));
                 return;
             }
 
@@ -721,7 +690,7 @@ impl Node {
                 return;
             };
 
-            let path = pick_route(&self.nodes, pick);
+            let path = pick_route(&self.swarm.behaviour().key_share.keys, pick);
             let pid = self.swarm.behaviour_mut().onion.open_path(path).unwrap();
             self.pending_topic_search.insert(Err(pid), req);
             return;
@@ -775,6 +744,7 @@ impl futures::Stream for Subscription {
 #[derive(libp2p::swarm::NetworkBehaviour)]
 struct Behaviour {
     onion: onion::Behaviour,
+    key_share: onion::key_share::Behaviour,
     kad: libp2p::kad::Behaviour<MemoryStore>,
     identify: libp2p::identify::Behaviour,
 }
