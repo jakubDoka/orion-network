@@ -35,7 +35,7 @@ fn main() {
                     .unwrap();
                 }
             }
-            command
+            let child = command
                 .env("PORT", (cmd.first_port + i as u16).to_string())
                 .env("WS_PORT", (cmd.first_port + i as u16 + 100).to_string())
                 .env("BOOT_NODES", boot_nodes)
@@ -44,10 +44,18 @@ fn main() {
                     format!("//{}", accounts[i % accounts.len()]),
                 )
                 .env("KEY_PATH", format!("node_keys/node{i}.keys"))
-                .stdout(process::Stdio::inherit())
-                .stderr(process::Stdio::inherit())
+                .stdout(process::Stdio::piped())
+                .stderr(process::Stdio::piped())
                 .spawn()
                 .expect("failed to spawn child");
+
+            let log_file = format!("node_logs/node{}.log", i);
+            let mut log_file = std::fs::File::create(log_file).unwrap();
+            let stderr = child.stderr.unwrap();
+            let mut stderr = std::io::BufReader::new(stderr);
+            std::thread::spawn(move || loop {
+                std::io::copy(&mut stderr, &mut log_file).unwrap();
+            });
         })
         .collect::<Vec<_>>();
 

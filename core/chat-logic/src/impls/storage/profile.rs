@@ -56,7 +56,7 @@ impl crate::Handler for FetchProfile {
         }
 
         Err(Self {
-            id: context.get_record(request.0.to_vec().to_vec().into()),
+            id: context.get_record(request.0.to_vec().into()),
         })
     }
 

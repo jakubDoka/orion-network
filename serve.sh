@@ -27,8 +27,8 @@ on_exit() {
 }
 
 trap on_exit EXIT
-rm -rf node_keys
-mkdir node_keys
+rm -rf node_keys node_logs
+mkdir node_keys node_logs
 
 (cd forked/substrate-node-template && cargo build --release || exit 1)
 (cd contracts/node_staker && cargo contract build $WASM_FLAGS || exit 1)

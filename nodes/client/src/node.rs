@@ -433,6 +433,7 @@ impl Node {
             )
             .await?
         {
+            let peers = peers.unwrap();
             if peers.contains(&profile_sub.peer_id) {
                 profile_sub.topics.insert(chat.0.to_owned());
                 continue;
@@ -667,7 +668,7 @@ impl Node {
 
         if let Some(req) = self.pending_topic_search.remove(&Ok(request_id)) {
             log::debug!("received pending topic search query");
-            let Ok(resp) = RequestDispatch::<Server>::parse_response::<SearchPeers>(content) else {
+            let Ok(resp) = RequestDispatch::<Server>::parse_response::<SearchPeers>(&msg) else {
                 log::error!("search query response is invalid");
                 return;
             };

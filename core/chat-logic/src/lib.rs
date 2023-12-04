@@ -120,7 +120,7 @@ impl<H: Handler> HandlerNest<H> {
         T: SubContext<H::Context>,
     {
         let e = T::try_unpack_event(event)?;
-        drain_filter(&mut self.handlers, |handler| {
+        let triggered = drain_filter(&mut self.handlers, |handler| {
             match handler
                 .handler
                 .try_complete(context.fragment(), &mut self.dispatch, &e)
@@ -138,8 +138,12 @@ impl<H: Handler> HandlerNest<H> {
                 }
             }
         })
-        .for_each(drop);
-        Ok(())
+        .count();
+        if triggered == 0 {
+            Err(e.into())
+        } else {
+            Ok(())
+        }
     }
 
     pub fn dispatch<T: Context>(
@@ -385,9 +389,7 @@ impl<S> RequestDispatch<S> {
             .await
             .map_err(|_| RequestError::ChannelClosed)?;
         self.buffer = rx.await.map_err(|_| RequestError::ChannelClosed)?;
-        DispatchResponse::<H::Response<'_>>::decode(&mut &self.buffer[..])
-            .map(|r| r.response)
-            .ok_or(RequestError::InvalidResponse)
+        Self::parse_response::<H>(&self.buffer)
     }
 
     pub async fn dispatch_direct<H: Handler>(
@@ -413,9 +415,7 @@ impl<S> RequestDispatch<S> {
             .ok_or(RequestError::ChannelClosed)?
             .map_err(|_| RequestError::ChannelClosed)?;
 
-        DispatchResponse::<H::Response<'_>>::decode(&mut &self.buffer[..])
-            .ok_or(RequestError::InvalidResponse)
-            .map(|r| r.response)
+        Self::parse_response::<H>(&self.buffer)
     }
 
     pub fn build_packet<H: Handler>(request: &H::Request<'_>, buffer: &mut Vec<u8>) -> RequestId
@@ -435,14 +435,16 @@ impl<S> RequestDispatch<S> {
     where
         S: Dispatches<H>,
     {
-        H::Response::decode(&mut &response[..]).ok_or(RequestError::InvalidResponse)
+        DispatchResponse::<HandlerResult<'_, H>>::decode(&mut &response[..])
+            .ok_or(RequestError::InvalidResponse)
+            .and_then(|r| r.response.map_err(RequestError::Handler))
     }
 
     pub async fn dispatch_direct_batch<'a, 'b, H: Handler>(
         &'a mut self,
         stream: &mut EncryptedStream,
         requests: impl Iterator<Item = H::Request<'b>>,
-    ) -> Result<impl Iterator<Item = (H::Response<'a>, H::Request<'b>)>, RequestError<H>>
+    ) -> Result<impl Iterator<Item = (HandlerResult<'a, H>, H::Request<'b>)>, RequestError<H>>
     where
         S: Dispatches<H>,
     {
@@ -467,7 +469,7 @@ impl<S> RequestDispatch<S> {
 
         Ok(
             (0..mapping.len()).scan(self.buffer.as_slice(), move |b, _| {
-                DispatchResponse::<H::Response<'_>>::decode(b)
+                DispatchResponse::<HandlerResult<'_, H>>::decode(b)
                     .and_then(|r| Some((r.response, mapping.remove(&r.request_id)?)))
             }),
         )

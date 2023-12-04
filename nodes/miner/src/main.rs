@@ -319,6 +319,12 @@ impl Miner {
             return;
         };
 
+        log::info!(
+            "received message from client: {:?} {:?}",
+            req.request_id,
+            req.prefix
+        );
+
         if let Err(e) =
             self.server
                 .dispatch(self.swarm.behaviour_mut(), req, Some(id), &mut self.packets)

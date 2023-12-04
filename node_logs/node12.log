@@ -1,0 +1,22 @@
+[2023-12-04T23:15:23Z INFO  miner] peer id: 12D3KooWBe4MDaUL5oWMP1qmBoicgBnJgviqw9vWfUap8yfc8tGo
+[2023-12-04T23:15:24Z INFO  miner] registered on chain
+[2023-12-04T23:16:28Z INFO  miner] put record message
+[2023-12-04T23:17:04Z INFO  miner] put record message
+[2023-12-04T23:17:17Z INFO  miner] received message from client: RequestId(5) 7
+[2023-12-04T23:17:21Z INFO  miner] put record message
+[2023-12-04T23:17:23Z INFO  miner] received message from client: RequestId(8) 137
+[2023-12-04T23:17:23Z INFO  miner] received message from client: RequestId(9) 10
+[2023-12-04T23:17:32Z INFO  miner] received message from client: RequestId(10) 8
+[2023-12-04T23:17:32Z INFO  miner] received message from client: RequestId(11) 1
+[2023-12-04T23:17:32Z INFO  miner] received message from client: RequestId(12) 5
+[2023-12-04T23:17:35Z INFO  miner] put record message
+[2023-12-04T23:17:35Z INFO  miner] put record message
+[2023-12-04T23:17:49Z INFO  miner] received message from client: RequestId(14) 7
+[2023-12-04T23:17:50Z INFO  miner] received message from client: RequestId(16) 137
+[2023-12-04T23:17:50Z INFO  miner] received message from client: RequestId(17) 10
+[2023-12-04T23:17:52Z INFO  miner] received message from client: RequestId(19) 8
+[2023-12-04T23:17:52Z INFO  miner] received message from client: RequestId(20) 1
+[2023-12-04T23:17:52Z INFO  miner] put record message
+[2023-12-04T23:17:52Z INFO  miner] received message from client: RequestId(21) 5
+[2023-12-04T23:17:55Z INFO  miner] put record message
+[2023-12-04T23:17:56Z INFO  miner] put record message

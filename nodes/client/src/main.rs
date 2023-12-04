@@ -680,7 +680,7 @@ fn load_file(input: HtmlElement<Input>) -> Option<impl Future<Output = Result<Ve
 fn report_validity(elem: NodeRef<Input>, message: impl Display) {
     elem.get_untracked()
         .unwrap()
-        .set_custom_validity(&format!("{message}"));
+        .set_custom_validity(&format!("{message:#}"));
     elem.get_untracked().unwrap().report_validity();
 }
 
