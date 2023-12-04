@@ -1,5 +1,8 @@
 use {
-    crate::{advance_nonce, impls::storage::replicate, ChatName, Identity, Nonce, Proof, Storage},
+    crate::{
+        advance_nonce, impls::storage::replicate, ChatName, HandlerResult, Identity, Nonce, Proof,
+        Storage,
+    },
     component_utils::Reminder,
     std::collections::VecDeque,
 };
@@ -16,8 +19,9 @@ pub enum CreateChat {}
 
 impl crate::SyncHandler for CreateChat {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = CreateChatError;
     type Request<'a> = (Identity, ChatName);
-    type Response<'a> = Result<(), CreateChatError>;
+    type Response<'a> = ();
     type Topic = ChatName;
 
     fn execute<'a>(
@@ -25,7 +29,7 @@ impl crate::SyncHandler for CreateChat {
         &(identiy, name): &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
-    ) -> Self::Response<'a> {
+    ) -> HandlerResult<'a, Self> {
         let chat_entry = context.store_mut().chats.entry(name);
         crate::ensure!(
             let std::collections::hash_map::Entry::Vacant(entry) = chat_entry,
@@ -49,8 +53,9 @@ pub enum AddUser {}
 
 impl crate::SyncHandler for AddUser {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = AddUserError;
     type Request<'a> = (Identity, ChatName, Proof);
-    type Response<'a> = Result<(), AddUserError>;
+    type Response<'a> = ();
     type Topic = ChatName;
 
     fn execute<'a>(
@@ -58,7 +63,7 @@ impl crate::SyncHandler for AddUser {
         &(identiy, name, proof): &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
-    ) -> Self::Response<'a> {
+    ) -> HandlerResult<'a, Self> {
         ensure!(proof.verify_chat(name), AddUserError::InvalidProof);
 
         let chat = context
@@ -104,9 +109,10 @@ pub enum SendMessage {}
 
 impl crate::SyncHandler for SendMessage {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = SendMessageError;
     type Event<'a> = (Proof, Reminder<'a>);
     type Request<'a> = (ChatName, Proof, Reminder<'a>);
-    type Response<'a> = Result<(), SendMessageError>;
+    type Response<'a> = ();
     type Topic = ChatName;
 
     fn execute<'a>(
@@ -114,7 +120,7 @@ impl crate::SyncHandler for SendMessage {
         &(name, proof, message): &Self::Request<'a>,
         events: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
-    ) -> Self::Response<'a> {
+    ) -> HandlerResult<'a, Self> {
         ensure!(proof.verify_chat(name), SendMessageError::InvalidProof);
 
         ensure!(
@@ -162,8 +168,9 @@ pub enum FetchMessages {}
 
 impl crate::SyncHandler for FetchMessages {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = FetchMessagesError;
     type Request<'a> = (ChatName, Cursor);
-    type Response<'a> = Result<(Vec<u8>, Cursor), FetchMessagesError>;
+    type Response<'a> = (Vec<u8>, Cursor);
     type Topic = ChatName;
 
     fn execute<'a>(
@@ -171,7 +178,7 @@ impl crate::SyncHandler for FetchMessages {
         request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
-    ) -> Self::Response<'a> {
+    ) -> HandlerResult<'a, Self> {
         let chat = context
             .store_mut()
             .chats

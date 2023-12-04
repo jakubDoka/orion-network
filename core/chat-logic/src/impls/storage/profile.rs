@@ -1,4 +1,7 @@
-use {crate::advance_nonce, std::convert::Infallible};
+use {
+    crate::{advance_nonce, HandlerResult},
+    std::convert::Infallible,
+};
 
 const MAIL_BOX_CAP: usize = 1024 * 1024;
 
@@ -37,8 +40,9 @@ pub struct FetchProfile {
 
 impl crate::Handler for FetchProfile {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = FetchProfileError;
     type Request<'a> = Identity;
-    type Response<'a> = Result<FetchProfileResp, FetchProfileError>;
+    type Response<'a> = FetchProfileResp;
     type Topic = Infallible;
 
     fn spawn(
@@ -46,7 +50,7 @@ impl crate::Handler for FetchProfile {
         request: &Self::Request<'_>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
-    ) -> Result<Self::Response<'static>, Self> {
+    ) -> Result<HandlerResult<'static, Self>, Self> {
         if let Some(profile) = context.store_mut().profiles.get(request) {
             return Ok(Ok(profile.into()));
         }
@@ -61,7 +65,7 @@ impl crate::Handler for FetchProfile {
         _context: &mut Self::Context,
         _: &mut crate::EventDispatch<Self>,
         event: &<Self::Context as crate::Context>::ToSwarm,
-    ) -> Result<Self::Response<'static>, Self> {
+    ) -> Result<HandlerResult<'static, Self>, Self> {
         let libp2p::kad::Event::OutboundQueryProgressed {
             id,
             result: libp2p::kad::QueryResult::GetRecord(result),
@@ -110,8 +114,9 @@ pub enum CreateAccount {}
 
 impl crate::SyncHandler for CreateAccount {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = CreateAccountError;
     type Request<'a> = (Proof, Serialized<enc::PublicKey>, Reminder<'a>);
-    type Response<'a> = Result<(), CreateAccountError>;
+    type Response<'a> = ();
     type Topic = crate::Identity;
 
     fn execute(
@@ -119,7 +124,7 @@ impl crate::SyncHandler for CreateAccount {
         &(proof, enc, vault): &Self::Request<'_>,
         _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
-    ) -> Self::Response<'static> {
+    ) -> HandlerResult<'static, Self> {
         crate::ensure!(proof.verify_profile(), CreateAccountError::InvalidProof);
 
         let user_id = crypto::hash::new_raw(&proof.pk);
@@ -163,8 +168,9 @@ pub enum SetVault {}
 
 impl crate::SyncHandler for SetVault {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = SetVaultError;
     type Request<'a> = (Proof, Reminder<'a>);
-    type Response<'a> = Result<(), SetVaultError>;
+    type Response<'a> = ();
     type Topic = crate::Identity;
 
     fn execute(
@@ -172,7 +178,7 @@ impl crate::SyncHandler for SetVault {
         &(proof, content): &Self::Request<'_>,
         _: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
-    ) -> Self::Response<'static> {
+    ) -> HandlerResult<'static, Self> {
         crate::ensure!(proof.verify_profile(), SetVaultError::InvalidProof);
 
         let identity = crypto::hash::new_raw(&proof.pk);
@@ -206,8 +212,9 @@ pub enum FetchVault {}
 
 impl crate::SyncHandler for FetchVault {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = FetchVaultError;
     type Request<'a> = Identity;
-    type Response<'a> = Result<(Nonce, Reminder<'a>), FetchVaultError>;
+    type Response<'a> = (Nonce, Reminder<'a>);
     type Topic = Identity;
 
     fn execute<'a>(
@@ -215,7 +222,7 @@ impl crate::SyncHandler for FetchVault {
         request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
-    ) -> Self::Response<'a> {
+    ) -> HandlerResult<'a, Self> {
         let profile = context.store_mut().profiles.get(request);
         crate::ensure!(let Some(profile) = profile, FetchVaultError::NotFound);
         Ok((profile.action, Reminder(profile.vault.as_slice())))
@@ -232,8 +239,9 @@ pub enum ReadMail {}
 
 impl crate::SyncHandler for ReadMail {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = ReadMailError;
     type Request<'a> = Proof;
-    type Response<'a> = Result<Reminder<'a>, ReadMailError>;
+    type Response<'a> = Reminder<'a>;
     type Topic = crate::Identity;
 
     fn execute<'a>(
@@ -241,7 +249,7 @@ impl crate::SyncHandler for ReadMail {
         request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
-    ) -> Self::Response<'a> {
+    ) -> HandlerResult<'a, Self> {
         crate::ensure!(request.verify_profile(), ReadMailError::InvalidProof);
 
         let profile = context
@@ -269,9 +277,10 @@ pub enum SendMail {}
 
 impl crate::SyncHandler for SendMail {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = SendMailError;
     type Event<'a> = Reminder<'a>;
     type Request<'a> = (Identity, Reminder<'a>);
-    type Response<'a> = Result<(), SendMailError>;
+    type Response<'a> = ();
     type Topic = crate::Identity;
 
     fn execute(
@@ -279,7 +288,7 @@ impl crate::SyncHandler for SendMail {
         &(identity, Reminder(content)): &Self::Request<'_>,
         events: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
-    ) -> Self::Response<'static> {
+    ) -> HandlerResult<'static, Self> {
         let profile = context.store_mut().profiles.get_mut(&identity);
         crate::ensure!(let Some(profile) = profile, SendMailError::NotFound);
         crate::ensure!(

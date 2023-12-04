@@ -384,7 +384,6 @@ impl Node {
         let (mut account_nonce, Reminder(vault)) = match request_dispatch
             .dispatch_direct::<FetchVault>(&mut profile_stream, &profile_hash.sign)
             .await
-            .context("fetching vault")?
         {
             Ok((n, v)) => (n + 1, v),
             Err(_) => Default::default(),
@@ -397,7 +396,6 @@ impl Node {
                     &(proof, keys.enc.public_key().into_bytes(), Reminder(&[])),
                 )
                 .await
-                .context("creating account")?
                 .context("creating account")?;
 
             Default::default()
@@ -656,7 +654,7 @@ impl Node {
         };
 
         if let Some(channel) = self.pending_requests.remove(&request_id) {
-            _ = channel.send(content.to_owned());
+            _ = channel.send(msg);
             return;
         }
 

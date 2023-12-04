@@ -99,7 +99,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .expect("layout invariants");
     };
 
-    let fetch_messages = handled_async_closure(move || async move {
+    let fetch_messages = handled_async_closure("fetching mesages", move || async move {
         let Some(chat) = current_chat.get_untracked() else {
             return Ok(());
         };
@@ -109,8 +109,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let cursor = cursor.get_untracked();
         let (mut messages, new_cursor) = requests()
             .dispatch::<FetchMessages>(chat, (chat, cursor))
-            .await?
-            .context("fetching messages")?;
+            .await?;
         let secret = state.chat_secret(chat).context("getting chat secret")?;
         for message in chat_logic::unpack_messages(&mut messages) {
             let Some(decrypted) = crypto::decrypt(message, secret) else {
@@ -145,7 +144,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             return;
         };
 
-        handled_spawn_local(async move {
+        handled_spawn_local("reading chat messages", async move {
             let (mut sub, owner) = requests().subscribe::<SendMessage>(chat)?;
             subscription_owner.set_value(Some(owner)); // drop old subscription
             while let Some((proof, Reminder(message))) = sub.next().await {
@@ -234,7 +233,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
             requests()
                 .dispatch::<CreateChat>(chat, (my_id, chat))
-                .await??;
+                .await
+                .context("creating chat")?;
 
             let meta = node::ChatMeta::new();
             state.vault.update(|v| _ = v.chats.insert(chat, meta));
@@ -299,11 +299,13 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let mut requests = requests();
         requests
             .dispatch::<AddUser>(chat, (invitee.sign, chat, proof))
-            .await??;
+            .await
+            .context("adding user to chat")?;
 
         let user_data = requests
             .dispatch::<FetchProfile>(None, invitee.sign)
-            .await??;
+            .await
+            .context("fetching user profile")?;
 
         let Some(secret) = state.chat_secret(chat) else {
             anyhow::bail!("we are not part of this chat");
@@ -315,7 +317,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let invite = Mail::ChatInvite(ChatInvite { chat, cp }).to_bytes();
         requests
             .dispatch::<SendMail>(None, (invitee.sign, Reminder(invite.as_slice())))
-            .await??;
+            .await
+            .context("sending invite")?;
 
         Ok(())
     };
@@ -350,7 +353,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let mut requests = requests();
         let user_data = requests
             .dispatch::<FetchProfile>(None, invitee.sign)
-            .await??;
+            .await
+            .context("fetching user profile")?;
 
         let (cp, secret) = enc::KeyPair::from_bytes(my_enc)
             .encapsulate(enc::PublicKey::from_ref(&user_data.enc))?;
@@ -372,7 +376,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         requests
             .dispatch::<SendMail>(None, (invitee.sign, Reminder(&invite)))
-            .await??;
+            .await
+            .context("sending invite")?;
 
         state.vault.update(|v| {
             let meta = v
@@ -425,11 +430,10 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .next_chat_proof(chat)
             .expect("we checked we are part of the chat");
 
-        handled_spawn_local(async move {
+        handled_spawn_local("sending normal message", async move {
             requests()
                 .dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
-                .await?
-                .context("sending message")?;
+                .await?;
             message_input.get_untracked().unwrap().set_value("");
             resize_input();
             Ok(())
@@ -442,13 +446,13 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let Some(members) = state.vault.with_untracked(|v| {
             v.hardened_chats
                 .get(&chat)
-                .map(|m| m.members.values().copied().collect::<Vec<_>>())
+                .map(|m| m.members.iter().map(|(a, b)| (*a, *b)).collect::<Vec<_>>())
         }) else {
             anyhow::bail!("I dont know what you are doing, but stop");
         };
 
-        handled_spawn_local(async move {
-            join_all(members.into_iter().map(|member| {
+        handled_spawn_local("sending hardened message", async move {
+            join_all(members.into_iter().map(|(name, member)| {
                 let mut message = content.as_bytes().to_vec();
                 crypto::encrypt(&mut message, member.secret);
                 let nonce = rand::thread_rng().gen();
@@ -462,8 +466,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                     requests()
                         .dispatch::<SendMail>(None, (member.identity, Reminder(&message)))
                         .await
-                        .context("sending message")
-                        .and_then(|r| r.context("sending message"))
+                        .with_context(|| format!("sending message to {name}"))
                 }
             }))
             .await
@@ -497,7 +500,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         Ok(())
     };
 
-    let on_input = handled_callback(move |e: web_sys::KeyboardEvent| {
+    let on_input = handled_callback("processing input", move |e: web_sys::KeyboardEvent| {
         if e.key_code() != '\r' as u32 || e.get_modifier_state("Shift") {
             return Ok(());
         }
@@ -613,15 +616,10 @@ fn popup<F: Future<Output = anyhow::Result<()>>>(
     let input = create_node_ref::<Input>();
     let input_trigger = create_trigger();
 
-    let show = handled_callback(move |_| {
-        input
-            .get_untracked()
-            .unwrap()
-            .focus()
-            .map_err(crate::handle_js_err)?;
+    let show = move |_| {
+        input.get_untracked().unwrap().focus().unwrap();
         set_hidden(false);
-        Ok(())
-    });
+    };
     let close = move |_| set_hidden(true);
     let on_confirm = move || {
         let content = crate::get_value(input);

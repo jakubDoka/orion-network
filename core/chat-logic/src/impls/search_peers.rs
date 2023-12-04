@@ -1,5 +1,6 @@
 use {
     super::Storage,
+    crate::HandlerResult,
     component_utils::Reminder,
     libp2p::{
         kad::{GetClosestPeersOk, QueryId, QueryResult},
@@ -15,6 +16,7 @@ pub struct SearchPeers {
 
 impl crate::Handler for SearchPeers {
     type Context = libp2p::kad::Behaviour<Storage>;
+    type Error = Infallible;
     type Request<'a> = Reminder<'a>;
     type Response<'a> = Vec<PeerId>;
     type Topic = Infallible;
@@ -24,7 +26,7 @@ impl crate::Handler for SearchPeers {
         request: &Self::Request<'_>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
-    ) -> Result<Self::Response<'static>, Self> {
+    ) -> Result<HandlerResult<'static, Self>, Self> {
         Err(Self {
             query: context.get_closest_peers(request.0.to_vec()),
             peers: Vec::new(),
@@ -36,7 +38,7 @@ impl crate::Handler for SearchPeers {
         _: &mut Self::Context,
         _: &mut crate::EventDispatch<Self>,
         event: &<Self::Context as crate::Context>::ToSwarm,
-    ) -> Result<Self::Response<'static>, Self> {
+    ) -> Result<HandlerResult<'static, Self>, Self> {
         let libp2p::kad::Event::OutboundQueryProgressed {
             id,
             result: QueryResult::GetClosestPeers(result),
@@ -50,13 +52,13 @@ impl crate::Handler for SearchPeers {
         crate::ensure!(id == &self.query, self);
 
         let Ok(GetClosestPeersOk { peers, .. }) = result else {
-            return Ok(Vec::new());
+            return Ok(Ok(Vec::new()));
         };
 
         self.peers.extend(peers);
 
         crate::ensure!(step.last, self);
 
-        Ok(self.peers)
+        Ok(Ok(self.peers))
     }
 }

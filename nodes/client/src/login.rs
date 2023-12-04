@@ -1,5 +1,5 @@
 use {
-    crate::{handle_js_err, RawUserKeys, State, UserKeys},
+    crate::{handle_js_err, handled_async_callback, RawUserKeys, State, UserKeys},
     anyhow::Context,
     crypto::TransmutationCircle,
     leptos::{html::Input, *},
@@ -11,7 +11,7 @@ use {
 #[component]
 pub fn Login(state: State) -> impl IntoView {
     let key_file = create_node_ref::<Input>();
-    let login = move || async move {
+    let on_login = handled_async_callback("logging in", move |_| async move {
         let file = key_file.get_untracked().expect("universe to work");
         file.set_custom_validity("");
         let Some(file_fut) = crate::load_file(file.clone()) else {
@@ -37,22 +37,14 @@ pub fn Login(state: State) -> impl IntoView {
 
         state.keys.set(Some(keys));
         Ok(())
-    };
-
-    let on_change = move |_| {
-        spawn_local(async move {
-            if let Err(e) = login().await {
-                crate::report_validity(key_file, format_args!("{e:#}"));
-            }
-        });
-    };
+    });
 
     view! {
         <div class="sc flx fdc bp ma">
             <Nav/>
             <form class="flx fdc">
                 <input class="pc hov bp tbm" type="file" style:width="250px"
-                    node_ref=key_file on:change=on_change required />
+                    node_ref=key_file on:change=on_login required />
             </form>
         </div>
     }
@@ -63,7 +55,7 @@ pub fn Register(state: State) -> impl IntoView {
     let username = create_node_ref::<Input>();
     let download_link = create_node_ref::<leptos::html::A>();
 
-    let register = move || async move {
+    let on_register = handled_async_callback("registering", move |_| async move {
         let username = username.get_untracked().expect("universe to work");
         let username_content = UserName::try_from(username.value().as_str())
             .ok()
@@ -115,15 +107,7 @@ pub fn Register(state: State) -> impl IntoView {
 
         state.keys.set(Some(key));
         Ok(())
-    };
-
-    let on_register = move |_| {
-        spawn_local(async move {
-            if let Err(e) = register().await {
-                crate::report_validity(username, format_args!("{e:#}"));
-            }
-        });
-    };
+    });
 
     let validation_trigger = create_trigger();
     let on_change = move |_| validation_trigger.notify();

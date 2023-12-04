@@ -12,10 +12,10 @@ export NODE_START=8800
 export NETWORK_BOOT_NODE="/ip4/127.0.0.1/tcp/$((NODE_START + 100))/ws"
 export MIN_NODES=5
 
-RELEASE=""
 TARGET_DIR="target/debug"
 if [ "$1" = "release" ]; then
-  RELEASE="--release"
+  FLAGS="--profile native-optimized"
+  WASM_FLAGS="--release"
   TARGET_DIR="target/release"
 fi
 
@@ -31,8 +31,8 @@ rm -rf node_keys
 mkdir node_keys
 
 (cd forked/substrate-node-template && cargo build --release || exit 1)
-(cd contracts/node_staker && cargo contract build $RELEASE || exit 1)
-(cd contracts/user_manager && cargo contract build $RELEASE || exit 1)
+(cd contracts/node_staker && cargo contract build $WASM_FLAGS || exit 1)
+(cd contracts/user_manager && cargo contract build $WASM_FLAGS || exit 1)
 forked/substrate-node-template/target/release/node-template --dev 2>&1 > /dev/null &
 sleep 1
 export NODE_CONTRACT=$(cd contracts/node_staker &&\
@@ -43,16 +43,18 @@ export USER_CONTRACT=$(cd contracts/user_manager &&\
 echo "node contract: $NODE_CONTRACT"
 echo "user contract: $USER_CONTRACT"
 
-cargo build $RELEASE --workspace \
+cargo build $FLAGS --workspace \
 	--exclude client \
 	--exclude websocket-websys \
 	--exclude node_staker \
 	--exclude user_manager \
 	--exclude topology-vis \
 	--exclude indexed_db || exit 1
+(cd nodes/topology-vis && ./build.sh "$1" || exit 1)
 
+(cd nodes/topology-vis/dist && live-server --host localhost --port 8888 &)
 $TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START --miner $TARGET_DIR/miner &
-(cd nodes/client && trunk serve $RELEASE --port $FRONTEND_PORT --features building > /dev/null &)
+(cd nodes/client && trunk serve $WASM_FLAGS --port $FRONTEND_PORT --features building > /dev/null &)
 
 read -p "press enter to exit"
 

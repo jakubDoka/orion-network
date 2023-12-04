@@ -56,7 +56,7 @@ macro_rules! compose_handlers {
                 }
             }
 
-            pub fn dispatch_local<'a, H: $crate::SyncHandler>(&'a mut self, context: &'a mut H::Context, request: H::Request<'a>) -> H::Response<'a>
+            pub fn dispatch_local<'a, H: $crate::SyncHandler>(&'a mut self, context: &'a mut H::Context, request: H::Request<'a>) -> $crate::HandlerResult<'a, H>
             where
                 Self: $crate::Dispatches<H>,
             {
@@ -246,11 +246,13 @@ pub enum DispatchError {
 }
 
 type RequestMeta = (u8, RequestId);
+type HandlerResult<'a, H> = Result<<H as Handler>::Response<'a>, <H as Handler>::Error>;
 
 pub trait Handler: Sized {
     type Context: Context;
     type Request<'a>: Codec<'a>;
     type Response<'a>: Codec<'a>;
+    type Error: for<'a> Codec<'a> + std::error::Error;
     type Event<'a>: Codec<'a> = Infallible;
     type Topic: Eq + std::hash::Hash + for<'a> Codec<'a>;
 
@@ -259,18 +261,19 @@ pub trait Handler: Sized {
         request: &Self::Request<'a>,
         dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
-    ) -> Result<Self::Response<'a>, Self>;
+    ) -> Result<HandlerResult<'a, Self>, Self>;
     fn try_complete<'a>(
         self,
         context: &'a mut Self::Context,
         dispatch: &mut EventDispatch<Self>,
         event: &'a <Self::Context as Context>::ToSwarm,
-    ) -> Result<Self::Response<'a>, Self>;
+    ) -> Result<HandlerResult<'a, Self>, Self>;
 }
 
 pub trait SyncHandler: Sized {
     type Request<'a>: Codec<'a>;
     type Response<'a>: Codec<'a>;
+    type Error: for<'a> Codec<'a> + std::error::Error;
     type Event<'a>: Codec<'a> = Infallible;
     type Context: Context;
     type Topic: Eq + std::hash::Hash + for<'a> Codec<'a>;
@@ -280,11 +283,12 @@ pub trait SyncHandler: Sized {
         request: &Self::Request<'a>,
         dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
-    ) -> Self::Response<'a>;
+    ) -> HandlerResult<'a, Self>;
 }
 
 impl<T: SyncHandler> Handler for T {
     type Context = T::Context;
+    type Error = T::Error;
     type Event<'a> = T::Event<'a>;
     type Request<'a> = T::Request<'a>;
     type Response<'a> = T::Response<'a>;
@@ -295,7 +299,7 @@ impl<T: SyncHandler> Handler for T {
         request: &Self::Request<'a>,
         dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
-    ) -> Result<Self::Response<'a>, Self> {
+    ) -> Result<HandlerResult<'a, Self>, Self> {
         Ok(Self::execute(context, request, dispatch, meta))
     }
 
@@ -304,7 +308,7 @@ impl<T: SyncHandler> Handler for T {
         _: &'a mut Self::Context,
         _: &mut EventDispatch<Self>,
         _: &'a <Self::Context as Context>::ToSwarm,
-    ) -> Result<Self::Response<'a>, Self> {
+    ) -> Result<HandlerResult<'a, Self>, Self> {
         Err(self)
     }
 }
@@ -364,7 +368,7 @@ impl<S> RequestDispatch<S> {
         &mut self,
         topic: impl Into<Option<H::Topic>>,
         request: H::Request<'_>,
-    ) -> Result<H::Response<'_>, RequestError>
+    ) -> Result<H::Response<'_>, RequestError<H>>
     where
         S: Dispatches<H>,
     {
@@ -381,14 +385,16 @@ impl<S> RequestDispatch<S> {
             .await
             .map_err(|_| RequestError::ChannelClosed)?;
         self.buffer = rx.await.map_err(|_| RequestError::ChannelClosed)?;
-        H::Response::decode(&mut &self.buffer[..]).ok_or(RequestError::InvalidResponse)
+        DispatchResponse::<H::Response<'_>>::decode(&mut &self.buffer[..])
+            .map(|r| r.response)
+            .ok_or(RequestError::InvalidResponse)
     }
 
     pub async fn dispatch_direct<H: Handler>(
         &mut self,
         stream: &mut EncryptedStream,
         request: &H::Request<'_>,
-    ) -> Result<H::Response<'_>, RequestError>
+    ) -> Result<H::Response<'_>, RequestError<H>>
     where
         S: Dispatches<H>,
     {
@@ -425,7 +431,7 @@ impl<S> RequestDispatch<S> {
         id
     }
 
-    pub fn parse_response<H: Handler>(response: &[u8]) -> Result<H::Response<'_>, RequestError>
+    pub fn parse_response<H: Handler>(response: &[u8]) -> Result<H::Response<'_>, RequestError<H>>
     where
         S: Dispatches<H>,
     {
@@ -436,7 +442,7 @@ impl<S> RequestDispatch<S> {
         &'a mut self,
         stream: &mut EncryptedStream,
         requests: impl Iterator<Item = H::Request<'b>>,
-    ) -> Result<impl Iterator<Item = (H::Response<'a>, H::Request<'b>)>, RequestError>
+    ) -> Result<impl Iterator<Item = (H::Response<'a>, H::Request<'b>)>, RequestError<H>>
     where
         S: Dispatches<H>,
     {
@@ -470,7 +476,7 @@ impl<S> RequestDispatch<S> {
     pub fn subscribe<H: Handler>(
         &mut self,
         topic: H::Topic,
-    ) -> Result<(Subscription<H>, SubsOwner<H>), RequestError>
+    ) -> Result<(Subscription<H>, SubsOwner<H>), RequestError<H>>
     where
         S: Dispatches<H>,
     {
@@ -535,9 +541,9 @@ pub enum RequestInit {
 impl RequestInit {
     pub fn topic(&self) -> &[u8] {
         match self {
-            RequestInit::Request(r) => r.topic.as_deref().unwrap_or_default(),
+            RequestInit::Request(r) => r.topic.as_deref().unwrap(),
             RequestInit::Subscription(s) => &s.topic,
-            RequestInit::CloseSubscription(_) => &[],
+            RequestInit::CloseSubscription(_) => unreachable!(),
         }
     }
 }
@@ -573,12 +579,29 @@ pub struct RawRequest {
 
 pub type RawResponse = Vec<u8>;
 
-component_utils::gen_simple_error! {
-    error RequestError {
-        InvalidResponse => "invalid response",
-        ChannelClosed => "channel closed",
+pub enum RequestError<H: Handler> {
+    InvalidResponse,
+    ChannelClosed,
+    Handler(H::Error),
+}
+
+impl<H: Handler> std::fmt::Debug for RequestError<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RequestError::InvalidResponse => write!(f, "invalid response"),
+            RequestError::ChannelClosed => write!(f, "channel closed"),
+            RequestError::Handler(e) => write!(f, "handler error: {:?}", e),
+        }
     }
 }
+
+impl<H: Handler> std::fmt::Display for RequestError<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl<H: Handler> std::error::Error for RequestError<H> {}
 
 pub type RootPacketBuffer = PacketBuffer<(RequestId, PathId)>;
 

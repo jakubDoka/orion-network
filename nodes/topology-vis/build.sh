@@ -1,66 +1,19 @@
 #!/usr/bin/env bash
 
 
-set -e
-
-HELP_STRING=$(cat <<- END
-	usage: build_wasm.sh
-	Build script for combining a Macroquad project with wasm-bindgen,
-	allowing integration with the greater wasm-ecosystem.
-	example: ./build_wasm.sh
-	This'll go through the following steps:
-	    1. Build as target 'wasm32-unknown-unknown'.
-	    2. Create the directory 'dist' if it doesn't already exist.
-	    3. Run wasm-bindgen with output into the 'dist' directory.
-	    4. Apply patches to the output js file (detailed here: https://github.com/not-fl3/macroquad/issues/212#issuecomment-835276147).
-        5. Generate coresponding 'index.html' file.
-	Author: Tom Solberg <me@sbg.dev>
-	Edit: Nik codes <nik.code.things@gmail.com>
-	Edit: Nobbele <realnobbele@gmail.com>
-	Edit: profan <robinhubner@gmail.com>
-	Version: 0.3
-END
-)
-
-export BOOT_NODE="/ip4/127.0.0.1/tcp/8900/ws"
-
-die () {
-    echo >&2 "Error: $@"
-    echo >&2
-    echo >&2 "$HELP_STRING"
-    exit 1
-}
 
 TARGET_DIR="debug"
-# Parse primary commands
-while [[ $# -gt 0 ]]
-do
-    key="$1"
-    case $key in
-        --release)
-            RELEASE=yes
-            TARGET_DIR="release"
-            shift
-            ;;
+if [ "$1" = "release" ]; then
+    FLAGS='--release'
+    RELEASE=yes
+    TARGET_DIR="release"
+fi
 
-        -h|--help)
-            echo "$HELP_STRING"
-            exit 0
-            ;;
 
-        *)
-            POSITIONAL+=("$1")
-            shift
-            ;;
-    esac
-done
-
-# Restore positionals
-set -- "${POSITIONAL[@]}"
-
-PROJECT_NAME="topology-vis"
-
-HTML=$(cat <<- END
+export BOOT_NODE="/ip4/127.0.0.1/tcp/8900/ws"
+export PROJECT_NAME="topology-vis"
+export WASM_PATH="../../target/wasm32-unknown-unknown/$TARGET_DIR/$PROJECT_NAME.wasm"
+export HTML=$(cat <<- END
 <html lang="en">
 <head>
     <meta charset="utf-8">
@@ -110,18 +63,17 @@ HTML=$(cat <<- END
 END
 )
 
-# Build
-cargo build --target wasm32-unknown-unknown --features building
 
-# Generate bindgen outputs
 mkdir -p dist
-wasm-bindgen "../../target/wasm32-unknown-unknown/$TARGET_DIR/$PROJECT_NAME.wasm" --out-dir dist --target web --no-typescript
+cargo build --target wasm32-unknown-unknown $FLAGS --features building
+wasm-bindgen "$WASM_PATH" --out-dir dist --target web --no-typescript
+if [ "$RELEASE" = "yes" ]; then
+    wasm-opt -Oz -o dist/topology-vis_bg.wasm dist/topology-vis_bg.wasm 
+fi
 
-# Shim to tie the thing together
 sed -i "s/import \* as __wbg_star0 from 'env';//" dist/$PROJECT_NAME.js
 sed -i "s/let wasm;/let wasm; export const set_wasm = (w) => wasm = w;/" dist/$PROJECT_NAME.js
 sed -i "s/imports\['env'\] = __wbg_star0;/return imports.wbg\;/" dist/$PROJECT_NAME.js
 sed -i "s/const imports = __wbg_get_imports();/return __wbg_get_imports();/" dist/$PROJECT_NAME.js
 
-# Create index from the HTML variable
 echo "$HTML" > dist/index.html

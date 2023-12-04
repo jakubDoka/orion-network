@@ -188,9 +188,10 @@ fn App() -> impl IntoView {
         let mut vault_bytes = serialized_vault.get_untracked();
         let proof = state.next_profile_proof().expect("logged in");
         crypto::encrypt(&mut vault_bytes, keys.vault);
-        handled_spawn_local(async move {
+        handled_spawn_local("saving vault", async move {
             ed.dispatch::<SetVault>(identity, (proof, Reminder(&vault_bytes)))
-                .await??;
+                .await
+                .context("setting vault")?;
             log::debug!("saved vault");
             Ok(())
         });
@@ -215,7 +216,7 @@ fn App() -> impl IntoView {
         timeout.set_value(Some(handle));
     });
 
-    async fn handle_invite_member(
+    async fn notify_about_invite(
         name: UserName,
         chat: ChatName,
         my_name: UserName,
@@ -231,7 +232,8 @@ fn App() -> impl IntoView {
             .context("user not found")?;
         let pf = dispatch
             .dispatch::<FetchProfile>(None, identity_hashes.sign)
-            .await??;
+            .await
+            .context("fetching profile")?;
 
         let (cp, secret) = enc
             .encapsulate(&enc::PublicKey::from_bytes(pf.enc))
@@ -243,7 +245,7 @@ fn App() -> impl IntoView {
             identity,
         }
         .into_bytes();
-        let mail = Mail::HardenedJoinRequest(HardenedJoinRequest {
+        let invite = Mail::HardenedJoinRequest(HardenedJoinRequest {
             cp: cp.into_bytes(),
             payload: unsafe {
                 std::mem::transmute(FixedAesPayload::new(payload, secret, crypto::ASOC_DATA))
@@ -252,8 +254,9 @@ fn App() -> impl IntoView {
         .to_bytes();
 
         dispatch
-            .dispatch::<SendMail>(None, (identity_hashes.sign, Reminder(&mail)))
-            .await??;
+            .dispatch::<SendMail>(None, (identity_hashes.sign, Reminder(&invite)))
+            .await
+            .context("sending invite")?;
 
         Ok((name, MemberMeta {
             secret,
@@ -328,16 +331,9 @@ fn App() -> impl IntoView {
                     members,
                 } = <_>::decode(&mut &*payload).context("failed to decode hardened invite")?;
                 let dispatch = dispatch.clone();
-                handled_spawn_local(async move {
+                handled_spawn_local("inviting hardened user user", async move {
                     let members = join_all(members.into_iter().map(|id| {
-                        handle_invite_member(
-                            id,
-                            chat,
-                            my_name,
-                            enc.clone(),
-                            my_id,
-                            dispatch.clone(),
-                        )
+                        notify_about_invite(id, chat, my_name, enc.clone(), my_id, dispatch.clone())
                     }))
                     .await
                     .into_iter()
@@ -406,22 +402,19 @@ fn App() -> impl IntoView {
         let my_name = keys.name;
         let my_id = keys.identity_hash();
 
-        handled_spawn_local(async move {
+        handled_spawn_local("initializing node", async move {
             navigate_to("/");
             let identity = keys.identity_hash();
             let (node, vault, mut dispatch, nonce) = Node::new(keys, wboot_phase)
                 .await
-                .inspect_err(|_| navigate_to("/login"))
-                .context("failed to create node")?;
+                .inspect_err(|_| navigate_to("/login"))?;
 
             let mut dispatch_clone = dispatch.clone();
             let cloned_enc = enc.clone();
-            handled_spawn_local(async move {
+            handled_spawn_local("reading mail", async move {
                 let proof = state.next_profile_proof().unwrap();
                 let inner_dispatch = dispatch_clone.clone();
-                let list = dispatch_clone
-                    .dispatch::<ReadMail>(identity, proof)
-                    .await??;
+                let list = dispatch_clone.dispatch::<ReadMail>(identity, proof).await?;
 
                 for mail in chat_logic::unpack_messages_ref(list.0) {
                     handle_error(
@@ -498,6 +491,7 @@ fn ErrorPanel(errors: ReadSignal<Option<anyhow::Error>>) -> impl IntoView {
     create_effect(move |_| {
         errors.with(|e| {
             if let Some(e) = e {
+                log::error!("{e:#}");
                 error_nodes
                     .get_untracked()
                     .unwrap()
@@ -715,59 +709,66 @@ fn handle_error<T>(r: anyhow::Result<T>) -> Option<T> {
 }
 
 fn _handled_closure(
+    context: &'static str,
     f: impl Fn() -> anyhow::Result<()> + 'static + Copy,
 ) -> impl Fn() + 'static + Copy {
     let Errors(errors) = use_context().unwrap();
     move || {
-        if let Err(e) = f() {
+        if let Err(e) = f().context(context) {
             errors.set(Some(e));
         }
     }
 }
 
 fn handled_callback<T>(
+    context: &'static str,
     f: impl Fn(T) -> anyhow::Result<()> + 'static + Copy,
 ) -> impl Fn(T) + 'static + Copy {
     let Errors(errors) = use_context().unwrap();
     move |v| {
-        if let Err(e) = f(v) {
+        if let Err(e) = f(v).context(context) {
             errors.set(Some(e));
         }
     }
 }
 
 fn handled_async_closure<F: Future<Output = anyhow::Result<()>> + 'static>(
+    context: &'static str,
     f: impl Fn() -> F + 'static + Copy,
 ) -> impl Fn() + 'static + Copy {
     let Errors(errors) = use_context().unwrap();
     move || {
         let fut = f();
         spawn_local(async move {
-            if let Err(e) = fut.await {
+            if let Err(e) = fut.await.context(context) {
                 errors.set(Some(e));
             }
         });
     }
 }
 
-fn _handled_async_callback<T, F: Future<Output = anyhow::Result<()>> + 'static>(
+fn handled_async_callback<T, F: Future<Output = anyhow::Result<()>> + 'static>(
+    context: &'static str,
     f: impl Fn(T) -> F + 'static + Copy,
 ) -> impl Fn(T) + 'static + Copy {
     let Errors(errors) = use_context().unwrap();
     move |v| {
         let fut = f(v);
         spawn_local(async move {
-            if let Err(e) = fut.await {
+            if let Err(e) = fut.await.context(context) {
                 errors.set(Some(e));
             }
         });
     }
 }
 
-fn handled_spawn_local(f: impl Future<Output = anyhow::Result<()>> + 'static) {
+fn handled_spawn_local(
+    context: &'static str,
+    f: impl Future<Output = anyhow::Result<()>> + 'static,
+) {
     let Errors(errors) = use_context().unwrap();
     spawn_local(async move {
-        if let Err(e) = f.await {
+        if let Err(e) = f.await.context(context) {
             errors.set(Some(e));
         }
     });
