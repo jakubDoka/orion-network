@@ -69,6 +69,7 @@ impl crate::Handler for FetchProfile {
         let libp2p::kad::Event::OutboundQueryProgressed {
             id,
             result: libp2p::kad::QueryResult::GetRecord(result),
+            step,
             ..
         } = event
         else {
@@ -78,6 +79,7 @@ impl crate::Handler for FetchProfile {
         crate::ensure!(self.id == *id, self);
 
         let Ok(GetRecordOk::FoundRecord(PeerRecord { record, .. })) = result else {
+            crate::ensure!(step.last, self);
             return Ok(Err(FetchProfileError::NotFound));
         };
 
@@ -289,7 +291,13 @@ impl crate::SyncHandler for SendMail {
         events: &mut crate::EventDispatch<Self>,
         meta: crate::RequestMeta,
     ) -> HandlerResult<'static, Self> {
+        let replicating = context.store_mut().replicating;
         let profile = context.store_mut().profiles.get_mut(&identity);
+        if profile.is_none() && !replicating {
+            replicate::<Self>(context, &identity, &(identity, Reminder(content)), meta);
+            return Ok(());
+        }
+
         crate::ensure!(let Some(profile) = profile, SendMailError::NotFound);
         crate::ensure!(
             profile.mail.len() + content.len() < MAIL_BOX_CAP,

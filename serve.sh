@@ -11,12 +11,14 @@ export RUST_BACKTRACE=1
 export NODE_START=8800
 export NETWORK_BOOT_NODE="/ip4/127.0.0.1/tcp/$((NODE_START + 100))/ws"
 export MIN_NODES=5
+export BALANCE=10000000000000
+export TEST_WALLETS=5CwfgYUrq24dTpfh2sQ2st1FNCR2fM2JFSn3EtdWyrGdEaER,5E7YrzVdg1ovRYfWLQG1bJV7FvZWJpnVnQ3nVCKEwpFzkX8s
 
 TARGET_DIR="target/debug"
 if [ "$1" = "release" ]; then
   FLAGS="--profile native-optimized"
   WASM_FLAGS="--release"
-  TARGET_DIR="target/release"
+  TARGET_DIR="target/native-optimized"
 fi
 
 on_exit() {
@@ -24,6 +26,7 @@ on_exit() {
 	pkill miner
 	pkill runner
 	pkill trunk
+	pkill live-server
 }
 
 trap on_exit EXIT
@@ -52,6 +55,7 @@ cargo build $FLAGS --workspace \
 	--exclude indexed_db || exit 1
 (cd nodes/topology-vis && ./build.sh "$1" || exit 1)
 
+$TARGET_DIR/init-transfer || exit 1
 (cd nodes/topology-vis/dist && live-server --host localhost --port 8888 &)
 $TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START --miner $TARGET_DIR/miner &
 (cd nodes/client && trunk serve $WASM_FLAGS --port $FRONTEND_PORT --features building > /dev/null &)

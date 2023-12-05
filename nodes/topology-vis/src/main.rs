@@ -7,7 +7,7 @@ use {
         Multiaddr, PeerId, Transport,
     },
     macroquad::prelude::*,
-    std::{cell::RefCell, collections::BTreeSet, mem},
+    std::{cell::RefCell, collections::BTreeMap, mem},
     wasm_bindgen_futures::spawn_local,
 };
 
@@ -49,21 +49,21 @@ impl Nodes {
             .filter_map(|(i, node)| Some((i, node.as_mut()?)))
     }
 
-    fn len(&self) -> usize {
-        self.inner.len()
-    }
+    // fn len(&self) -> usize {
+    //     self.inner.len()
+    // }
 
-    fn retain(&mut self, mut keep: impl FnMut(&mut Node) -> bool) {
-        for (i, node) in self.inner.iter_mut().enumerate() {
-            let Some(nd) = node else {
-                continue;
-            };
-            if !keep(nd) {
-                *node = None;
-                self.free.push(i);
-            }
-        }
-    }
+    // fn retain(&mut self, mut keep: impl FnMut(&mut Node) -> bool) {
+    //     for (i, node) in self.inner.iter_mut().enumerate() {
+    //         let Some(nd) = node else {
+    //             continue;
+    //         };
+    //         if !keep(nd) {
+    //             *node = None;
+    //             self.free.push(i);
+    //         }
+    //     }
+    // }
 
     fn iter(&self) -> impl Iterator<Item = (usize, &Node)> + '_ {
         self.inner
@@ -78,13 +78,15 @@ struct Node {
     pid: PeerId,
     position: Vec2,
     velocity: Vec2,
-    seen: bool,
     client: bool,
+    brightness: f32,
 }
 
 impl Node {
     const FRICION: f32 = 0.1;
-    const LINE_THICKNESS: f32 = 3.0;
+    const LINE_THICKNESS: f32 = 5.0;
+    const MIN_LINE_BRIGHTNESS: f32 = 0.1;
+    const MIN_NODE_BRIGHTNESS: f32 = 0.5;
     const NODE_SIZE: f32 = 20.0;
 
     fn new(x: f32, y: f32, client: bool, pid: PeerId) -> Self {
@@ -92,8 +94,8 @@ impl Node {
             pid,
             position: Vec2::new(x, y),
             velocity: Vec2::from_angle(rand::gen_range(0.0, 2.0 * std::f32::consts::PI)) * 300.0,
-            seen: false,
             client,
+            brightness: 1.0,
         }
     }
 
@@ -107,7 +109,7 @@ impl Node {
     ) {
         let diff = other.position - self.position;
         let dist_sq = diff.length_squared();
-        let force = dist_sq - balanced_distance * balanced_distance;
+        let force = (dist_sq - balanced_distance * balanced_distance).max(-1000.0);
         if force > 0.0 && dont_atract {
             return;
         }
@@ -119,14 +121,31 @@ impl Node {
     fn update(&mut self, time: f32) {
         self.position += self.velocity * time;
         self.velocity *= 1.0 - Self::FRICION;
+        self.brightness = (self.brightness - time * 0.8).max(Self::MIN_NODE_BRIGHTNESS);
     }
 
     fn draw(&self) {
-        let color = if self.client { GREEN } else { RED };
-        draw_circle(self.position.x, self.position.y, Self::NODE_SIZE, color);
+        let color = if self.client {
+            Color::from_hex(0x1aaf72)
+        } else {
+            Color::from_hex(0xcc0000)
+        };
+        draw_circle(
+            self.position.x,
+            self.position.y,
+            Self::NODE_SIZE * self.brightness * Self::MIN_NODE_BRIGHTNESS.recip(),
+            color,
+        );
     }
 
-    fn draw_connection(&self, other: &Self, color: Color, index: usize, total_protocols: usize) {
+    fn draw_connection(
+        &self,
+        other: &Self,
+        color: Color,
+        index: usize,
+        total_protocols: usize,
+        brightness: f32,
+    ) {
         let dir = other.position - self.position;
         let offset = (total_protocols - index) as f32 - total_protocols as f32 / 2.0;
         let dir = Vec2::new(dir.y, -dir.x);
@@ -136,8 +155,8 @@ impl Node {
             self.position.y + offset.y,
             other.position.x + offset.x,
             other.position.y + offset.y,
-            Self::LINE_THICKNESS,
-            color,
+            Self::LINE_THICKNESS * brightness * Self::MIN_LINE_BRIGHTNESS.recip(),
+            Color::new(color.r, color.g, color.b, brightness),
         );
     }
 }
@@ -156,11 +175,41 @@ struct Edge {
     connection: usize,
 }
 
-#[derive(Default)]
+type EdgeVaule = f32;
+
 struct World {
     nodes: Nodes,
-    edges: BTreeSet<Edge>,
+    edges: BTreeMap<Edge, EdgeVaule>,
     protocols: Vec<Protocol>,
+    center_node: Node,
+}
+
+impl Default for World {
+    fn default() -> Self {
+        Self {
+            nodes: Nodes::default(),
+            edges: BTreeMap::new(),
+            protocols: vec![
+                Protocol {
+                    name: "/onion/rot/0.1.0".into(),
+                    color: Color::from_hex(0x6600cc),
+                },
+                Protocol {
+                    name: "/onion/ksr/0.1.0".into(),
+                    color: Color::from_hex(0xccccff),
+                },
+                Protocol {
+                    name: "/ipfs/kad/1.0.0".into(),
+                    color: Color::from_hex(0xff9966),
+                },
+                Protocol {
+                    name: "/ipfs/id/1.0.0".into(),
+                    color: Color::from_hex(0x66ff66),
+                },
+            ],
+            center_node: Node::new(0.0, 0.0, false, PeerId::random()),
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -178,19 +227,14 @@ impl World {
         let rand_config = rand::gen_range(u32::MIN, u32::MAX);
         self.protocols.push(Protocol {
             name: protocol.to_owned(),
-            color: Color::new(
-                (rand_config >> 24) as u8 as f32 / 255.0,
-                (rand_config >> 16) as u8 as f32 / 255.0,
-                (rand_config >> 8) as u8 as f32 / 255.0,
-                1.0,
-            ),
+            color: Color::from_hex(rand_config),
         });
         index
     }
 
-    fn add_edge(&mut self, edge: Edge) {
+    fn add_edge(&mut self, edge: Edge, brightness: f32) {
         debug_assert!(edge.start != edge.end);
-        self.edges.insert(edge);
+        self.edges.insert(edge, brightness);
     }
 
     fn remove_edge(&mut self, edge: Edge) {
@@ -200,59 +244,47 @@ impl World {
 
     fn remove_node(&mut self, index: usize) {
         self.nodes.remove(index);
-        self.edges
-            .retain(|edge| edge.start != index && edge.end != index);
     }
 
     fn update(&mut self, time: f32) {
-        self.nodes
-            .iter_mut()
-            .for_each(|(_, node)| node.seen = false);
-        let (mut prev_start, mut prev_end) = (self.nodes.len(), self.edges.len());
-        self.edges.retain(|edge| {
-            if edge.start == prev_start && edge.end == prev_end {
-                return true;
-            }
-            prev_start = edge.start;
-            prev_end = edge.end;
-
-            let (Some(mut start), Some(mut end)) = (
-                self.nodes.get(edge.start).cloned(),
-                self.nodes.get(edge.end).cloned(),
-            ) else {
-                return false;
-            };
-            start.seen = true;
-            end.seen = true;
-            start.apply_forces(&mut end, time, 120.0, false, 0.05);
-            *self.nodes.get_mut(edge.start).unwrap() = start;
-            *self.nodes.get_mut(edge.end).unwrap() = end;
-            true
+        self.edges.retain(|edge, brightness| {
+            *brightness = (*brightness - time * 2.0).max(Node::MIN_LINE_BRIGHTNESS);
+            self.nodes.get_mut(edge.start).is_some() && self.nodes.get_mut(edge.end).is_some()
         });
-        self.nodes.retain(|node| node.seen);
 
         let mut iter = self.nodes.inner.iter_mut();
         while let Some(node) = iter.by_ref().find_map(Option::as_mut) {
             let other = mem::take(&mut iter).into_slice();
             for other in other.iter_mut().filter_map(Option::as_mut) {
-                node.apply_forces(other, time, 60.0, true, 1.0);
+                node.apply_forces(other, time, 150.0, true, 3.0);
             }
             iter = other.iter_mut();
         }
 
+        let (cx, cy) = (screen_width() / 2., screen_height() / 2.);
+        self.center_node.position = Vec2::new(cx, cy);
+        for (_, node) in self.nodes.iter_mut() {
+            node.apply_forces(&mut self.center_node, time, 0.0, false, 0.01);
+        }
         for (_, node) in self.nodes.iter_mut() {
             node.update(time);
         }
     }
 
     fn draw(&self) {
-        for edge in &self.edges {
+        for (edge, &brightness) in &self.edges {
             let (Some(start), Some(end)) = (self.nodes.get(edge.start), self.nodes.get(edge.end))
             else {
                 continue;
             };
             let protocol = &self.protocols[edge.protocol];
-            start.draw_connection(end, protocol.color, edge.protocol, self.protocols.len());
+            start.draw_connection(
+                end,
+                protocol.color,
+                edge.protocol,
+                self.protocols.len(),
+                brightness,
+            );
         }
 
         for (_, node) in self.nodes.iter() {
@@ -292,13 +324,12 @@ impl topology_wrapper::collector::World for WorldRc {
     ) {
         let mut s = self.0.borrow_mut();
 
-        let (width, height) = (screen_width(), screen_height());
+        let (width, height) = (screen_width() / 2.0, screen_height() / 2.0);
 
         let index = by_peer_id(&s.nodes, peer)
-            .unwrap_or_else(|| s.add_node(Node::new(width / 2.0, height / 2.0, client, peer)));
-        let other = by_peer_id(&s.nodes, update.peer).unwrap_or_else(|| {
-            s.add_node(Node::new(width / 2.0, height / 2.0, client, update.peer))
-        });
+            .unwrap_or_else(|| s.add_node(Node::new(width, height, client, peer)));
+        let other = by_peer_id(&s.nodes, update.peer)
+            .unwrap_or_else(|| s.add_node(Node::new(width, height, client, update.peer)));
 
         if index == other {
             return;
@@ -308,10 +339,21 @@ impl topology_wrapper::collector::World for WorldRc {
         s.nodes.get_mut(other).unwrap().client &= client;
 
         use topology_wrapper::report::Event as E;
-        let protocol = match update.event {
-            E::Stream(p) => p,
+        let (protocol, brightness) = match update.event {
+            E::Stream(p) => (p, 0.5),
+            E::Packet(p) => (p, 1.0),
+            E::Closed(p) => {
+                let protocol = s.add_protocol(p);
+                s.edges.retain(|edge, _| {
+                    (edge.start != index || edge.end != other)
+                        && (edge.start != other || edge.end != index)
+                        || edge.connection != update.connection
+                        || edge.protocol != protocol
+                });
+                return;
+            }
             E::Disconnected => {
-                s.edges.retain(|edge| {
+                s.edges.retain(|edge, _| {
                     (edge.start != index || edge.end != other)
                         && (edge.start != other || edge.end != index)
                         || edge.connection != update.connection
@@ -321,12 +363,21 @@ impl topology_wrapper::collector::World for WorldRc {
         };
 
         let protocol = s.add_protocol(protocol);
-        s.add_edge(Edge {
-            start: index.max(other),
-            end: index.min(other),
-            protocol,
-            connection: update.connection,
-        });
+        if let Some(node) = s.nodes.get_mut(index) {
+            node.brightness = 1.0;
+        }
+        if let Some(node) = s.nodes.get_mut(other) {
+            node.brightness = 1.0;
+        }
+        s.add_edge(
+            Edge {
+                start: index.max(other),
+                end: index.min(other),
+                protocol,
+                connection: update.connection,
+            },
+            brightness,
+        );
     }
 }
 
@@ -354,7 +405,12 @@ fn boot_node() -> Multiaddr {
 #[macroquad::main("BasicShapes")]
 async fn main() {
     console_error_panic_hook::set_once();
-    console_log::init_with_level(log::Level::Debug).unwrap();
+    console_log::init_with_level(if cfg!(debug_assertions) {
+        log::Level::Debug
+    } else {
+        log::Level::Info
+    })
+    .unwrap();
 
     let identity = libp2p::identity::Keypair::generate_ed25519();
     let peer_id = PeerId::from(identity.public());
@@ -387,7 +443,6 @@ async fn main() {
         let mut bootstraps_left = 5;
         loop {
             let e = swarm.select_next_some().await;
-            log::debug!("{:?}", e);
             match e {
                 libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Identify(
                     libp2p::identify::Event::Received { peer_id, info },
@@ -457,7 +512,7 @@ async fn main() {
                 }
             }
 
-            world.update(get_frame_time());
+            world.update(get_frame_time().min(0.1));
 
             if let Some(dragged_node) = dragged_node {
                 let (x, y) = mouse_position();
@@ -466,7 +521,7 @@ async fn main() {
                 }
             }
 
-            clear_background(BLACK);
+            clear_background(Color::from_hex(0x000022));
             world.draw();
         }
 

@@ -14,7 +14,7 @@ use {
     },
     crypto::{enc, sign, TransmutationCircle},
     libp2p::{
-        core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
+        core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version, ConnectedPoint},
         futures::{self, StreamExt},
         kad::{self, QueryId},
         swarm::{NetworkBehaviour, SwarmEvent},
@@ -126,7 +126,7 @@ impl Miner {
                     "0.1.0".into(),
                     local_key.public(),
                 )),
-                sender,
+                sender.clone(),
             ),
             report: topology_wrapper::report::new(receiver),
         };
@@ -144,9 +144,15 @@ impl Miner {
                 )
                 .multiplex(libp2p::yamux::Config::default()),
         )
-        .map(|t, _| match t {
-            futures::future::Either::Left((p, m)) => (p, StreamMuxerBox::new(m)),
-            futures::future::Either::Right((p, m)) => (p, StreamMuxerBox::new(m)),
+        .map(move |t, _| match t {
+            futures::future::Either::Left((p, m)) => (
+                p,
+                StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender.clone())),
+            ),
+            futures::future::Either::Right((p, m)) => (
+                p,
+                StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender.clone())),
+            ),
         })
         .boxed();
         let mut swarm = libp2p::swarm::Swarm::new(
@@ -242,13 +248,15 @@ impl Miner {
 
     fn handle_event(&mut self, event: SE) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Identfy(libp2p::identify::Event::Received {
+            SwarmEvent::ConnectionEstablished {
                 peer_id,
-                info,
-            })) => {
-                for addr in info.listen_addrs {
-                    self.swarm.behaviour_mut().kad.add_address(&peer_id, addr);
-                }
+                endpoint: ConnectedPoint::Dialer { address, .. },
+                ..
+            } => {
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .add_address(&peer_id, address);
 
                 if self.bootstrapped.is_none() {
                     self.bootstrapped = Some(
@@ -258,6 +266,14 @@ impl Miner {
                             .bootstrap()
                             .expect("we now have at least one node connected"),
                     );
+                }
+            }
+            SwarmEvent::Behaviour(BehaviourEvent::Identfy(libp2p::identify::Event::Received {
+                peer_id,
+                info,
+            })) => {
+                for addr in info.listen_addrs {
+                    self.swarm.behaviour_mut().kad.add_address(&peer_id, addr);
                 }
             }
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {

@@ -1,4 +1,5 @@
 #![feature(impl_trait_in_assoc_type)]
+#![feature(assert_matches)]
 #![feature(macro_metavar_expr)]
 
 pub use impls::{channel, new, Behaviour, EventReceiver, EventSender};
@@ -8,7 +9,15 @@ pub enum ExtraEvent {
     Disconnected,
 }
 
+pub enum PacketKind {
+    Sent,
+    Closed,
+}
+
 pub type ExtraEventAndMeta = (ExtraEvent, libp2p::PeerId, libp2p::swarm::ConnectionId);
+pub type PacketMeta = (libp2p::PeerId, usize, String);
+
+const INIT_TAG: [u8; 32] = [0xff; 32];
 
 #[cfg(feature = "disabled")]
 pub mod report {
@@ -178,6 +187,160 @@ pub mod collector {
 }
 
 #[cfg(not(feature = "disabled"))]
+pub mod muxer {
+    use {
+        crate::{PacketKind, PacketMeta},
+        libp2p::{
+            core::StreamMuxer,
+            futures::{AsyncRead, AsyncWrite, SinkExt},
+        },
+        std::pin::Pin,
+    };
+
+    pub struct Muxer<T> {
+        inner: T,
+        sender: crate::EventSender,
+    }
+
+    impl<T> Muxer<T> {
+        pub fn new(inner: T, sender: crate::EventSender) -> Self {
+            Self { inner, sender }
+        }
+    }
+
+    impl<T: StreamMuxer + Unpin> StreamMuxer for Muxer<T>
+    where
+        T::Substream: Unpin,
+    {
+        type Error = T::Error;
+        type Substream = Substream<T::Substream>;
+
+        fn poll_inbound(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<Self::Substream, Self::Error>> {
+            let stream = libp2p::futures::ready!(Pin::new(&mut self.inner).poll_inbound(cx))?;
+            let sender = self.sender.clone();
+            std::task::Poll::Ready(Ok(Substream {
+                inner: stream,
+                sender,
+                meta: None,
+                sending: false,
+                closing_res: None,
+            }))
+        }
+
+        fn poll_outbound(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<Self::Substream, Self::Error>> {
+            let stream = libp2p::futures::ready!(Pin::new(&mut self.inner).poll_outbound(cx))?;
+            let sender = self.sender.clone();
+            std::task::Poll::Ready(Ok(Substream {
+                inner: stream,
+                sender,
+                meta: None,
+                sending: false,
+                closing_res: None,
+            }))
+        }
+
+        fn poll_close(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            Pin::new(&mut self.inner).poll_close(cx)
+        }
+
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<libp2p::core::muxing::StreamMuxerEvent, Self::Error>> {
+            Pin::new(&mut self.inner).poll(cx)
+        }
+    }
+
+    pub struct Substream<T> {
+        inner: T,
+        sender: crate::EventSender,
+        meta: Option<crate::PacketMeta>,
+        sending: bool,
+        closing_res: Option<std::io::Result<()>>,
+    }
+
+    impl<T: AsyncRead + Unpin> AsyncRead for Substream<T> {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut [u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            Pin::new(&mut self.inner).poll_read(cx, buf)
+        }
+    }
+
+    impl<T: AsyncWrite + Unpin> AsyncWrite for Substream<T> {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            if self.meta.is_none() {
+                use component_utils::Codec;
+                if let Some((sig, meta)) = <([u8; 32], PacketMeta)>::decode(&mut &*buf) {
+                    if sig == crate::INIT_TAG {
+                        self.meta = Some(meta);
+                        return std::task::Poll::Ready(Ok(buf.len()));
+                    }
+                }
+            }
+
+            if !self.sending
+                && buf.len() > 4
+                && libp2p::futures::ready!(self.sender.packets.poll_ready(cx)).is_ok()
+            {
+                if let Some(meta) = self.meta.clone() {
+                    let _ = self.sender.packets.start_send((meta, PacketKind::Sent));
+                }
+            }
+            _ = self.sender.packets.poll_flush_unpin(cx);
+
+            self.sending = true;
+            let res = libp2p::futures::ready!(Pin::new(&mut self.inner).poll_write(cx, buf));
+            self.sending = false;
+            std::task::Poll::Ready(res)
+        }
+
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            _ = self.sender.packets.poll_flush_unpin(cx);
+            Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_close(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            if self.closing_res.is_none() {
+                self.closing_res = Some(libp2p::futures::ready!(
+                    Pin::new(&mut self.inner).poll_close(cx)
+                ));
+            }
+
+            if libp2p::futures::ready!(self.sender.packets.poll_ready(cx)).is_ok() {
+                if let Some(meta) = self.meta.take() {
+                    _ = self.sender.packets.start_send((meta, PacketKind::Closed));
+                }
+            }
+            _ = libp2p::futures::ready!(self.sender.packets.poll_flush_unpin(cx));
+
+            std::task::Poll::Ready(self.closing_res.take().unwrap())
+        }
+    }
+}
+
+#[cfg(not(feature = "disabled"))]
 pub mod report {
     use {
         crate::{EventReceiver, ExtraEvent},
@@ -213,6 +376,8 @@ pub mod report {
 
         enum Event<'a> {
             Stream: &'a str,
+            Packet: &'a str,
+            Closed: &'a str,
             Disconnected,
         }
     }
@@ -309,8 +474,8 @@ pub mod report {
                 log::info!("Error while writing update: {}", e);
             }
 
-            if let std::task::Poll::Ready(Some((extra, peer, connection))) =
-                self.recv.poll_next_unpin(cx)
+            while let std::task::Poll::Ready(Some((extra, peer, connection))) =
+                self.recv.events.poll_next_unpin(cx)
             {
                 let event = match &extra {
                     ExtraEvent::Stream(i) => Event::Stream(i.as_ref()),
@@ -345,6 +510,34 @@ pub mod report {
                         }
                     }
                 };
+            }
+
+            while let std::task::Poll::Ready(Some(((peer, connection, proto), kind))) =
+                self.recv.packets.poll_next_unpin(cx)
+            {
+                let event = match kind {
+                    crate::PacketKind::Sent => Event::Packet(proto.as_str()),
+                    crate::PacketKind::Closed => Event::Closed(proto.as_str()),
+                };
+
+                let update = Update {
+                    event,
+                    peer,
+                    connection,
+                };
+                let event_bytes = update.to_bytes();
+                for l in self.listeners.iter_mut() {
+                    l.writer.packet(event_bytes.iter().copied());
+                }
+
+                if let crate::PacketKind::Closed = kind {
+                    self.topology
+                        .entry(peer)
+                        .or_default()
+                        .entry(connection)
+                        .or_default()
+                        .remove(proto.as_str());
+                }
             }
 
             std::task::Poll::Pending
@@ -474,9 +667,10 @@ pub mod report {
 #[cfg(not(feature = "disabled"))]
 mod impls {
     use {
-        crate::{ExtraEvent, ExtraEventAndMeta},
+        crate::{ExtraEvent, ExtraEventAndMeta, PacketKind, PacketMeta},
+        component_utils::Codec,
         libp2p::{
-            futures::{SinkExt, TryFutureExt},
+            futures::{AsyncWrite, SinkExt},
             swarm::{
                 handler::{
                     DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
@@ -486,18 +680,39 @@ mod impls {
             },
         },
         std::{
+            assert_matches::assert_matches,
             collections::VecDeque,
             mem,
             ops::{Deref, DerefMut},
+            pin::Pin,
             task::Poll,
         },
     };
 
-    pub type EventSender = libp2p::futures::channel::mpsc::Sender<ExtraEventAndMeta>;
-    pub type EventReceiver = libp2p::futures::channel::mpsc::Receiver<ExtraEventAndMeta>;
+    #[derive(Clone)]
+    pub struct EventSender {
+        pub(crate) events: libp2p::futures::channel::mpsc::Sender<ExtraEventAndMeta>,
+        pub(crate) packets: libp2p::futures::channel::mpsc::Sender<(PacketMeta, PacketKind)>,
+    }
+
+    pub struct EventReceiver {
+        pub(crate) events: libp2p::futures::channel::mpsc::Receiver<ExtraEventAndMeta>,
+        pub(crate) packets: libp2p::futures::channel::mpsc::Receiver<(PacketMeta, PacketKind)>,
+    }
 
     pub fn channel() -> (EventSender, EventReceiver) {
-        libp2p::futures::channel::mpsc::channel(5)
+        let (events_sender, events_receiver) = libp2p::futures::channel::mpsc::channel(5);
+        let (packets_sender, packets_receiver) = libp2p::futures::channel::mpsc::channel(5);
+        (
+            EventSender {
+                events: events_sender,
+                packets: packets_sender,
+            },
+            EventReceiver {
+                events: events_receiver,
+                packets: packets_receiver,
+            },
+        )
     }
 
     pub fn new<T: NetworkBehaviour>(inner: T, sender: EventSender) -> Behaviour<T> {
@@ -542,7 +757,7 @@ mod impls {
         ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
             self.inner
                 .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
-                .map(Handler::new)
+                .map(|h| Handler::new(h, peer, connection_id))
         }
 
         fn handle_established_outbound_connection(
@@ -554,7 +769,7 @@ mod impls {
         ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
             self.inner
                 .handle_established_outbound_connection(connection_id, peer, addr, role_override)
-                .map(Handler::new)
+                .map(|h| Handler::new(h, peer, connection_id))
         }
 
         fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
@@ -590,13 +805,13 @@ mod impls {
         > {
             self.waker = Some(cx.waker().clone());
             while let Some(event) = self.extra_events.pop_front() {
-                if let Poll::Pending | Poll::Ready(Err(_)) = self.sender.poll_ready(cx) {
+                if let Poll::Pending | Poll::Ready(Err(_)) = self.sender.events.poll_ready(cx) {
                     self.extra_events.push_front(event);
                     break;
                 }
-                _ = self.sender.start_send(event);
+                _ = self.sender.events.start_send(event);
             }
-            _ = self.sender.poll_flush_unpin(cx);
+            _ = self.sender.events.poll_flush_unpin(cx);
             self.inner.poll(cx)
         }
 
@@ -644,14 +859,18 @@ mod impls {
         inner: T,
         extra_events: VecDeque<ExtraEvent>,
         opened: bool,
+        peer: libp2p::PeerId,
+        connection: ConnectionId,
     }
 
     impl<T: ConnectionHandler> Handler<T> {
-        pub fn new(inner: T) -> Self {
+        pub fn new(inner: T, peer: libp2p::PeerId, connection: ConnectionId) -> Self {
             Self {
                 inner,
                 extra_events: VecDeque::new(),
                 opened: true,
+                peer,
+                connection,
             }
         }
     }
@@ -668,7 +887,9 @@ mod impls {
             &self,
         ) -> libp2p::swarm::SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo>
         {
-            self.inner.listen_protocol().map_upgrade(Protocol::new)
+            self.inner
+                .listen_protocol()
+                .map_upgrade(|p| Protocol::new(p, self.peer, self.connection))
         }
 
         fn poll(
@@ -689,9 +910,10 @@ mod impls {
                 );
             }
 
-            self.inner
-                .poll(cx)
-                .map(|e| e.map_custom(ToBehavior::Inner).map_protocol(Protocol::new))
+            self.inner.poll(cx).map(|e| {
+                e.map_custom(ToBehavior::Inner)
+                    .map_protocol(|p| Protocol::new(p, self.peer, self.connection))
+            })
         }
 
         fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
@@ -777,11 +999,17 @@ mod impls {
 
     pub struct Protocol<T> {
         inner: T,
+        peer: libp2p::PeerId,
+        connection: usize,
     }
 
     impl<T> Protocol<T> {
-        pub fn new(inner: T) -> Self {
-            Self { inner }
+        pub fn new(inner: T, peer: libp2p::PeerId, connection: ConnectionId) -> Self {
+            Self {
+                inner,
+                peer,
+                connection: unsafe { mem::transmute(connection) },
+            }
         }
     }
 
@@ -800,10 +1028,24 @@ mod impls {
 
         type Future = impl std::future::Future<Output = Result<Self::Output, Self::Error>>;
 
-        fn upgrade_inbound(self, socket: libp2p::Stream, info: Self::Info) -> Self::Future {
-            self.inner
-                .upgrade_inbound(socket, info.clone())
-                .map_ok(|o| (o, info))
+        fn upgrade_inbound(self, mut socket: libp2p::Stream, info: Self::Info) -> Self::Future {
+            async move {
+                let bytes = (
+                    crate::INIT_TAG,
+                    (self.peer, self.connection, info.as_ref().to_owned()),
+                )
+                    .to_bytes();
+                assert_matches!(
+                    libp2p::futures::poll!(std::future::poll_fn(
+                        |cx| Pin::new(&mut socket).poll_write(cx, &bytes)
+                    )),
+                    Poll::Ready(Ok(_))
+                );
+                self.inner
+                    .upgrade_inbound(socket, info.clone())
+                    .await
+                    .map(|o| (o, info))
+            }
         }
     }
 
@@ -813,10 +1055,24 @@ mod impls {
 
         type Future = impl std::future::Future<Output = Result<Self::Output, Self::Error>>;
 
-        fn upgrade_outbound(self, socket: libp2p::Stream, info: Self::Info) -> Self::Future {
-            self.inner
-                .upgrade_outbound(socket, info.clone())
-                .map_ok(|o| (o, info))
+        fn upgrade_outbound(self, mut socket: libp2p::Stream, info: Self::Info) -> Self::Future {
+            async move {
+                let bytes = (
+                    crate::INIT_TAG,
+                    (self.peer, self.connection, info.as_ref().to_owned()),
+                )
+                    .to_bytes();
+                assert_matches!(
+                    libp2p::futures::poll!(std::future::poll_fn(
+                        |cx| Pin::new(&mut socket).poll_write(cx, &bytes)
+                    )),
+                    Poll::Ready(Ok(_))
+                );
+                self.inner
+                    .upgrade_outbound(socket, info.clone())
+                    .await
+                    .map(|o| (o, info))
+            }
         }
     }
 }

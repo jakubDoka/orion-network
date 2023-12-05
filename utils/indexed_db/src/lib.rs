@@ -1,15 +1,18 @@
 #![allow(dead_code)]
+
 use {
     futures::{future::FusedFuture, stream::FusedStream, Stream},
-    std::{cell::Cell, convert::identity, future::Future, rc::Rc, task::Waker},
+    std::{
+        cell::Cell, convert::identity, future::Future, marker::PhantomData, rc::Rc, task::Waker,
+    },
     web_sys::{
-        js_sys::{Array, Function},
+        js_sys::{Array, Function, JSON},
         wasm_bindgen::{prelude::Closure, JsCast, JsValue},
         window, IdbDatabase, IdbRequest,
     },
 };
 
-/// [(name, key, [(index_name, key, unique)])]
+/// [(name, [key], [(index_name, [key], unique)])]
 pub type Schema = &'static [(
     &'static str,
     &'static [&'static str],
@@ -83,7 +86,7 @@ pub struct Transaction<'a> {
 }
 
 impl<'a> Transaction<'a> {
-    pub fn store(&'a self, name: &'a str) -> Result<Store<'a>, JsValue> {
+    pub fn store<T>(&'a self, name: &'a str) -> Result<Store<'a, T>, JsValue> {
         let inner = self.inner.object_store(name)?;
         Ok(Store {
             inner,
@@ -97,9 +100,26 @@ impl<'a> Transaction<'a> {
     }
 }
 
-pub struct Store<'a> {
+pub struct Store<'a, T> {
     inner: web_sys::IdbObjectStore,
-    _marker: std::marker::PhantomData<&'a ()>,
+    _marker: std::marker::PhantomData<&'a T>,
+}
+
+impl<'a, T: Model> Store<'a, T> {
+    pub async fn add(&'a self, value: T) -> Result<T::Key, JsValue> {
+        let sedialized = serde_json::to_string(&value).map_err(err_to_js)?;
+        let value = JSON::parse(&sedialized)?;
+        let inner = self.inner.add(&value)?;
+        DbRequestFut::new(TypedResult::new(inner)).await
+    }
+}
+
+pub trait Model: serde::Serialize + serde::de::DeserializeOwned {
+    type Key: serde::Serialize + serde::de::DeserializeOwned + 'static;
+}
+
+fn err_to_js(e: impl std::fmt::Display) -> JsValue {
+    JsValue::from_str(&format!("{}", e))
 }
 
 #[derive(Default, Clone)]
@@ -156,6 +176,54 @@ impl DbRequestSpec for web_sys::IdbTransaction {
 
     fn set_onsuccess(&self, onsuccess: Option<&Function>) {
         self.set_oncomplete(onsuccess);
+    }
+}
+
+pub struct TypedResult<T> {
+    inner: web_sys::IdbRequest,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> Clone for TypedResult<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> TypedResult<T> {
+    pub fn new(inner: web_sys::IdbRequest) -> Self {
+        Self {
+            inner,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: serde::de::DeserializeOwned + 'static> DbRequestSpec for TypedResult<T> {
+    type Output = T;
+
+    fn result(&self, _: web_sys::Event) -> Result<Self::Output, JsValue> {
+        let result = self.inner.result()?;
+        let result = JSON::stringify(&result)?;
+        serde_json::from_str(&result.as_string().unwrap()).map_err(err_to_js)
+    }
+
+    fn error(&self, _: web_sys::Event) -> JsValue {
+        self.inner
+            .error()
+            .map(JsValue::from)
+            .unwrap_or_else(identity)
+    }
+
+    fn set_onerror(&self, onerror: Option<&Function>) {
+        self.inner.set_onerror(onerror);
+    }
+
+    fn set_onsuccess(&self, onsuccess: Option<&Function>) {
+        self.inner.set_onsuccess(onsuccess);
     }
 }
 
@@ -243,8 +311,8 @@ impl<T: DbRequestSpec> FusedFuture for DbRequestFut<T> {
     }
 }
 
-impl Stream for DbRequestFut<Cursor> {
-    type Item = Result<JsValue, JsValue>;
+impl<T: serde::de::DeserializeOwned + 'static> Stream for DbRequestFut<Cursor<T>> {
+    type Item = Result<T, JsValue>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -259,10 +327,10 @@ impl Stream for DbRequestFut<Cursor> {
                 self.waker.set(DbRequestState::Sealed);
                 std::task::Poll::Ready(Some(Err(e)))
             }
-            DbRequestState::Done(Ok(v)) if v.is_falsy() => {
-                self.waker.set(DbRequestState::Sealed);
-                std::task::Poll::Ready(None)
-            }
+            // DbRequestState::Done(Ok(v)) if v.is_falsy() => {
+            //     self.waker.set(DbRequestState::Sealed);
+            //     std::task::Poll::Ready(None)
+            // }
             DbRequestState::Done(result) => {
                 self.waker.set(DbRequestState::Waking(cx.waker().clone()));
                 std::task::Poll::Ready(Some(result))
@@ -272,20 +340,27 @@ impl Stream for DbRequestFut<Cursor> {
     }
 }
 
-impl FusedStream for DbRequestFut<Cursor> {
+impl<T: serde::de::DeserializeOwned + 'static> FusedStream for DbRequestFut<Cursor<T>> {
     fn is_terminated(&self) -> bool {
         <Self as FusedFuture>::is_terminated(self)
     }
 }
 
-#[derive(Clone)]
-struct Cursor(IdbRequest);
+pub struct Cursor<T>(IdbRequest, std::marker::PhantomData<T>);
 
-impl DbRequestSpec for Cursor {
-    type Output = JsValue;
+impl<T> Clone for Cursor<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
+    }
+}
+
+impl<T: serde::de::DeserializeOwned + 'static> DbRequestSpec for Cursor<T> {
+    type Output = T;
 
     fn result(&self, _: web_sys::Event) -> Result<Self::Output, JsValue> {
-        self.0.result()
+        let res = self.0.result()?;
+        let res = JSON::stringify(&res)?;
+        serde_json::from_str(&res.as_string().unwrap()).map_err(err_to_js)
     }
 
     fn error(&self, _: web_sys::Event) -> JsValue {

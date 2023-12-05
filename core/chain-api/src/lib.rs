@@ -179,6 +179,11 @@ impl<S: TransactionHandler> Client<S> {
         })
     }
 
+    pub async fn transfere(&self, dest: AccountId, amount: Balance) -> Result<(), Error> {
+        let transaction = polkadot::tx().balances().transfer(dest.into(), amount);
+        self.signer.handle(&self.inner, transaction).await
+    }
+
     pub async fn join(&self, dest: ContractId, data: StoredNodeData) -> Result<(), Error> {
         self.call_auto_weight(
             1000000,

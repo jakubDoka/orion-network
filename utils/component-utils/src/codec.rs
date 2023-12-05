@@ -166,7 +166,7 @@ impl<'a, R: Codec<'a>, E: Codec<'a>> Codec<'a> for Result<R, E> {
 #[cfg(feature = "futures")]
 use futures::{AsyncRead, AsyncReadExt};
 #[cfg(feature = "futures")]
-pub trait CodecExt: Codec<'static> {
+pub trait CodecExt: for<'a> Codec<'a> {
     #[allow(async_fn_in_trait)]
     async fn from_stream(stream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<Self> {
         let mut len = [0; 4];
@@ -175,13 +175,12 @@ pub trait CodecExt: Codec<'static> {
         let mut buffer = vec![0; len];
         stream.read_exact(&mut buffer).await?;
         // SAFETY: compiler is stupid, we implement Codec<'static>
-        Self::decode(&mut unsafe { core::mem::transmute(buffer.as_slice()) })
-            .ok_or_else(|| std::io::ErrorKind::InvalidData.into())
+        Self::decode(&mut &buffer[..]).ok_or_else(|| std::io::ErrorKind::InvalidData.into())
     }
 }
 
 #[cfg(feature = "futures")]
-impl<T: Codec<'static>> CodecExt for T {}
+impl<T: for<'a> Codec<'a>> CodecExt for T {}
 
 impl Codec<'_> for () {
     fn encode(&self, _buffer: &mut Vec<u8>) {}

@@ -286,8 +286,9 @@ impl Node {
             }
         }
 
+        let tolerance = 3;
         set_state!(CollecringKeys(
-            node_data.len() - swarm.behaviour_mut().key_share.keys.len() - 3
+            node_data.len() - swarm.behaviour_mut().key_share.keys.len() - tolerance
         ));
 
         let mut qid = swarm
@@ -305,7 +306,8 @@ impl Node {
             match swarm.select_next_some().await {
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
                 SwarmEvent::Behaviour(BehaviourEvent::KeyShare(..)) => {
-                    let remining = node_data.len() - swarm.behaviour_mut().key_share.keys.len() - 3;
+                    let remining =
+                        node_data.len() - swarm.behaviour_mut().key_share.keys.len() - tolerance;
                     set_state!(CollecringKeys(remining));
                     if remining == 0 {
                         break;

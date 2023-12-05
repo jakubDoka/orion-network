@@ -753,7 +753,7 @@ fn drain_filter<'a, T, O: 'a>(
                             self.write = self.write.add(length);
                             return Some(item);
                         }
-                        Err(item) => ptr::write(self.read, item),
+                        Err(item) => ptr::write(self.read.sub(1), item),
                     }
                 }
             }
@@ -792,11 +792,22 @@ mod tests {
 
     #[test]
     fn test_drain_filter() {
-        let mut v = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        for _ in 0..100000 {
+            let mut v = crypto::new_secret().to_vec();
 
-        let odd = drain_filter(&mut v, |x| (x % 2 == 0).then_some(x).ok_or(x)).collect::<Vec<_>>();
-
-        assert_eq!(odd, vec![1, 3, 5, 7]);
-        assert_eq!(v, vec![2, 4, 6, 8]);
+            let odd =
+                drain_filter(&mut v, |x| (x % 2 == 0).then_some(x).ok_or(x)).collect::<Vec<_>>();
+            assert_eq!(
+                odd,
+                odd.iter()
+                    .copied()
+                    .filter(|x| x % 2 == 0)
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                v,
+                v.iter().copied().filter(|x| x % 2 == 1).collect::<Vec<_>>()
+            );
+        }
     }
 }
