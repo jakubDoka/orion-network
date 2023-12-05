@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
+creq() { [ -x "$(command -v $1)" ] || cargo install $1; }
 
+creq wasm-opt
+
+sod() { export "$1"="${!1:-$2}"; }
+
+sod BOOT_NODE "/ip4/127.0.0.1/tcp/8900/ws"
+sod OUT_DIR "dist"
 
 TARGET_DIR="debug"
 if [ "$1" = "release" ]; then
@@ -10,7 +17,6 @@ if [ "$1" = "release" ]; then
 fi
 
 
-export BOOT_NODE="/ip4/127.0.0.1/tcp/8900/ws"
 export PROJECT_NAME="topology-vis"
 export WASM_PATH="../../target/wasm32-unknown-unknown/$TARGET_DIR/$PROJECT_NAME.wasm"
 export HTML=$(cat <<- END
@@ -64,16 +70,18 @@ END
 )
 
 
-mkdir -p dist
+mkdir -p $OUT_DIR
 cargo build --target wasm32-unknown-unknown $FLAGS --features building
-wasm-bindgen "$WASM_PATH" --out-dir dist --target web --no-typescript
+wasm-bindgen "$WASM_PATH" --out-dir $OUT_DIR --target web --no-typescript
 if [ "$RELEASE" = "yes" ]; then
-    wasm-opt -Oz -o dist/topology-vis_bg.wasm dist/topology-vis_bg.wasm 
+    wasm-opt -Oz -o $OUT_DIR/topology-vis_bg.wasm $OUT_DIR/topology-vis_bg.wasm 
 fi
 
-sed -i "s/import \* as __wbg_star0 from 'env';//" dist/$PROJECT_NAME.js
-sed -i "s/let wasm;/let wasm; export const set_wasm = (w) => wasm = w;/" dist/$PROJECT_NAME.js
-sed -i "s/imports\['env'\] = __wbg_star0;/return imports.wbg\;/" dist/$PROJECT_NAME.js
-sed -i "s/const imports = __wbg_get_imports();/return __wbg_get_imports();/" dist/$PROJECT_NAME.js
+patch() { sed -i "$1" "$OUT_DIR/$PROJECT_NAME.js";}
 
-echo "$HTML" > dist/index.html
+patch "s/import \* as __wbg_star0 from 'env';//"
+patch "s/let wasm;/let wasm; export const set_wasm = (w) => wasm = w;/"
+patch "s/imports\['env'\] = __wbg_star0;/return imports.wbg\;/"
+patch "s/const imports = __wbg_get_imports();/return __wbg_get_imports();/"
+
+echo "$HTML" > $OUT_DIR/index.html
