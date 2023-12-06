@@ -70,7 +70,7 @@ impl crate::SyncHandler for AddUser {
             .store_mut()
             .chats
             .get_mut(&name)
-            .ok_or(AddUserError::InvalidAction)?;
+            .ok_or(AddUserError::ChatNotFound)?;
 
         let requester_id = crypto::hash::new_raw(&proof.pk);
         let requester = chat
@@ -81,7 +81,7 @@ impl crate::SyncHandler for AddUser {
 
         ensure!(
             advance_nonce(&mut requester.action, proof.nonce),
-            AddUserError::InvalidAction
+            AddUserError::InvalidAction(requester.action)
         );
 
         ensure!(
@@ -101,7 +101,8 @@ component_utils::gen_simple_error! {
         InvalidProof => "invalid proof",
         AlreadyExists => "user already exists",
         NotMember => "you are not a member",
-        InvalidAction => "invalid action",
+        InvalidAction(Nonce) => "invalid action, expected nonce higher then {0}",
+        ChatNotFound => "chat not found",
     }
 }
 
@@ -143,7 +144,7 @@ impl crate::SyncHandler for SendMessage {
 
         ensure!(
             advance_nonce(&mut sender.action, proof.nonce),
-            SendMessageError::InvalidAction
+            SendMessageError::InvalidAction(sender.action)
         );
 
         chat.messages.push(message.0.iter().copied());
@@ -159,7 +160,7 @@ component_utils::gen_simple_error! {
         InvalidProof => "invalid proof",
         ChatNotFound => "chat not found",
         NotMember => "you are not a member",
-        InvalidAction => "invalid action",
+        InvalidAction(Nonce) => "invalid action, expected nonce higher then {0}",
         MessageTooLarge => "message too large",
     }
 }
@@ -229,6 +230,13 @@ component_utils::protocol! {'a:
     struct Message<'a> {
         identiy: Identity,
         content: Reminder<'a>,
+    }
+}
+
+bitflags::bitflags! {
+    pub struct Permissions: u8 {
+        const MODIFY_PERMISSIONS = 1 << 0;
+        const KICK = 1 << 1;
     }
 }
 

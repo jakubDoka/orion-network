@@ -592,7 +592,7 @@ impl<H: Handler> std::fmt::Debug for RequestError<H> {
         match self {
             RequestError::InvalidResponse => write!(f, "invalid response"),
             RequestError::ChannelClosed => write!(f, "channel closed"),
-            RequestError::Handler(e) => write!(f, "handler error: {:?}", e),
+            RequestError::Handler(e) => write!(f, "handler error: {}", e),
         }
     }
 }

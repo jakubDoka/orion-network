@@ -5,8 +5,8 @@ use {
     },
     anyhow::Context,
     chat_logic::{
-        AddUser, ChatName, CreateChat, FetchMessages, FetchProfile, SendMail, SendMessage,
-        SubsOwner,
+        AddUser, AddUserError, ChatName, CreateChat, FetchMessages, FetchProfile, RequestError,
+        SendMail, SendMessage, SendMessageError, SubsOwner,
     },
     component_utils::{Codec, Reminder},
     crypto::{
@@ -292,15 +292,26 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             Err(e) => anyhow::bail!("failed to fetch user: {e}"),
         };
 
-        let Some(proof) = state.next_chat_proof(chat) else {
+        let Some(proof) = state.next_chat_proof(chat, None) else {
             anyhow::bail!("we are not part of this chat");
         };
 
         let mut requests = requests();
-        requests
+        match requests
             .dispatch::<AddUser>(chat, (invitee.sign, chat, proof))
             .await
-            .context("adding user to chat")?;
+        {
+            Err(RequestError::Handler(AddUserError::InvalidAction(nonce))) => {
+                let proof = state
+                    .next_chat_proof(chat, Some(nonce))
+                    .expect("we checked we are part of the chat");
+                requests
+                    .dispatch::<AddUser>(chat, (invitee.sign, chat, proof))
+                    .await
+                    .context("recovering from invalid action")?;
+            }
+            e => e.context("adding user")?,
+        };
 
         let user_data = requests
             .dispatch::<FetchProfile>(None, invitee.sign)
@@ -427,13 +438,27 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         .to_bytes();
         crypto::encrypt(&mut content, secret);
         let proof = state
-            .next_chat_proof(chat)
+            .next_chat_proof(chat, None)
             .expect("we checked we are part of the chat");
 
+        log::info!("sending message: {:?}", proof.nonce);
+
         handled_spawn_local("sending normal message", async move {
-            requests()
+            let mut req = requests();
+            let res = match req
                 .dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
-                .await?;
+                .await
+            {
+                Err(RequestError::Handler(SendMessageError::InvalidAction(nonce))) => {
+                    let proof = state
+                        .next_chat_proof(chat, Some(nonce))
+                        .expect("we checked we are part of the chat");
+                    req.dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
+                        .await
+                        .context("recovering from invalid action")?;
+                }
+                e => e?,
+            };
             message_input.get_untracked().unwrap().set_value("");
             resize_input();
             Ok(())

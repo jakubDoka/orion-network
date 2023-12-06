@@ -30,7 +30,14 @@ pub fn handle_conn_request(
     swarm: &mut Swarm<impl KadSearchBehaviour>,
     discovery: &mut KadPeerSearch,
 ) {
-    if swarm.is_connected(&to) {
+    if swarm.is_connected(&to)
+        || swarm
+            .behaviour_mut()
+            .context()
+            .1
+            .get_closest_local_peers(&to.into())
+            .any(|p| *p.preimage() == to)
+    {
         swarm.behaviour_mut().context().0.redail(to);
     } else {
         discovery.discover_peer(to, swarm.behaviour_mut().context().1);

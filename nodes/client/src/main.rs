@@ -142,12 +142,17 @@ struct State {
 }
 
 impl State {
-    pub fn next_chat_proof(self, chat_name: ChatName) -> Option<chat_logic::Proof> {
+    pub fn next_chat_proof(
+        self,
+        chat_name: ChatName,
+        nonce: Option<Nonce>,
+    ) -> Option<chat_logic::Proof> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
                 self.vault.try_update(|vault| {
                     let chat = vault.chats.get_mut(&chat_name)?;
+                    chat.action_no = nonce.map_or(chat.action_no, |n| n + 1);
                     Some(Proof::for_chat(&keys.sign, &mut chat.action_no, chat_name))
                 })
             })

@@ -30,7 +30,7 @@ if [ "$1" = "release" ]; then
   TARGET_DIR="target/native-optimized"
 fi
 
-on_exit() { pkill node-template miner runner trunk live-server; }
+on_exit() { killall node-template miner runner trunk live-server; }
 trap on_exit EXIT
 
 rm -rf node_keys node_logs

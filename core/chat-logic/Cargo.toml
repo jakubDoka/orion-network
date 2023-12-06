@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bitflags = "2.4.1"
 component-utils = { version = "0.1.0", path = "../../utils/component-utils", features = ["std"] }
 crypto = { version = "0.1.0", path = "../crypto", features = ["std"] }
 libp2p = { version = "0.53.1", features = ["macros", "kad"] }

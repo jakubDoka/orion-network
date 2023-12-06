@@ -73,29 +73,37 @@ macro_rules! gen_unique_id {
 macro_rules! gen_simple_error {
     ($(
         error $name:ident {$(
-            $variant:ident => $message:literal,
+            $variant:ident$(($ty:ty))? => $message:literal,
         )*}
     )*) => {$(
         #[derive(Debug, Clone, Copy, $crate::thiserror::Error)]
         #[repr(u8)]
         pub enum $name {$(
             #[error($message)]
-            $variant,
+            $variant$(($ty))?,
         )*}
 
 
         impl<'a> $crate::Codec<'a> for $name {
             fn encode(&self, buffer: &mut Vec<u8>) {
-                buffer.push(*self as u8);
+                match self {$(
+                    Self::$variant$((val) ${ignore(ty)})? => {
+                        buffer.push(${index()});
+                        $(<$ty as $crate::Codec>::encode(val, buffer);)?
+                    }
+                )*}
             }
 
             fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-                let max_var = [$(Self::$variant),*].len();
-                let b = u8::decode(buffer)?;
-                if b >= max_var as u8 {
-                    return None;
-                }
-                Some(unsafe { std::mem::transmute(b) })
+                let index = buffer.get(0)?;
+                *buffer = &buffer[1..];
+
+                match index {$(
+                    ${index()} => {
+                        $(let val = <$ty as $crate::Codec>::decode(buffer)?;)?
+                        Some(Self::$variant$( (val) ${ignore(ty)} )?)
+                    }
+                )* _ => None, }
             }
         }
     )*};

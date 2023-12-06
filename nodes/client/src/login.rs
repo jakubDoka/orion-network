@@ -1,5 +1,7 @@
 use {
-    crate::{handle_js_err, handled_async_callback, RawUserKeys, State, UserKeys},
+    crate::{
+        handle_js_err, handled_async_callback, handled_async_closure, RawUserKeys, State, UserKeys,
+    },
     anyhow::Context,
     crypto::TransmutationCircle,
     leptos::{html::Input, *},
@@ -42,10 +44,10 @@ pub fn Login(state: State) -> impl IntoView {
     view! {
         <div class="sc flx fdc bp ma">
             <Nav/>
-            <form class="flx fdc">
+            <div class="flx fdc">
                 <input class="pc hov bp tbm" type="file" style:width="250px"
                     node_ref=key_file on:change=on_login required />
-            </form>
+            </div>
         </div>
     }
 }
@@ -55,7 +57,7 @@ pub fn Register(state: State) -> impl IntoView {
     let username = create_node_ref::<Input>();
     let download_link = create_node_ref::<leptos::html::A>();
 
-    let on_register = handled_async_callback("registering", move |_| async move {
+    let on_register = handled_async_closure("registering", move || async move {
         let username = username.get_untracked().expect("universe to work");
         let username_content = UserName::try_from(username.value().as_str())
             .ok()
@@ -110,7 +112,12 @@ pub fn Register(state: State) -> impl IntoView {
     });
 
     let validation_trigger = create_trigger();
-    let on_change = move |_| validation_trigger.notify();
+    let on_change = move |e: web_sys::KeyboardEvent| {
+        validation_trigger.notify();
+        if e.key_code() == '\r' as u32 {
+            on_register();
+        }
+    };
     let disabled = move || {
         validation_trigger.track();
         !username.get_untracked().unwrap().check_validity()
@@ -119,11 +126,14 @@ pub fn Register(state: State) -> impl IntoView {
     view! {
         <div class="sc flx fdc bp ma">
             <Nav/>
-            <form class="flx fdc">
-                <input class="pc hov bp tbm" type="text" placeholder="new username" maxlength="32" node_ref=username on:input=on_change required />
-                <input class="pc hov bp tbm" type="button" value="register" on:click=on_register disabled=disabled />
-                <a hidden=true class="pc hov bp tbm bf tac" node_ref=download_link>/download-again</a>
-            </form>
+            <div class="flx fdc">
+                <input class="pc hov bp tbm" type="text" placeholder="new username" maxlength="32"
+                    node_ref=username on:keyup=on_change required />
+                <input class="pc hov bp tbm" type="button" value="register"
+                    on:click=move |_| on_register() disabled=disabled />
+                <a hidden=true class="pc hov bp tbm bf tac"
+                    node_ref=download_link>/download-again</a>
+            </div>
         </div>
     }
 }

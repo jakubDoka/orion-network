@@ -72,7 +72,7 @@ impl TransactionHandler for WebSigner {
     async fn account_id_async(&self) -> Result<chain_api::AccountId, chain_api::Error> {
         let id = get_account_id(&self.0)
             .await
-            .map_err(|e| chain_api::Error::Other(format!("{e:?}")))?;
+            .map_err(|e| chain_api::Error::Other(e.as_string().unwrap_or_default()))?;
         chain_api::AccountId::from_str(&id)
             .map_err(|e| chain_api::Error::Other(format!("invalid id received: {e}")))
     }
@@ -125,7 +125,7 @@ impl TransactionHandler for WebSigner {
 
         let signature = sign_with_wallet(&payload.to_string())
             .await
-            .map_err(|e| chain_api::Error::Other(format!("{e:?}")))?;
+            .map_err(|e| chain_api::Error::Other(e.as_string().unwrap_or_default()))?;
 
         let signature = signature
             .try_into()

@@ -53,9 +53,7 @@ fn main() {
             let mut log_file = std::fs::File::create(log_file).unwrap();
             let stderr = child.stderr.unwrap();
             let mut stderr = std::io::BufReader::new(stderr);
-            std::thread::spawn(move || loop {
-                std::io::copy(&mut stderr, &mut log_file).unwrap();
-            });
+            std::thread::spawn(move || std::io::copy(&mut stderr, &mut log_file).unwrap());
         })
         .collect::<Vec<_>>();
 
