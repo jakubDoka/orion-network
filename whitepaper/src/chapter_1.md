@@ -40,13 +40,13 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph browser
-        Client
+        Client(((client)))
     end
 
     subgraph "orion network"
         Node1
         Node2
-        Recipient
+        Recipient(((Recipient)))
     end
 
     subgraph pfn1["packet encrypted for Node1"]
@@ -60,20 +60,24 @@ flowchart TB
 
     Client --> pfn1 --> Node1 --> pfn2 --> Node2 --> pfr --> Recipient
     Client --> Secret
-    Recipient --> Secret
+    Recipient --> Secret[[Secret]]
 ```
 
 #### Communication
 
 ```mermaid
 flowchart TB
+    subgraph Shared
+        Secret[[Secret]]
+    end
+
     subgraph Client
-        Message --> aesGcmEncrypt
+        Message(((Message))) --> aesGcmEncrypt
         Secret --> aesGcmEncrypt
     end
 
     subgraph Recipient
-        s2[Secret] --> aesGcmDecrypt --> m2[Message]
+        Secret --> aesGcmDecrypt --> m2(((Message)))
     end
 
     aesGcmEncrypt --> Node1 --> Node2 --> aesGcmDecrypt
@@ -139,6 +143,115 @@ sequenceDiagram
         ON2 ->>- NN: Response(History)
     end
     NN ->>- C: Response(Messages, NewCursor)
+```
+
+#### Message blocks
+
+One fundamental problem with introduced protocol is natural message ordering inconsistency. Some order needs to be established that nodes can easily agree on. We can think of messages as of transactions on a block-chain, taking every `M` messages, sorting them, and letting other nodes know about our hash. We send the hash so that nodes can determine the majority (`N/2 + 1`), each hash counts as a vote towards particular version of the block. When enough votes are collected each node either considers the block final, or discards its block and fetches it from all majority nodes.
+
+```mermaid
+sequenceDiagram
+    actor C as Client
+    box Replication Group
+        participant N1 as Node 1
+        participant N2 as Node 2
+        participant N3 as Node 3
+    end
+
+    par
+        C ->> N1: Message1
+    and
+        C ->> N2: Message1
+    and
+        C ->> N3: Message1
+    end
+
+    N1 ->> N1: Block is full, computed hash: Hash1
+    N2 ->> N2: Block is full, computed hash: Hash1
+    N3 ->> N3: Block is full, computed hash: Hash2
+
+    par
+        N1 ->> N2: Propose(Hash1)
+        N1 ->> N3: Propose(Hash1)
+    and
+        N2 ->> N1: Propose(Hash1)
+        N2 ->> N3: Propose(Hash1)
+    and
+        N3 ->> N1: Propose(Hash2)
+        N3 ->> N2: Propose(Hash2)
+    end
+
+    par
+        N1 ->> N1: Winning Proposal: Hash1
+        N1 ->> N3: Replica(Block)
+    and
+        N2 ->> N2: Winning Proposal: Hash1
+        N2 ->> N3: Replica(Block)
+    and
+        N3 ->> N3: Winning Proposal: Hash1 -> waiting for replicas
+    end
+```
+
+Both parameters (`M`, `N`) need to be chosen to strike a balance between reliability and performance. Big `M` can reduce amount of validation cycles but highers the chance of blocks being out of sync. Higher `N` makes it harder to attack majority, but consumes increasing amount of network resources (`O(N)` memory and `O(N^2)` bandwidth.
+
+#### Continuous validation
+
+To increase resilience of the consensus, nodes should send block characteristics to other nodes while replicating an message. Simplest metric of accuracy is amount of messages currently in block (total size of the block can be also considered), main characteristic of a metric is that it does not depend on the order of messages and is easily computable. In this case, the node with the most messages is the winner and will send hashes of the messages to the lacking nodes, that will in turn diff their messages and send hashes of missing messages back. Restored messages need to be flagged as restored to the user as they can appear out of order in which they were sent, the position is determined by adjacency of message hashes. Possible attack vector is fake message flooding. Malicious node could fabricate messages and force others to store them, and for this we again abuse majority to help drive decisions. Wether node is behind can be calculate as median of all message counts. In cases where message hashes miss some messages that lacking node has one of the two options might have happened:
+
+- both nodes are honest and they each missed a different message
+- source of hashes cannot be trusted
+
+This should be decided by a threshold function `t`. Update is accepted when `|missing_hashes| + |missing_messages| < t(|{hash(m) for m in messages, hashes}|)`
+
+#### Handling majority failure
+
+If we want to use lower `N` there is increasing chance of undecidable state occurring. For example, `N = 3` (absolute minimum) and all three nodes have different hash. At this point, every node will proactively share the message hashes of messages and then apply common algorithm to resolve collisions. If two nodes of he group are honest, its likely they have similar chat histories and they can merge the histories. We use the process from previous section. If all updates are denied, nodes propose and then discard all unfinished blocks as a last resort recovery rather then clogging the message creation forever.
+
+```mermaid
+sequenceDiagram
+    box Replication Group
+        participant N1 as Node 1
+        participant N2 as Node 2
+        participant N3 as Node 3
+    end
+
+    loop Proposals sent
+        break majority determined
+            note over N1,N3: Blocks finalized
+        end
+
+        par
+            N1 ->> N2: MessageHashes1
+            N1 ->> N3: MessageHashes2
+        and
+            N2 ->> N1: MessageHashes3
+            N2 ->> N3: MessageHashes4
+        and
+            N3 ->> N1: MessageHashes5
+            N3 ->> N2: MessageHashes6
+        end
+
+        break merging unsuccesfull
+            par
+                N1 ->> N1: Delete Unfinished Blocks
+            and
+                N2 ->> N2: Delete Unfinished Blocks
+            and
+                N3 ->> N3: Delete Unfinished Blocks
+            end
+        end
+
+        par
+            N1 ->> N2: MissingMessages1
+            N1 ->> N3: MissingMessages2
+        and
+            N2 ->> N1: MissingMessages3
+            N2 ->> N3: MissingMessages4
+        and
+            N3 ->> N1: MissingMessages5
+            N3 ->> N2: MissingMessages6
+        end
+    end
 ```
 
 ## Message multiplexing
