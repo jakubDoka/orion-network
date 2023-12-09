@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+	"nodes/*",
+	"utils/*",
+	"tests/*",
+	"contracts/*",
+	"forked/*", "core/rpc",
+]
+exclude = [
+	"forked/substrate-contracts-node",
+	"forked/substrate-node-template",
+	"forked/rust-libp2p",
+	"forked/rust-yamux",
+]
+
+[profile.native-optimized]
+inherits = "release"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.wasm-optimized]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -1,0 +1,19 @@
+[package]
+name = "topology-vis"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+console_log = "1.0.0"
+libp2p = { version = "0.53.1", features = ["kad", "noise", "yamux", "identify", "wasm-bindgen", "macros"] }
+log = "0.4.20"
+macroquad = "0.4.4"
+topology-wrapper = { version = "0.1.0", path = "../../utils/topology-wrapper" }
+wasm-bindgen-futures = "0.4.39"
+websocket-websys = { version = "0.1.0", path = "../../utils/websocket-websys" }
+
+[features]
+building = []
