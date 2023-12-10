@@ -55,18 +55,18 @@ macro_rules! gen_config {
 
 #[macro_export]
 macro_rules! gen_unique_id {
-    ($ty:ident) => {
+    ($vis:vis $ty:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        pub struct $ty(usize);
+        $vis struct $ty(usize);
 
         impl $ty {
-            pub fn new() -> Self {
+            $vis fn new() -> Self {
                 static COUNTER: std::sync::atomic::AtomicUsize =
                     std::sync::atomic::AtomicUsize::new(0);
                 Self(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
             }
 
-            pub fn whatever() -> Self {
+            $vis fn whatever() -> Self {
                 Self(usize::MAX)
             }
         }

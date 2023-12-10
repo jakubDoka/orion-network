@@ -1,9 +1,10 @@
 use {
-    crate::{Dispatches, Handler, Identity, Proof, RequestId, Server},
+    crate::{Dispatches, Handler, Identity, Proof, Server},
     component_utils::{Codec, Reminder},
     crypto::TransmutationCircle,
     libp2p::PeerId,
     primitives::contracts::NodeIdentity,
+    rpc::CallId,
     std::{borrow::Cow, collections::HashMap, iter},
 };
 
@@ -17,7 +18,7 @@ where
     H: Handler<Context = libp2p::kad::Behaviour<Storage>>,
     S: Dispatches<H>,
 {
-    make_replication_record::<H>(key, value, (S::PREFIX, RequestId::whatever()))
+    make_replication_record::<H>(key, value, (S::PREFIX, CallId::whatever()))
 }
 
 fn make_replication_record<H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(

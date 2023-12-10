@@ -301,6 +301,19 @@ impl<'a> Codec<'a> for Reminder<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OwnedReminder(pub Arc<[u8]>);
+
+impl<'a> Codec<'a> for OwnedReminder {
+    fn encode(&self, buffer: &mut Vec<u8>) {
+        buffer.extend_from_slice(&self.0);
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        Some(Self(core::mem::take(buffer).into()))
+    }
+}
+
 /// Some structures suport optimized codec when placed as the last part of the message
 #[derive(Debug, Clone, Copy)]
 pub struct Unbound<T>(pub T);

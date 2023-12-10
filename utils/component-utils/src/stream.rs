@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, io, pin::Pin, task::Poll};
+use {
+    futures::AsyncWriteExt,
+    std::{collections::VecDeque, io, pin::Pin, task::Poll},
+};
 
 pub struct Rng(u64);
 

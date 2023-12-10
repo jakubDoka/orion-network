@@ -372,7 +372,7 @@ pub enum Event {
     ),
 }
 
-component_utils::gen_unique_id!(PathId);
+component_utils::gen_unique_id!(pub PathId);
 
 #[derive(Debug)]
 pub struct EncryptedStream {

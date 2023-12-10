@@ -17,6 +17,7 @@ libp2p = { version = "0.53.0", features = ["tcp", "noise", "kad", "macros", "tok
 log = "0.4.20"
 onion = { version = "0.1.0", path = "../../core/onion" }
 primitives = { version = "0.1.0", path = "../../core/primitives", features = ["std"] }
+rpc = { version = "0.1.0", path = "../../core/rpc" }
 smallvec = "1.11.1"
 thiserror = "1.0.50"
 tokio = { version = "1.32.0", features = ["rt", "macros", "time"] }

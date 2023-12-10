@@ -42,7 +42,13 @@ macro_rules! compose_handlers {
         )*}
 
         impl $name {
-            pub fn dispatch<T>(&mut self, context: &mut T, message: $crate::DispatchMessage<'_>,  pid: Option<onion::PathId>, buffer: &mut $crate::RootPacketBuffer) -> Result<(), $crate::DispatchError>
+            pub fn dispatch<T>(
+                &mut self,
+                context: &mut T,
+                message: $crate::DispatchMessage<'_>,
+                pid: Option<onion::PathId>,
+                buffer: &mut $crate::RootPacketBuffer
+            ) -> Result<(), $crate::DispatchError>
             where
                 $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context>,
                 T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as $crate::Context>::ToSwarm>,)*
@@ -57,16 +63,24 @@ macro_rules! compose_handlers {
                 }
             }
 
-            pub fn dispatch_local<'a, H: $crate::SyncHandler>(&'a mut self, context: &'a mut H::Context, request: H::Request<'a>) -> $crate::HandlerResult<'a, H>
+            pub fn dispatch_local<'a, H>(
+                &'a mut self,
+                context: &'a mut H::Context,
+                request: H::Request<'a>
+            ) -> $crate::HandlerResult<'a, H>
             where
+                H: $crate::SyncHandler,
                 Self: $crate::Dispatches<H>,
             {
                 use $crate::Dispatches;
-                H::execute(context, &request, &mut self.fetch_nest().dispatch, (Self::PREFIX, RequestId::new()))
+                H::execute(context, &request, &mut self.fetch_nest().dispatch, (Self::PREFIX, CallId::new()))
             }
 
-            fn try_handle_subscription(&mut self, pid: onion::PathId, message: $crate::DispatchMessage<'_>)
-                -> Result<(), $crate::DispatchError>
+            fn try_handle_subscription(
+                &mut self,
+                pid: onion::PathId,
+                message: $crate::DispatchMessage<'_>
+            ) -> Result<(), $crate::DispatchError>
             {
                 let prefix = message.prefix & 0b0111_1111;
                 match prefix {
@@ -81,10 +95,14 @@ macro_rules! compose_handlers {
                 $(self.$handler.disconnected(pid);)*
             }
 
-            pub fn try_handle_event<T: $crate::Context>(&mut self, context: &mut T, event: T::ToSwarm, buffer: &mut $crate::RootPacketBuffer)
-                -> Result<(), <T as $crate::Context>::ToSwarm>
+            pub fn try_handle_event<T>(
+                &mut self,
+                context: &mut T,
+                event: T::ToSwarm,
+                buffer: &mut $crate::RootPacketBuffer
+            ) -> Result<(), <T as $crate::Context>::ToSwarm>
             where
-                $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context>,
+                $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context> + $crate::Context,
                 T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as $crate::Context>::ToSwarm>,)*
             {
                 $(let Err(event) = self.$handler.try_handle_event(context, event, buffer) else {
@@ -105,11 +123,11 @@ macro_rules! compose_handlers {
 
 mod impls;
 
-pub use impls::*;
+pub use {impls::*, rpc::CallId};
 
 pub struct HandlerNest<H: Handler> {
     handlers: Vec<ActiveHandler<H>>,
-    sub_mapping: HashMap<H::Topic, HashMap<PathId, RequestId>>,
+    sub_mapping: HashMap<H::Topic, HashMap<PathId, CallId>>,
     dispatch: EventDispatch<H>,
 }
 
@@ -187,7 +205,7 @@ impl<H: Handler> HandlerNest<H> {
         Ok(())
     }
 
-    pub fn subscribe(&mut self, pid: PathId, rid: RequestId, Reminder(topic): Reminder) {
+    pub fn subscribe(&mut self, pid: PathId, rid: CallId, Reminder(topic): Reminder) {
         let Some(topic) = H::Topic::decode(&mut &topic[..]) else {
             return;
         };
@@ -207,13 +225,13 @@ impl<H: Handler> HandlerNest<H> {
     ) -> impl Iterator<
         Item = (
             iter::Map<
-                hash_map::Iter<'_, PathId, RequestId>,
-                fn((&PathId, &RequestId)) -> (PathId, RequestId),
+                hash_map::Iter<'_, PathId, CallId>,
+                fn((&PathId, &CallId)) -> (PathId, CallId),
             >,
             &mut [u8],
         ),
     > {
-        fn map((pid, rid): (&PathId, &RequestId)) -> (PathId, RequestId) {
+        fn map((pid, rid): (&PathId, &CallId)) -> (PathId, CallId) {
             (*pid, *rid)
         }
         let mapping = &self.sub_mapping;
@@ -235,12 +253,10 @@ impl<H: Handler> Default for HandlerNest<H> {
 }
 
 pub struct ActiveHandler<H: Handler> {
-    pub request_id: RequestId,
+    pub request_id: CallId,
     pub path_id: Option<PathId>,
     pub handler: H,
 }
-
-component_utils::gen_unique_id!(RequestId);
 
 #[derive(Debug, thiserror::Error)]
 pub enum DispatchError {
@@ -250,7 +266,7 @@ pub enum DispatchError {
     InvalidRequest,
 }
 
-type RequestMeta = (u8, RequestId);
+type RequestMeta = (u8, CallId);
 type HandlerResult<'a, H> = Result<<H as Handler>::Response<'a>, <H as Handler>::Error>;
 
 pub trait Handler: Sized {
@@ -377,7 +393,7 @@ impl<S> RequestDispatch<S> {
     where
         S: Dispatches<H>,
     {
-        let id = RequestId::new();
+        let id = CallId::new();
         let (tx, rx) = libp2p::futures::channel::oneshot::channel();
         use libp2p::futures::SinkExt;
         self.sink
@@ -401,7 +417,7 @@ impl<S> RequestDispatch<S> {
     where
         S: Dispatches<H>,
     {
-        let id = RequestId::new();
+        let id = CallId::new();
 
         self.buffer.clear();
         self.buffer.push(S::PREFIX);
@@ -419,11 +435,11 @@ impl<S> RequestDispatch<S> {
         Self::parse_response::<H>(&self.buffer)
     }
 
-    pub fn build_packet<H: Handler>(request: &H::Request<'_>, buffer: &mut Vec<u8>) -> RequestId
+    pub fn build_packet<H: Handler>(request: &H::Request<'_>, buffer: &mut Vec<u8>) -> CallId
     where
         S: Dispatches<H>,
     {
-        let id = RequestId::new();
+        let id = CallId::new();
 
         buffer.clear();
         buffer.push(S::PREFIX);
@@ -451,7 +467,7 @@ impl<S> RequestDispatch<S> {
     {
         let mut mapping = HashMap::new();
         for request in requests {
-            let id = RequestId::new();
+            let id = CallId::new();
 
             self.buffer.clear();
             self.buffer.push(S::PREFIX);
@@ -484,7 +500,7 @@ impl<S> RequestDispatch<S> {
         S: Dispatches<H>,
     {
         let (tx, rx) = libp2p::futures::channel::mpsc::channel(0);
-        let request_id = RequestId::new();
+        let request_id = CallId::new();
         self.sink
             .try_send(RequestInit::Subscription(SubscriptionInit {
                 request_id,
@@ -510,7 +526,7 @@ impl<S> RequestDispatch<S> {
 }
 
 pub struct SubsOwner<H: Handler> {
-    id: RequestId,
+    id: CallId,
     send_back: libp2p::futures::channel::mpsc::Sender<RequestInit>,
     phantom: std::marker::PhantomData<H>,
 }
@@ -538,7 +554,7 @@ pub type RequestStream = libp2p::futures::channel::mpsc::Receiver<RequestInit>;
 pub enum RequestInit {
     Request(RawRequest),
     Subscription(SubscriptionInit),
-    CloseSubscription(RequestId),
+    CloseSubscription(CallId),
 }
 
 impl RequestInit {
@@ -565,7 +581,7 @@ impl<H: Handler> Subscription<H> {
 }
 
 pub struct SubscriptionInit {
-    pub request_id: RequestId,
+    pub request_id: CallId,
     pub topic: Vec<u8>,
     pub payload: Vec<u8>,
     pub channel: libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>,
@@ -574,7 +590,7 @@ pub struct SubscriptionInit {
 pub type SubscriptionMessage = Vec<u8>;
 
 pub struct RawRequest {
-    pub id: RequestId,
+    pub id: CallId,
     pub topic: Option<Vec<u8>>,
     pub payload: Vec<u8>,
     pub channel: libp2p::futures::channel::oneshot::Sender<RawResponse>,
@@ -606,7 +622,7 @@ impl<H: Handler> std::fmt::Display for RequestError<H> {
 
 impl<H: Handler> std::error::Error for RequestError<H> {}
 
-pub type RootPacketBuffer = PacketBuffer<(RequestId, PathId)>;
+pub type RootPacketBuffer = PacketBuffer<(CallId, PathId)>;
 
 pub struct PacketBuffer<M> {
     packets: Vec<u8>,
@@ -682,13 +698,13 @@ pub trait Dispatches<H: Handler> {
 component_utils::protocol! {'a:
     struct DispatchMessage<'a> {
         prefix: u8,
-        request_id: RequestId,
+        request_id: CallId,
         payload: Reminder<'a>,
     }
 }
 
 pub struct DispatchResponse<T> {
-    pub request_id: RequestId,
+    pub request_id: CallId,
     pub response: T,
 }
 
@@ -700,7 +716,7 @@ impl<'a, T: Codec<'a>> Codec<'a> for DispatchResponse<T> {
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
         Some(Self {
-            request_id: RequestId::decode(buffer)?,
+            request_id: CallId::decode(buffer)?,
             response: T::decode(buffer)?,
         })
     }

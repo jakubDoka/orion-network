@@ -2,8 +2,8 @@ use {
     crate::{BootPhase, UserKeys},
     anyhow::Context,
     chat_logic::{
-        ChatName, CreateAccount, DispatchResponse, FetchVault, Identity, Nonce, Proof, RawChatName,
-        RawRequest, RawResponse, RequestDispatch, RequestId, RequestInit, RequestStream,
+        CallId, ChatName, CreateAccount, DispatchResponse, FetchVault, Identity, Nonce, Proof,
+        RawChatName, RawRequest, RawResponse, RequestDispatch, RequestInit, RequestStream,
         SearchPeers, Server, SubscriptionInit, SubscriptionMessage,
     },
     component_utils::{
@@ -197,9 +197,9 @@ pub struct Node {
     swarm: Swarm<Behaviour>,
     peer_search: KadPeerSearch,
     subscriptions: futures::stream::SelectAll<Subscription>,
-    pending_requests: LinearMap<RequestId, libp2p::futures::channel::oneshot::Sender<RawResponse>>,
-    pending_topic_search: LinearMap<Result<RequestId, PathId>, Vec<RequestInit>>,
-    active_subs: LinearMap<RequestId, libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>>,
+    pending_requests: LinearMap<CallId, libp2p::futures::channel::oneshot::Sender<RawResponse>>,
+    pending_topic_search: LinearMap<Result<CallId, PathId>, Vec<RequestInit>>,
+    active_subs: LinearMap<CallId, libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>>,
     requests: RequestStream,
 }
 

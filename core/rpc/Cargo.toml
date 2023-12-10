@@ -7,10 +7,11 @@ edition = "2021"
 
 [dependencies]
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
-libp2p = "0.53.1"
+libp2p = { version = "0.53.1" }
 log = "0.4.20"
 
 [dev-dependencies]
-tokio = { version = "1.34.0", features = ["macros", "rt"] }
+tokio = { version = "1.34.0", features = ["macros", "rt", "time"] }
 libp2p = { version = "0.53.1", features = ["noise", "yamux", "tcp", "kad", "macros", "tokio"]}
 env_logger = "0.10.1"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

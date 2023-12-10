@@ -1,5 +1,5 @@
 use {
-    crate::RequestId,
+    crate::CallId,
     component_utils::{arrayvec::ArrayString, Reminder},
     crypto::{sign, Serialized, TransmutationCircle},
     std::{iter, num::NonZeroUsize},
@@ -93,7 +93,7 @@ component_utils::protocol! {'a:
 
     #[derive(Clone, Copy)]
     struct DispatchResponse<'a> {
-        id: RequestId,
+        id: CallId,
         body: Reminder<'a>,
     }
 }
