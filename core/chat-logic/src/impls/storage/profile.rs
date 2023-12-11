@@ -1,12 +1,12 @@
 use {
-    crate::{advance_nonce, HandlerResult},
+    crate::{advance_nonce, HandlerResult, PassedContext},
     std::convert::Infallible,
 };
 
 const MAIL_BOX_CAP: usize = 1024 * 1024;
 
 use {
-    super::{replicate, Storage},
+    super::Storage,
     crate::{Identity, Nonce, Proof},
     component_utils::{Codec, Reminder},
     crypto::{enc, sign, Serialized},
@@ -46,12 +46,12 @@ impl crate::Handler for FetchProfile {
     type Response<'a> = FetchProfileResp;
     type Topic = Infallible;
 
-    fn spawn(
-        context: &mut Self::Context,
-        request: &Self::Request<'_>,
+    fn spawn<'a>(
+        context: PassedContext<'a, Self>,
+        request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
-    ) -> Result<HandlerResult<'static, Self>, Self> {
+    ) -> Result<HandlerResult<'a, Self>, Self> {
         if let Some(profile) = context.store_mut().profiles.get(request) {
             return Ok(Ok(profile.into()));
         }
@@ -122,12 +122,12 @@ impl crate::SyncHandler for CreateAccount {
     type Response<'a> = ();
     type Topic = crate::Identity;
 
-    fn execute(
-        context: &mut Self::Context,
-        &(proof, enc, vault): &Self::Request<'_>,
+    fn execute<'a>(
+        context: PassedContext<'a, Self>,
+        &(proof, enc, vault): &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
-        meta: crate::RequestMeta,
-    ) -> HandlerResult<'static, Self> {
+        _: crate::RequestMeta,
+    ) -> HandlerResult<'a, Self> {
         crate::ensure!(proof.verify_profile(), CreateAccountError::InvalidProof);
 
         let user_id = crypto::hash::new_raw(&proof.pk);
@@ -145,7 +145,6 @@ impl crate::SyncHandler for CreateAccount {
                     mail: Vec::new(),
                     online: false,
                 });
-                replicate::<Self>(context, &user_id, &(proof, enc, vault), meta);
                 Ok(())
             }
             Entry::Occupied(mut entry) if replicating && entry.get().action < proof.nonce => {
@@ -158,6 +157,10 @@ impl crate::SyncHandler for CreateAccount {
             }
             _ => Err(CreateAccountError::AlreadyExists),
         }
+    }
+
+    fn extract_topic(request: &Self::Request<'_>) -> Option<Self::Topic> {
+        Some(crypto::hash::new_raw(&request.0.pk))
     }
 }
 
@@ -177,12 +180,12 @@ impl crate::SyncHandler for SetVault {
     type Response<'a> = ();
     type Topic = crate::Identity;
 
-    fn execute(
-        context: &mut Self::Context,
-        &(proof, content): &Self::Request<'_>,
+    fn execute<'a>(
+        context: PassedContext<'a, Self>,
+        &(proof, content): &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
-        meta: crate::RequestMeta,
-    ) -> HandlerResult<'static, Self> {
+        _: crate::RequestMeta,
+    ) -> HandlerResult<'a, Self> {
         crate::ensure!(proof.verify_profile(), SetVaultError::InvalidProof);
 
         let identity = crypto::hash::new_raw(&proof.pk);
@@ -198,9 +201,12 @@ impl crate::SyncHandler for SetVault {
 
         profile.vault.clear();
         profile.vault.extend_from_slice(content.0.as_ref());
-        replicate::<Self>(context, &identity, &(proof, content), meta);
 
         Ok(())
+    }
+
+    fn extract_topic(request: &Self::Request<'_>) -> Option<Self::Topic> {
+        Some(crypto::hash::new_raw(&request.0.pk))
     }
 }
 
@@ -222,7 +228,7 @@ impl crate::SyncHandler for FetchVault {
     type Topic = Identity;
 
     fn execute<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
@@ -249,7 +255,7 @@ impl crate::SyncHandler for ReadMail {
     type Topic = crate::Identity;
 
     fn execute<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
@@ -266,6 +272,10 @@ impl crate::SyncHandler for ReadMail {
             ReadMailError::InvalidAction
         );
         Ok(Reminder(profile.read_mail()))
+    }
+
+    fn extract_topic(request: &Self::Request<'_>) -> Option<Self::Topic> {
+        Some(crypto::hash::new_raw(&request.pk))
     }
 }
 
@@ -287,18 +297,13 @@ impl crate::SyncHandler for SendMail {
     type Response<'a> = ();
     type Topic = crate::Identity;
 
-    fn execute(
-        context: &mut Self::Context,
-        &(identity, Reminder(content)): &Self::Request<'_>,
+    fn execute<'a>(
+        context: PassedContext<'a, Self>,
+        &(identity, Reminder(content)): &Self::Request<'a>,
         events: &mut crate::EventDispatch<Self>,
-        meta: crate::RequestMeta,
-    ) -> HandlerResult<'static, Self> {
-        let replicating = context.store_mut().replicating;
+        _: crate::RequestMeta,
+    ) -> HandlerResult<'a, Self> {
         let profile = context.store_mut().profiles.get_mut(&identity);
-        if profile.is_none() && !replicating {
-            replicate::<Self>(context, &identity, &(identity, Reminder(content)), meta);
-            return Ok(());
-        }
 
         crate::ensure!(let Some(profile) = profile, SendMailError::NotFound);
         crate::ensure!(
@@ -308,10 +313,13 @@ impl crate::SyncHandler for SendMail {
 
         profile.mail.extend((content.len() as u16).to_be_bytes());
         profile.mail.extend_from_slice(content);
-        replicate::<Self>(context, &identity, &(identity, Reminder(content)), meta);
         events.push(identity, &Reminder(content));
 
         Ok(())
+    }
+
+    fn extract_topic(request: &Self::Request<'_>) -> Option<Self::Topic> {
+        Some(request.0)
     }
 }
 

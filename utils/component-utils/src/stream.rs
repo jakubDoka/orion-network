@@ -1,21 +1,8 @@
 use {
-    futures::AsyncWriteExt,
+    crate::{decode_len, encode_len, Codec},
+    futures::Future,
     std::{collections::VecDeque, io, pin::Pin, task::Poll},
 };
-
-pub struct Rng(u64);
-
-impl Rng {
-    pub fn new(seed: &[u8]) -> Self {
-        Self(fnv_hash(seed))
-    }
-
-    pub fn next_u64(&mut self) -> u64 {
-        let Self(seed) = self;
-        *seed = fnv_hash(&seed.to_le_bytes());
-        *seed
-    }
-}
 
 #[derive(Debug)]
 pub struct LinearMap<K, V> {
@@ -100,20 +87,6 @@ impl<K, V> Default for LinearMap<K, V> {
         Self { values: Vec::new() }
     }
 }
-
-fn fnv_hash(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in bytes {
-        hash = hash.wrapping_mul(0x100000001b3);
-        hash ^= *byte as u64;
-    }
-    hash
-}
-
-use {
-    crate::{decode_len, encode_len, Codec},
-    futures::Future,
-};
 
 type PacketSize = u32;
 const PACKET_SIZE_WIDTH: usize = core::mem::size_of::<PacketSize>();

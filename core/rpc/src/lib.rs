@@ -115,11 +115,16 @@ impl Behaviour {
         call
     }
 
-    pub fn respond(&mut self, peer: PeerId, call: CallId, payload: Vec<u8>) {
+    pub fn respond(
+        &mut self,
+        peer: PeerId,
+        call: CallId,
+        payload: impl AsRef<[u8]> + Into<Vec<u8>>,
+    ) {
         if let Some(stream) = self.streams.iter_mut().find(|s| peer == s.peer) {
-            stream.write(call, &payload, false);
+            stream.write(call, payload.as_ref(), false);
         } else {
-            self.pending_repsonses.push((peer, call, payload));
+            self.pending_repsonses.push((peer, call, payload.into()));
             if !self.ongoing_dials.contains(&peer) && !self.pending_dials.contains(&peer) {
                 self.pending_dials.push(peer);
             }
@@ -413,7 +418,7 @@ mod test {
     use {
         super::*,
         libp2p::{
-            futures::{stream::FuturesUnordered, FutureExt, StreamExt},
+            futures::{stream::FuturesUnordered, StreamExt},
             multiaddr::Protocol,
             Multiaddr, Transport,
         },

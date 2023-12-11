@@ -1,56 +1,27 @@
 use {
-    crate::{Dispatches, Handler, Identity, Proof, Server},
-    component_utils::{Codec, Reminder},
-    crypto::TransmutationCircle,
     libp2p::PeerId,
-    primitives::contracts::NodeIdentity,
-    rpc::CallId,
     std::{borrow::Cow, collections::HashMap, iter},
 };
 
 mod chat;
 mod profile;
+mod replication;
 
-pub use {chat::*, profile::*};
+pub use {chat::*, profile::*, replication::*};
 
-fn make_new_replication_record<H, S>(key: &H::Topic, value: &H::Request<'_>) -> libp2p::kad::Record
-where
-    H: Handler<Context = libp2p::kad::Behaviour<Storage>>,
-    S: Dispatches<H>,
-{
-    make_replication_record::<H>(key, value, (S::PREFIX, CallId::whatever()))
+macro_rules! replicating_handlers {
+    ($($mod:ident::{$($ty:ident),* $(,)*}),* $(,)*) =>
+        {$( $( pub type $ty = Replicated<$mod::$ty>; )* )*};
 }
 
-fn make_replication_record<H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
-    key: &H::Topic,
-    value: &H::Request<'_>,
-    meta: crate::RequestMeta,
-) -> libp2p::kad::Record {
-    let mut rec = libp2p::kad::Record::new(key.to_bytes(), vec![]);
-    meta.encode(&mut rec.value);
-    value.encode(&mut rec.value);
-    rec
-}
-
-fn replicate<H: Handler<Context = libp2p::kad::Behaviour<Storage>>>(
-    kad: &mut H::Context,
-    key: &H::Topic,
-    value: &H::Request<'_>,
-    meta: crate::RequestMeta,
-) {
-    if kad.store_mut().replicating {
-        return;
-    }
-
-    let rec = make_replication_record::<H>(key, value, meta);
-    kad.put_record(rec, super::QUORUM)
-        .expect("storage to ignore and accept the record");
+replicating_handlers! {
+    profile::{CreateAccount, SetVault, SendMail, ReadMail},
+    chat::{CreateChat, AddUser, SendMessage},
 }
 
 pub struct Storage {
     profiles: HashMap<crate::Identity, Profile>,
     chats: HashMap<crate::ChatName, Chat>,
-    nodes: HashMap<crate::Identity, NodeIdentity>,
 
     // this is true if we are dispatching put_record
     replicating: bool,
@@ -67,7 +38,6 @@ impl Storage {
         Self {
             profiles: HashMap::new(),
             chats: HashMap::new(),
-            nodes: HashMap::new(),
             replicating: false,
         }
     }
@@ -89,7 +59,7 @@ impl libp2p::kad::store::RecordStore for Storage {
     where
         Self: 'a;
 
-    fn get(&self, k: &libp2p::kad::RecordKey) -> Option<std::borrow::Cow<'_, libp2p::kad::Record>> {
+    fn get(&self, _: &libp2p::kad::RecordKey) -> Option<std::borrow::Cow<'_, libp2p::kad::Record>> {
         None
     }
 

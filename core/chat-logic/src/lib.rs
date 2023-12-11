@@ -63,19 +63,6 @@ macro_rules! compose_handlers {
                 }
             }
 
-            pub fn dispatch_local<'a, H>(
-                &'a mut self,
-                context: &'a mut H::Context,
-                request: H::Request<'a>
-            ) -> $crate::HandlerResult<'a, H>
-            where
-                H: $crate::SyncHandler,
-                Self: $crate::Dispatches<H>,
-            {
-                use $crate::Dispatches;
-                H::execute(context, &request, &mut self.fetch_nest().dispatch, (Self::PREFIX, CallId::new()))
-            }
-
             fn try_handle_subscription(
                 &mut self,
                 pid: onion::PathId,
@@ -268,6 +255,7 @@ pub enum DispatchError {
 
 type RequestMeta = (u8, CallId);
 type HandlerResult<'a, H> = Result<<H as Handler>::Response<'a>, <H as Handler>::Error>;
+type PassedContext<'a, H> = <<H as Handler>::Context as Context>::Borrow<'a>;
 
 pub trait Handler: Sized {
     type Context: Context;
@@ -278,17 +266,21 @@ pub trait Handler: Sized {
     type Topic: Eq + std::hash::Hash + for<'a> Codec<'a>;
 
     fn spawn<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
     ) -> Result<HandlerResult<'a, Self>, Self>;
     fn try_complete<'a>(
         self,
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         dispatch: &mut EventDispatch<Self>,
         event: &'a <Self::Context as Context>::ToSwarm,
     ) -> Result<HandlerResult<'a, Self>, Self>;
+
+    fn extract_topic(_: &Self::Request<'_>) -> Option<Self::Topic> {
+        None
+    }
 }
 
 pub trait SyncHandler: Sized {
@@ -300,11 +292,15 @@ pub trait SyncHandler: Sized {
     type Topic: Eq + std::hash::Hash + for<'a> Codec<'a>;
 
     fn execute<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
     ) -> HandlerResult<'a, Self>;
+
+    fn extract_topic(_: &Self::Request<'_>) -> Option<Self::Topic> {
+        None
+    }
 }
 
 impl<T: SyncHandler> Handler for T {
@@ -316,7 +312,7 @@ impl<T: SyncHandler> Handler for T {
     type Topic = T::Topic;
 
     fn spawn<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         dispatch: &mut EventDispatch<Self>,
         meta: RequestMeta,
@@ -326,11 +322,15 @@ impl<T: SyncHandler> Handler for T {
 
     fn try_complete<'a>(
         self,
-        _: &'a mut Self::Context,
+        _: PassedContext<'a, Self>,
         _: &mut EventDispatch<Self>,
         _: &'a <Self::Context as Context>::ToSwarm,
     ) -> Result<HandlerResult<'a, Self>, Self> {
         Err(self)
+    }
+
+    fn extract_topic(event: &Self::Request<'_>) -> Option<Self::Topic> {
+        Self::extract_topic(event)
     }
 }
 
@@ -345,6 +345,13 @@ impl<H: Handler> EventDispatch<H> {
 
     pub fn drain(&mut self) -> impl Iterator<Item = (H::Topic, &mut [u8])> {
         self.inner.drain()
+    }
+
+    pub fn cast<O>(&mut self) -> &mut EventDispatch<O>
+    where
+        O: Handler<Topic = H::Topic>,
+    {
+        unsafe { std::mem::transmute(self) }
     }
 }
 
@@ -387,7 +394,6 @@ impl<S> RequestDispatch<S> {
 
     pub async fn dispatch<H: Handler>(
         &mut self,
-        topic: impl Into<Option<H::Topic>>,
         request: H::Request<'_>,
     ) -> Result<H::Response<'_>, RequestError<H>>
     where
@@ -399,7 +405,7 @@ impl<S> RequestDispatch<S> {
         self.sink
             .send(RequestInit::Request(RawRequest {
                 id,
-                topic: topic.into().as_ref().map(Codec::to_bytes),
+                topic: H::extract_topic(&request).map(|t| t.to_bytes()),
                 payload: (S::PREFIX, id, request).to_bytes(),
                 channel: tx,
             }))
@@ -666,9 +672,11 @@ impl<M> PacketBuffer<M> {
 
 pub trait Context {
     type ToSwarm;
+    type Borrow<'a>;
 }
 
 impl<T: NetworkBehaviour> Context for T {
+    type Borrow<'a> = &'a mut T;
     type ToSwarm = T::ToSwarm;
 }
 
@@ -676,16 +684,16 @@ pub trait SubContext<F: Context>: Context
 where
     Self::ToSwarm: From<F::ToSwarm>,
 {
-    fn fragment(&mut self) -> &mut F;
+    fn fragment(&mut self) -> F::Borrow<'_>;
     fn try_unpack_event(event: Self::ToSwarm) -> Result<F::ToSwarm, Self::ToSwarm>;
 }
 
 impl<T: NetworkBehaviour> SubContext<T> for T {
-    fn fragment(&mut self) -> &mut T {
+    fn fragment(&mut self) -> <T as Context>::Borrow<'_> {
         self
     }
 
-    fn try_unpack_event(event: Self::ToSwarm) -> Result<T::ToSwarm, Self::ToSwarm> {
+    fn try_unpack_event(event: Self::ToSwarm) -> Result<<T as Context>::ToSwarm, Self::ToSwarm> {
         Ok(event)
     }
 }

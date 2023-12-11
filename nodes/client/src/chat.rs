@@ -133,9 +133,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         match cursor.get_untracked() {
             Cursor::Normal(cursor) => {
-                let (mut messages, new_cursor) = requests()
-                    .dispatch::<FetchMessages>(chat, (chat, cursor))
-                    .await?;
+                let (mut messages, new_cursor) =
+                    requests().dispatch::<FetchMessages>((chat, cursor)).await?;
                 let secret = state.chat_secret(chat).context("getting chat secret")?;
                 for message in chat_logic::unpack_messages(&mut messages) {
                     let Some(decrypted) = crypto::decrypt(message, secret) else {
@@ -262,7 +261,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             }
 
             requests()
-                .dispatch::<CreateChat>(chat, (my_id, chat))
+                .dispatch::<CreateChat>((my_id, chat))
                 .await
                 .context("creating chat")?;
 
@@ -328,7 +327,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         let mut requests = requests();
         match requests
-            .dispatch::<AddUser>(chat, (invitee.sign, chat, proof))
+            .dispatch::<AddUser>((invitee.sign, chat, proof))
             .await
         {
             Err(RequestError::Handler(AddUserError::InvalidAction(nonce))) => {
@@ -336,7 +335,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                     .next_chat_proof(chat, Some(nonce))
                     .expect("we checked we are part of the chat");
                 requests
-                    .dispatch::<AddUser>(chat, (invitee.sign, chat, proof))
+                    .dispatch::<AddUser>((invitee.sign, chat, proof))
                     .await
                     .context("recovering from invalid action")?;
             }
@@ -344,7 +343,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         };
 
         let user_data = requests
-            .dispatch::<FetchProfile>(None, invitee.sign)
+            .dispatch::<FetchProfile>(invitee.sign)
             .await
             .context("fetching user profile")?;
 
@@ -357,7 +356,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .into_bytes();
         let invite = Mail::ChatInvite(ChatInvite { chat, cp }).to_bytes();
         requests
-            .dispatch::<SendMail>(None, (invitee.sign, Reminder(invite.as_slice())))
+            .dispatch::<SendMail>((invitee.sign, Reminder(invite.as_slice())))
             .await
             .context("sending invite")?;
 
@@ -393,7 +392,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         let mut requests = requests();
         let user_data = requests
-            .dispatch::<FetchProfile>(None, invitee.sign)
+            .dispatch::<FetchProfile>(invitee.sign)
             .await
             .context("fetching user profile")?;
 
@@ -416,7 +415,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         .to_bytes();
 
         requests
-            .dispatch::<SendMail>(None, (invitee.sign, Reminder(&invite)))
+            .dispatch::<SendMail>((invitee.sign, Reminder(&invite)))
             .await
             .context("sending invite")?;
 
@@ -476,14 +475,14 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         handled_spawn_local("sending normal message", async move {
             let mut req = requests();
             match req
-                .dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
+                .dispatch::<SendMessage>((chat, proof, Reminder(&content)))
                 .await
             {
                 Err(RequestError::Handler(SendMessageError::InvalidAction(nonce))) => {
                     let proof = state
                         .next_chat_proof(chat, Some(nonce))
                         .expect("we checked we are part of the chat");
-                    req.dispatch::<SendMessage>(chat, (chat, proof, Reminder(&content)))
+                    req.dispatch::<SendMessage>((chat, proof, Reminder(&content)))
                         .await
                         .context("recovering from invalid action")?;
                 }
@@ -519,7 +518,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 .to_bytes();
                 async move {
                     requests()
-                        .dispatch::<SendMail>(None, (member.identity, Reminder(&message)))
+                        .dispatch::<SendMail>((member.identity, Reminder(&message)))
                         .await
                         .with_context(|| format!("sending message to {name}"))
                 }

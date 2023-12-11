@@ -5,7 +5,7 @@
 use {
     anyhow::Context,
     chain_api::ContractId,
-    chat_logic::{DispatchResponse, RootPacketBuffer, SubContext, REPLICATION_FACTOR},
+    chat_logic::{DispatchResponse, ReplContext, RootPacketBuffer, SubContext, REPLICATION_FACTOR},
     component_utils::{
         codec::Codec,
         kad::KadPeerSearch,
@@ -128,6 +128,7 @@ impl Miner {
                 )),
                 sender.clone(),
             ),
+            rpc: topology_wrapper::new(rpc::Behaviour::default(), sender.clone()),
             report: topology_wrapper::report::new(receiver),
         };
         let transport = libp2p::websocket::WsConfig::new(libp2p::tcp::tokio::Transport::new(
@@ -285,6 +286,31 @@ impl Miner {
                     &mut self.swarm,
                     &mut self.peer_discovery,
                 ) => {}
+            SwarmEvent::Behaviour(BehaviourEvent::Rpc(rpc::Event::Request(peer, cid, body))) => {
+                let Some((&prefix, rest)) = body.split_first() else {
+                    return;
+                };
+
+                if let Err(e) = self.server.dispatch(
+                    self.swarm.behaviour_mut(),
+                    chat_logic::DispatchMessage {
+                        prefix,
+                        request_id: cid,
+                        payload: Reminder(rest),
+                    },
+                    // TODO: this is unreadable
+                    Some(PathId::whatever()),
+                    &mut self.packets,
+                ) {
+                    log::info!("failed to dispatch init request: {}", e);
+                    return;
+                };
+
+                for (_, packet) in self.packets.drain() {
+                    self.swarm.behaviour_mut().rpc.respond(peer, cid, &*packet);
+                }
+                self.dispatch_events();
+            }
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::InboundStream(
                 inner,
                 id,
@@ -412,6 +438,7 @@ struct Behaviour {
     onion: topology_wrapper::Behaviour<onion::Behaviour>,
     kad: topology_wrapper::Behaviour<kad::Behaviour<chat_logic::Storage>>,
     identfy: topology_wrapper::Behaviour<libp2p::identify::Behaviour>,
+    rpc: topology_wrapper::Behaviour<rpc::Behaviour>,
     report: topology_wrapper::report::Behaviour,
 }
 
@@ -435,6 +462,34 @@ impl SubContext<libp2p::kad::Behaviour<chat_logic::Storage>> for Behaviour {
         match event {
             BehaviourEvent::Kad(e) => Ok(e),
             _ => Err(event),
+        }
+    }
+}
+
+impl<'a> SubContext<ReplContext<'a>> for Behaviour {
+    fn fragment(&mut self) -> <ReplContext<'a> as chat_logic::Context>::Borrow<'_> {
+        ReplContext {
+            kad: &mut self.kad,
+            rpc: &mut self.rpc,
+        }
+    }
+
+    fn try_unpack_event(
+        event: Self::ToSwarm,
+    ) -> Result<<ReplContext<'a> as chat_logic::Context>::ToSwarm, Self::ToSwarm> {
+        match event {
+            BehaviourEvent::Kad(e) => Ok(chat_logic::ToSwarm::Kad(e)),
+            BehaviourEvent::Rpc(e) => Ok(chat_logic::ToSwarm::Rpc(e)),
+            _ => Err(event),
+        }
+    }
+}
+
+impl From<chat_logic::ToSwarm> for BehaviourEvent {
+    fn from(value: chat_logic::ToSwarm) -> Self {
+        match value {
+            chat_logic::ToSwarm::Kad(e) => BehaviourEvent::Kad(e),
+            chat_logic::ToSwarm::Rpc(e) => BehaviourEvent::Rpc(e),
         }
     }
 }

@@ -21,12 +21,12 @@ impl crate::Handler for SearchPeers {
     type Response<'a> = Vec<PeerId>;
     type Topic = Infallible;
 
-    fn spawn(
-        context: &mut Self::Context,
-        request: &Self::Request<'_>,
+    fn spawn<'a>(
+        context: crate::PassedContext<'a, Self>,
+        request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
-    ) -> Result<HandlerResult<'static, Self>, Self> {
+    ) -> Result<HandlerResult<'a, Self>, Self> {
         Err(Self {
             query: context.get_closest_peers(request.0.to_vec()),
             peers: Vec::new(),

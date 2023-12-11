@@ -1,7 +1,6 @@
 use {
     crate::{
-        advance_nonce, impls::storage::replicate, ChatName, HandlerResult, Identity, Nonce, Proof,
-        Storage,
+        advance_nonce, ChatName, HandlerResult, Identity, Nonce, PassedContext, Proof, Storage,
     },
     component_utils::Reminder,
     std::collections::VecDeque,
@@ -25,10 +24,10 @@ impl crate::SyncHandler for CreateChat {
     type Topic = ChatName;
 
     fn execute<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         &(identiy, name): &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
-        meta: crate::RequestMeta,
+        _: crate::RequestMeta,
     ) -> HandlerResult<'a, Self> {
         let chat_entry = context.store_mut().chats.entry(name);
         crate::ensure!(
@@ -37,9 +36,12 @@ impl crate::SyncHandler for CreateChat {
         );
 
         entry.insert(Chat::new(identiy));
-        replicate::<Self>(context, &name, &(identiy, name), meta);
 
         Ok(())
+    }
+
+    fn extract_topic(request: &Self::Request<'_>) -> Option<Self::Topic> {
+        Some(request.1)
     }
 }
 
@@ -59,10 +61,10 @@ impl crate::SyncHandler for AddUser {
     type Topic = ChatName;
 
     fn execute<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         &(identiy, name, proof): &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
-        meta: crate::RequestMeta,
+        _: crate::RequestMeta,
     ) -> HandlerResult<'a, Self> {
         ensure!(proof.verify_chat(name), AddUserError::InvalidProof);
 
@@ -90,9 +92,12 @@ impl crate::SyncHandler for AddUser {
         );
 
         chat.members.push(Member::new(identiy));
-        replicate::<Self>(context, &name, &(identiy, name, proof), meta);
 
         Ok(())
+    }
+
+    fn extract_topic(request: &Self::Request<'_>) -> Option<Self::Topic> {
+        Some(request.1)
     }
 }
 
@@ -117,10 +122,10 @@ impl crate::SyncHandler for SendMessage {
     type Topic = ChatName;
 
     fn execute<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         &(name, proof, message): &Self::Request<'a>,
         events: &mut crate::EventDispatch<Self>,
-        meta: crate::RequestMeta,
+        _: crate::RequestMeta,
     ) -> HandlerResult<'a, Self> {
         ensure!(proof.verify_chat(name), SendMessageError::InvalidProof);
 
@@ -148,10 +153,13 @@ impl crate::SyncHandler for SendMessage {
         );
 
         chat.messages.push(message.0.iter().copied());
-        replicate::<Self>(context, &name, &(name, proof, message), meta);
         events.push(name, &(proof, message));
 
         Ok(())
+    }
+
+    fn extract_topic(request: &Self::Request<'_>) -> Option<Self::Topic> {
+        Some(request.0)
     }
 }
 
@@ -175,7 +183,7 @@ impl crate::SyncHandler for FetchMessages {
     type Topic = ChatName;
 
     fn execute<'a>(
-        context: &'a mut Self::Context,
+        context: PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,

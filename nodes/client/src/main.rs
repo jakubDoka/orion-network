@@ -189,12 +189,11 @@ fn App() -> impl IntoView {
     });
     let timeout = store_value(None::<TimeoutHandle>);
     let save_vault = move |keys: UserKeys, mut ed: RequestDispatch<Server>| {
-        let identity = keys.identity_hash();
         let mut vault_bytes = serialized_vault.get_untracked();
         let proof = state.next_profile_proof().expect("logged in");
         crypto::encrypt(&mut vault_bytes, keys.vault);
         handled_spawn_local("saving vault", async move {
-            ed.dispatch::<SetVault>(identity, (proof, Reminder(&vault_bytes)))
+            ed.dispatch::<SetVault>((proof, Reminder(&vault_bytes)))
                 .await
                 .context("setting vault")?;
             log::debug!("saved vault");
@@ -236,7 +235,7 @@ fn App() -> impl IntoView {
             .map(StoredUserIdentity::from_bytes)
             .context("user not found")?;
         let pf = dispatch
-            .dispatch::<FetchProfile>(None, identity_hashes.sign)
+            .dispatch::<FetchProfile>(identity_hashes.sign)
             .await
             .context("fetching profile")?;
 
@@ -259,7 +258,7 @@ fn App() -> impl IntoView {
         .to_bytes();
 
         dispatch
-            .dispatch::<SendMail>(None, (identity_hashes.sign, Reminder(&invite)))
+            .dispatch::<SendMail>((identity_hashes.sign, Reminder(&invite)))
             .await
             .context("sending invite")?;
 
@@ -421,7 +420,7 @@ fn App() -> impl IntoView {
             handled_spawn_local("reading mail", async move {
                 let proof = state.next_profile_proof().unwrap();
                 let inner_dispatch = dispatch_clone.clone();
-                let list = dispatch_clone.dispatch::<ReadMail>(identity, proof).await?;
+                let list = dispatch_clone.dispatch::<ReadMail>(proof).await?;
 
                 let mut new_messages = Vec::new();
                 for mail in chat_logic::unpack_messages_ref(list.0) {
