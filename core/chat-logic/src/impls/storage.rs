@@ -85,33 +85,11 @@ impl libp2p::kad::store::RecordStore for Storage {
     type ProvidedIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::ProviderRecord>>
     where
         Self: 'a;
-    type RecordsIter<'a> = std::vec::IntoIter<Cow<'a, libp2p::kad::Record>>
+    type RecordsIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::Record>>
     where
         Self: 'a;
 
     fn get(&self, k: &libp2p::kad::RecordKey) -> Option<std::borrow::Cow<'_, libp2p::kad::Record>> {
-        if let Some(id) = Identity::decode(&mut k.as_ref()) {
-            if let Some(profile) = self.profiles.get(&id) {
-                return Some(Cow::Owned(libp2p::kad::Record::new(
-                    k.clone(),
-                    FetchProfileResp::from(profile).to_bytes(),
-                )));
-            } else {
-                log::info!("failed to find profile");
-            }
-
-            if let Some(node) = self.nodes.get(&id) {
-                return Some(Cow::Owned(libp2p::kad::Record::new(
-                    k.clone(),
-                    node.into_bytes().to_vec(),
-                )));
-            } else {
-                log::info!("failed to find node");
-            }
-        } else {
-            log::info!("failed to decode record key");
-        }
-
         None
     }
 
@@ -122,24 +100,7 @@ impl libp2p::kad::store::RecordStore for Storage {
     fn remove(&mut self, _: &libp2p::kad::RecordKey) {}
 
     fn records(&self) -> Self::RecordsIter<'_> {
-        self.profiles
-            .iter()
-            .map(|(id, profile)| {
-                Cow::Owned(make_new_replication_record::<CreateAccount, Server>(
-                    id,
-                    &(
-                        Proof {
-                            pk: profile.sign,
-                            nonce: profile.action,
-                            signature: profile.last_sig,
-                        },
-                        profile.enc,
-                        Reminder(&profile.vault),
-                    ),
-                ))
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
+        iter::empty()
     }
 
     fn add_provider(&mut self, _: libp2p::kad::ProviderRecord) -> libp2p::kad::store::Result<()> {
