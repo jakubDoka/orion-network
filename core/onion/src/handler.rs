@@ -1,7 +1,7 @@
 use {
     crate::{
         packet::{self, CONFIRM_PACKET_SIZE},
-        EncryptedStream, KeyPair, PathId, PublicKey, SharedSecret, Stream,
+        EncryptedStream, KeyPair, PathId, PublicKey, SharedSecret,
     },
     crypto::TransmutationCircle,
     futures::{AsyncReadExt, AsyncWriteExt, Future},
@@ -186,6 +186,7 @@ pub enum IncomingOrRequest {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum IncomingOrResponse {
     Incoming(IncomingStream),
     Response(EncryptedStream),

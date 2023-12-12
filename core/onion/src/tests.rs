@@ -119,7 +119,7 @@ async fn test_routing() {
     let mut swarms = setup_nodes([8800, 8801, 8802, 8803]);
     let (mut input, mut output) = open_path(&mut swarms).await;
 
-    input.write(&mut b"hello".to_vec());
+    input.write_bytes(b"hello").unwrap();
     let r = loop {
         let events = futures::future::select_all(swarms.iter_mut().map(|s| s.next()));
         let e = futures::select! {
@@ -144,7 +144,7 @@ async fn test_timeout() {
 
     let (mut input, mut output) = open_path(&mut swarms).await;
 
-    input.write(&mut b"hello".to_vec());
+    input.write(b"hello").unwrap();
 
     let mut disconnected = 0;
     let mut timeout = Box::pin(tokio::time::sleep(CONNECTION_TIMEOUT * 10));
@@ -155,8 +155,8 @@ async fn test_timeout() {
             (e, i, ..) = events.fuse() => (e, i),
             _ = Pin::new(&mut timeout).fuse() => panic!("{disconnected} nodes disconnected"),
             r = output.select_next_some() => {
-                let mut msg = r.unwrap();
-                input.write(&mut msg);
+                let msg = r.unwrap();
+                input.write(&msg).unwrap();
                 continue;
             },
         };
@@ -293,7 +293,7 @@ async fn settle_down() {
         streams: &mut SelectAll<AsocStream<PathId, EncryptedStream>>,
         counter: &mut usize,
     ) {
-        let Ok(mut packet) = packet.inspect_err(|e| log::error!("closing stream with error: {e}"))
+        let Ok(packet) = packet.inspect_err(|e| log::error!("closing stream with error: {e}"))
         else {
             return;
         };
@@ -304,7 +304,7 @@ async fn settle_down() {
         }
 
         let stream = streams.iter_mut().find(|s| s.assoc == id).unwrap();
-        stream.inner.write(&mut packet);
+        stream.inner.write_bytes(&packet).unwrap();
     }
 
     tokio::spawn(async move {
@@ -472,7 +472,7 @@ async fn settle_down() {
                     }
                     SE::Behaviour(BE::Onion(OE::OutboundStream(stream, id, ..))) => {
                         if let Ok(mut stream) = stream {
-                            stream.write(&mut b"hello".to_vec());
+                            stream.write_bytes(b"hello").unwrap();
                             streams.push(AsocStream::new(stream, id));
                         } else {
                             log::error!("failed to open stream {}", stream.unwrap_err());

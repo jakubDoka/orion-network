@@ -436,10 +436,9 @@ impl<S> RequestDispatch<S> {
     {
         let id = CallId::new();
 
-        self.buffer.clear();
-        (S::PREFIX, id, request).encode(&mut self.buffer);
-
-        stream.write(&mut self.buffer);
+        stream
+            .write(&(S::PREFIX, id, request))
+            .ok_or(RequestError::ServerIsOwervhelmed)?;
 
         self.buffer = stream
             .next()
@@ -448,19 +447,6 @@ impl<S> RequestDispatch<S> {
             .map_err(|_| RequestError::ChannelClosed)?;
 
         Self::parse_response::<H>(&self.buffer)
-    }
-
-    pub fn build_packet<H: Handler>(request: &H::Request<'_>, buffer: &mut Vec<u8>) -> CallId
-    where
-        S: Dispatches<H>,
-    {
-        let id = CallId::new();
-
-        buffer.clear();
-        buffer.push(S::PREFIX);
-        id.encode(buffer);
-        request.encode(buffer);
-        id
     }
 
     pub fn parse_response<H: Handler>(response: &[u8]) -> Result<H::Response<'_>, RequestError<H>>
@@ -483,13 +469,9 @@ impl<S> RequestDispatch<S> {
         let mut mapping = HashMap::new();
         for request in requests {
             let id = CallId::new();
-
-            self.buffer.clear();
-            self.buffer.push(S::PREFIX);
-            id.encode(&mut self.buffer);
-            request.encode(&mut self.buffer);
-
-            stream.write(&mut self.buffer);
+            stream
+                .write(&(S::PREFIX, id, &request))
+                .ok_or(RequestError::ServerIsOwervhelmed)?;
             mapping.insert(id, request);
         }
 
@@ -616,6 +598,7 @@ pub type RawResponse = Vec<u8>;
 pub enum RequestError<H: Handler> {
     InvalidResponse,
     ChannelClosed,
+    ServerIsOwervhelmed,
     Handler(H::Error),
 }
 
@@ -624,6 +607,7 @@ impl<H: Handler> std::fmt::Debug for RequestError<H> {
         match self {
             RequestError::InvalidResponse => write!(f, "invalid response"),
             RequestError::ChannelClosed => write!(f, "channel closed"),
+            RequestError::ServerIsOwervhelmed => write!(f, "server is owervhelmed"),
             RequestError::Handler(e) => write!(f, "handler error: {}", e),
         }
     }

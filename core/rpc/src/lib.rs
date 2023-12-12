@@ -103,12 +103,16 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
-    pub fn request(&mut self, peer: PeerId, packet: impl AsRef<[u8]> + Into<Vec<u8>>) -> CallId {
+    pub fn request(
+        &mut self,
+        peer: PeerId,
+        packet: impl AsRef<[u8]> + Into<Vec<u8>>,
+    ) -> io::Result<CallId> {
         let call = CallId::new();
         if let Some(stream) = self.streams.iter_mut().find(|s| s.peer == peer) {
             self.ongoing_requests
                 .push((call, peer, std::time::Instant::now()));
-            stream.write(call, packet.as_ref(), true);
+            stream.write(call, packet.as_ref(), true)?;
         } else {
             self.pending_requests
                 .push((peer, call, packet.into(), std::time::Instant::now()));
@@ -116,7 +120,7 @@ impl Behaviour {
                 self.pending_dials.push(peer);
             }
         }
-        call
+        Ok(call)
     }
 
     pub fn respond(
@@ -126,7 +130,7 @@ impl Behaviour {
         payload: impl AsRef<[u8]> + Into<Vec<u8>>,
     ) {
         if let Some(stream) = self.streams.iter_mut().find(|s| peer == s.peer) {
-            stream.write(call, payload.as_ref(), false);
+            _ = stream.write(call, payload.as_ref(), false);
         } else {
             self.pending_repsonses.push((peer, call, payload.into()));
             if !self.ongoing_dials.contains(&peer) && !self.pending_dials.contains(&peer) {
@@ -233,12 +237,18 @@ impl NetworkBehaviour for Behaviour {
                 for (peer, call, packet, rt) in
                     self.pending_requests.extract_if(|(p, ..)| *p == peer_id)
                 {
-                    stream.write(call, &packet, true);
-                    self.ongoing_requests.push((call, peer, rt));
+                    if let Err(e) = stream.write(call, &packet, true) {
+                        self.events.push(Event::Response(Err((
+                            vec![call],
+                            StreamUpgradeError::Io(e),
+                        ))));
+                    } else {
+                        self.ongoing_requests.push((call, peer, rt));
+                    }
                 }
                 for (_, call, packet) in self.pending_repsonses.extract_if(|(p, ..)| *p == peer_id)
                 {
-                    stream.write(call, &packet, false);
+                    _ = stream.write(call, &packet, false);
                 }
                 self.streams.push(stream);
             }
@@ -517,7 +527,7 @@ mod test {
             while total_requests < 1000000 {
                 if max_pending_requests > pending_request_count {
                     let peer_id = all_peers[iteration % all_peers.len()];
-                    swarm.behaviour_mut().rpc.request(peer_id, [0, 0]);
+                    swarm.behaviour_mut().rpc.request(peer_id, [0, 0]).unwrap();
                     pending_request_count += 1;
                     total_requests += 1;
                 }

@@ -9,13 +9,15 @@ use {
         aead::{generic_array::GenericArray, OsRng},
         AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
     },
-    component_utils::{ClosingStream, Codec, FindAndRemove, PacketReader, PacketWriter, Reminder},
+    component_utils::{
+        encode_len, ClosingStream, Codec, FindAndRemove, PacketReader, PacketWriter, Reminder,
+    },
     core::fmt,
     futures::{
         stream::{FusedStream, FuturesUnordered},
         AsyncRead, AsyncWrite, StreamExt,
     },
-    instant::{Duration, Instant},
+    instant::Duration,
     libp2p::{
         identity::PeerId,
         swarm::{
@@ -198,7 +200,7 @@ impl Behaviour {
     /// Must be called when a peer cannot be found, otherwise a pending connection information is
     /// leaked for each `ConnectionRequest`.
     pub fn report_unreachable(&mut self, peer: PeerId) {
-        for mut p in self.pending_connections.extract_if(|p| p.meta.to == peer) {
+        for p in self.pending_connections.extract_if(|p| p.meta.to == peer) {
             self.error_streams
                 .push(ClosingStream::new(p.stream, MISSING_PEER));
         }
@@ -403,8 +405,30 @@ impl EncryptedStream {
     #[must_use = "write could have failed"]
     pub fn write<'a>(&mut self, data: &impl Codec<'a>) -> Option<()> {
         let aes = Aes256Gcm::new(GenericArray::from_slice(&self.key));
-        let mut nonce = Aes256Gcm::generate_nonce(OsRng);
-        todo!()
+        let nonce = Aes256Gcm::generate_nonce(OsRng);
+        let snapshot = self.writer.take_snapshot();
+
+        let mut handle_write = || {
+            let reserved = self.writer.write_with_range(&[0u8; 4])?;
+            let raw = self.writer.write(data)?;
+            let tag = aes
+                .encrypt_in_place_detached(&nonce, ASOC_DATA, raw)
+                .expect("no");
+            let full_len = raw.len() + tag.len() + nonce.len();
+            self.write_bytes(&tag)?;
+            self.write_bytes(&nonce)?;
+            self.writer
+                .slice(reserved)
+                .copy_from_slice(&encode_len(full_len));
+            Some(())
+        };
+
+        if handle_write().is_none() {
+            self.writer.revert(snapshot);
+            return None;
+        }
+
+        Some(())
     }
 
     pub fn poll(&mut self, cx: &mut std::task::Context<'_>) -> Poll<io::Result<&mut [u8]>> {
@@ -470,10 +494,6 @@ impl Stream {
         }
     }
 
-    pub fn stream(&mut self) -> &mut libp2p::swarm::Stream {
-        &mut self.inner
-    }
-
     fn forward_from(
         &mut self,
         from: &mut libp2p::swarm::Stream,
@@ -512,13 +532,6 @@ impl Stream {
                 }
             }
         }
-    }
-
-    fn into_closing_stream(
-        self,
-        error: u8,
-    ) -> component_utils::ClosingStream<libp2p::swarm::Stream> {
-        component_utils::ClosingStream::new(self.inner, error)
     }
 }
 

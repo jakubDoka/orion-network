@@ -317,7 +317,9 @@ impl Miner {
                                 log::info!("client did not stay for response");
                                 continue;
                             };
-                            send_response(resp, &mut stream.inner, &mut self.buffer);
+                            if stream.inner.write(&resp).is_none() {
+                                log::info!("client cannot process the late response");
+                            }
                         }
                         Err(pid) => {
                             log::info!("sending response to peer: {:?}", self.buffer);
@@ -373,7 +375,9 @@ impl Miner {
                 request_id: rid,
                 response: Reminder(packet),
             };
-            send_response(resp, &mut stream.inner, &mut self.buffer);
+            if stream.inner.write(&resp).is_none() {
+                log::info!("client cannot process the response");
+            }
         }
 
         self.dispatch_events();
@@ -394,7 +398,9 @@ impl Miner {
                 let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == target) else {
                     continue;
                 };
-                send_response(resp, &mut stream.inner, &mut self.buffer);
+                if stream.inner.write(&resp).is_none() {
+                    log::info!("clien cannot process the event");
+                }
             }
         }
     }
@@ -407,16 +413,6 @@ impl Miner {
             };
         }
     }
-}
-
-pub fn send_response<'a, T: Codec<'a>>(
-    resp: T,
-    stream: &mut EncryptedStream,
-    buffer: &mut Vec<u8>,
-) {
-    buffer.clear();
-    resp.encode(buffer);
-    stream.write(buffer);
 }
 
 type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;

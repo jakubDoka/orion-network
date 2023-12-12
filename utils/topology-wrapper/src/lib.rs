@@ -344,7 +344,7 @@ pub mod muxer {
 pub mod report {
     use {
         crate::{EventReceiver, ExtraEvent},
-        component_utils::{encode_len, Codec, PacketWriter},
+        component_utils::PacketWriter,
         libp2p::{
             core::UpgradeInfo,
             futures::{stream::FuturesUnordered, StreamExt},

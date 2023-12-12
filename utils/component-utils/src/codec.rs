@@ -540,7 +540,7 @@ impl<'a, T: Codec<'a>> Codec<'a> for Option<T> {
     fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
         match self {
             Some(t) => {
-                true.encode(buffer);
+                true.encode(buffer)?;
                 t.encode(buffer)
             }
             None => false.encode(buffer),

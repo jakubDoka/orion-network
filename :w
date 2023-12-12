@@ -1,9 +1,11 @@
+use chat_logic::Dispatches;
+
 use {
     crate::{BootPhase, UserKeys},
     anyhow::Context,
     chat_logic::{
-        CallId, ChatName, CreateAccount, DispatchResponse, Dispatches, FetchVault, Identity, Nonce,
-        Proof, RawChatName, RawRequest, RawResponse, RequestDispatch, RequestInit, RequestStream,
+        CallId, ChatName, CreateAccount, DispatchResponse, FetchVault, Identity, Nonce, Proof,
+        RawChatName, RawRequest, RawResponse, RequestDispatch, RequestInit, RequestStream,
         SearchPeers, Server, SubscriptionInit, SubscriptionMessage,
     },
     component_utils::{
@@ -560,6 +562,7 @@ impl Node {
     }
 
     fn handle_topic_search(&mut self, command: RequestInit) {
+        let mut buf = Vec::new();
         let sub = self.subscriptions.iter_mut().next().unwrap();
         let search_key = command.topic();
         if let Some((_, l)) = self
@@ -570,19 +573,12 @@ impl Node {
             l.push(command);
             return;
         }
-        let id = CallId::new();
-        sub.stream
-            .write(&(
-                <Server as Dispatches<SearchPeers>>::PREFIX,
-                id,
-                Reminder(search_key),
-            ))
-            .unwrap();
+        sub.stream.write(&(<Server as Dispatches<SearchPeers>::PREFIX, id, Reminder(search_key)));
         log::debug!("searching for {:?}", search_key);
         self.pending_topic_search.insert(Ok(id), vec![command]);
     }
 
-    fn handle_request(&mut self, req: RawRequest) {
+    fn handle_request(&mut self, mut req: RawRequest) {
         let Some(sub) = self
             .subscriptions
             .iter_mut()
@@ -594,12 +590,12 @@ impl Node {
 
         assert!(!req.payload.is_empty());
 
-        sub.stream.write_bytes(&req.payload).unwrap();
+        sub.stream.write(&mut req.payload);
         self.pending_requests.insert(req.id, req.channel);
         log::debug!("request sent, {:?}", req.id);
     }
 
-    fn handle_subscription_request(&mut self, sub: SubscriptionInit) {
+    fn handle_subscription_request(&mut self, mut sub: SubscriptionInit) {
         let Some(subs) = self
             .subscriptions
             .iter_mut()
@@ -611,7 +607,7 @@ impl Node {
 
         assert!(!sub.payload.is_empty());
 
-        subs.stream.write_bytes(&sub.payload).unwrap();
+        subs.stream.write(&mut sub.payload);
         self.active_subs.insert(sub.request_id, sub.channel);
         log::debug!("subscription request send, {:?}", sub.request_id);
     }

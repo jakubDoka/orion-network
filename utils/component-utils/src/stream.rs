@@ -2,7 +2,7 @@ use {
     crate::{decode_len, encode_len, Buffer, Codec, Reminder},
     core::ops::Range,
     futures::Future,
-    std::{collections::VecDeque, io, pin::Pin, task::Poll},
+    std::{io, pin::Pin, task::Poll},
 };
 
 #[derive(Debug)]

@@ -120,7 +120,7 @@ where
 
                 let calls = peers
                     .iter()
-                    .map(|&peer| context.rpc.request(peer, self.request.as_slice()))
+                    .filter_map(|&peer| context.rpc.request(peer, self.request.as_slice()).ok())
                     .collect();
                 Err(Self {
                     stage: Stage::SendingRpcs {
