@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![feature(array_chunks)]
 #![feature(macro_metavar_expr)]
+#![feature(slice_take)]
 
 #[macro_export]
 macro_rules! decl_stream_protocol {
@@ -72,8 +73,8 @@ macro_rules! gen_unique_id {
         }
 
         impl $crate::Codec<'_> for $ty {
-            fn encode(&self, buffer: &mut Vec<u8>) {
-                self.0.encode(buffer);
+            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
+                self.0.encode(buffer)
             }
 
             fn decode(buffer: &mut &[u8]) -> Option<Self> {
@@ -99,11 +100,11 @@ macro_rules! gen_simple_error {
 
 
         impl<'a> $crate::Codec<'a> for $name {
-            fn encode(&self, buffer: &mut Vec<u8>) {
+            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
                 match self {$(
                     Self::$variant$((val) ${ignore(ty)})? => {
-                        buffer.push(${index()});
-                        $(<$ty as $crate::Codec>::encode(val, buffer);)?
+                        buffer.push(${index()})
+                        $(?;<$ty as $crate::Codec>::encode(val, buffer))?
                     }
                 )*}
             }
@@ -164,12 +165,22 @@ pub fn array_to_arrstr<const SIZE: usize>(arr: [u8; SIZE]) -> Option<arrayvec::A
 
 pub trait FindAndRemove<T> {
     fn find_and_remove(&mut self, q: impl FnMut(&T) -> bool) -> Option<T>;
+    fn find_and_remove_value(&mut self, value: &T) -> Option<T>
+    where
+        T: PartialEq;
 }
 
 #[cfg(feature = "std")]
 impl<T> FindAndRemove<T> for Vec<T> {
     fn find_and_remove(&mut self, q: impl FnMut(&T) -> bool) -> Option<T> {
         Some(self.swap_remove(self.iter().position(q)?))
+    }
+
+    fn find_and_remove_value(&mut self, value: &T) -> Option<T>
+    where
+        T: PartialEq,
+    {
+        self.find_and_remove(|x| x == value)
     }
 }
 

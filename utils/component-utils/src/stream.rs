@@ -1,5 +1,6 @@
 use {
-    crate::{decode_len, encode_len, Codec},
+    crate::{decode_len, encode_len, Buffer, Codec, Reminder},
+    core::ops::Range,
     futures::Future,
     std::{collections::VecDeque, io, pin::Pin, task::Poll},
 };
@@ -71,7 +72,7 @@ impl<K: Eq, V> LinearMap<K, V> {
 }
 
 impl<'a, K: Codec<'a>, V: Codec<'a>> Codec<'a> for LinearMap<K, V> {
-    fn encode(&self, buf: &mut Vec<u8>) {
+    fn encode(&self, buf: &mut impl Buffer) -> Option<()> {
         self.values.encode(buf)
     }
 
@@ -153,11 +154,14 @@ impl PacketReader {
         cx: &mut core::task::Context<'_>,
         stream: &mut (impl futures::AsyncRead + Unpin),
     ) -> Poll<Result<&'a mut [u8], io::Error>> {
+        log::info!("poll_packet");
         futures::ready!(self.poll_read_exact(cx, stream, PACKET_SIZE_WIDTH))?;
 
         let packet_size = decode_len(self.read_buffer[..PACKET_SIZE_WIDTH].try_into().unwrap());
+        log::info!("packet_size: {}", packet_size);
 
         futures::ready!(self.poll_read_exact(cx, stream, packet_size + PACKET_SIZE_WIDTH))?;
+        log::info!("read_offset: {}", self.read_offset);
 
         let packet = &mut self.read_buffer[PACKET_SIZE_WIDTH..packet_size + PACKET_SIZE_WIDTH];
         self.read_offset = 0;
@@ -165,65 +169,105 @@ impl PacketReader {
     }
 }
 
+struct NoCapOverflow<'a> {
+    vec: &'a mut Vec<u8>,
+}
+
+impl Buffer for NoCapOverflow<'_> {
+    fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()> {
+        if self.vec.len() + slice.len() > self.vec.capacity() {
+            return None;
+        }
+        self.vec.extend_from_slice(slice);
+        Some(())
+    }
+
+    fn push(&mut self, byte: u8) -> Option<()> {
+        if self.vec.len() == self.vec.capacity() {
+            return None;
+        }
+        self.vec.push(byte);
+        Some(())
+    }
+}
+
 #[derive(Debug)]
 pub struct PacketWriter {
-    queue: VecDeque<u8>,
+    buffer: Vec<u8>,
+    start: usize,
+    end: usize,
     waker: Option<core::task::Waker>,
 }
 
 impl PacketWriter {
     pub fn new(cap: usize) -> Self {
         Self {
-            queue: VecDeque::with_capacity(cap),
+            buffer: vec![0; cap],
+            start: 0,
+            end: 0,
             waker: None,
         }
     }
 
-    pub fn packet<T: IntoIterator>(&mut self, values: T) -> bool
-    where
-        VecDeque<u8>: Extend<T::Item>,
-        VecDeque<u8>: Extend<u8>,
-    {
-        let Some(free_space) =
-            (self.queue.capacity() - self.queue.len()).checked_sub(PACKET_SIZE_WIDTH)
-        else {
-            return false;
-        };
-        let prev_len = self.queue.len();
-        self.queue.extend([0u8; 4]);
-
-        let mut iter = values.into_iter();
-        self.queue.extend(iter.by_ref().take(free_space));
-
-        if iter.next().is_some() {
-            self.queue.truncate(prev_len);
-            return false;
-        }
-
-        let packet_size = self.queue.len() - prev_len - PACKET_SIZE_WIDTH;
-        assert!(packet_size != 0);
-        self.queue
-            .iter_mut()
-            .skip(prev_len)
-            .zip(encode_len(packet_size))
-            .for_each(|(a, b)| *a = b);
-
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-
-        true
+    pub fn write_packet<'a>(&mut self, message: &impl Codec<'a>) -> Option<&mut [u8]> {
+        let reserved = self.write_with_range(&[0u8; PACKET_SIZE_WIDTH])?;
+        let written = self.write_with_range(message)?;
+        // SAFETY: we do not reallocate the buffer, ever
+        self.slice(reserved)
+            .copy_from_slice(&encode_len(written.len()));
+        Some(self.slice(written))
     }
 
-    pub fn write(&mut self, buf: &[u8]) -> bool {
-        let fits = self.queue.capacity() - self.queue.len() >= buf.len() + PACKET_SIZE_WIDTH;
-        if fits {
-            if let Some(waker) = self.waker.take() {
-                waker.wake();
-            }
-            self.queue.extend(buf);
+    pub fn slice(&mut self, range: Range<usize>) -> &mut [u8] {
+        &mut self.buffer[range]
+    }
+
+    pub fn write_with_range<'a>(&mut self, message: &impl Codec<'a>) -> Option<Range<usize>> {
+        let res = self.write(message)?.len();
+        Some(self.end - res..self.end)
+    }
+
+    #[must_use = "handle the buffer overflow"]
+    pub fn write<'a>(&mut self, buf: &impl Codec<'a>) -> Option<&mut [u8]> {
+        let free_cap = self.buffer.capacity() - self.buffer.len();
+        let mut space = self.in_buffer_space();
+        if free_cap < space.len() {
+            let prev_ptr = space.as_mut_ptr();
+            let prev_len = space.len();
+            buf.encode(&mut space)?;
+            let writtern = prev_len - space.len();
+            self.end += writtern;
+            self.end -= self.buffer.len() * (self.end >= self.buffer.len()) as usize;
+            Some(unsafe { core::slice::from_raw_parts_mut(prev_ptr, writtern) })
+        } else {
+            let prev_len = self.buffer.len();
+            buf.encode(&mut NoCapOverflow {
+                vec: &mut self.buffer,
+            })?;
+            let writtern = self.buffer.len() - prev_len;
+            self.end += writtern;
+            Some(&mut self.buffer[prev_len..])
         }
-        fits
+    }
+
+    #[must_use = "handle the buffer overflow"]
+    pub fn write_bytes(&mut self, buf: &[u8]) -> Option<&mut [u8]> {
+        self.write(&Reminder(buf))
+    }
+
+    /// this can panic if poll was called inbetween, the sole purpose is to revert writes
+    pub fn revert(&mut self, snapshot: PacketWriterSnapshot) {
+        self.buffer.truncate(snapshot.len);
+        self.start = snapshot.start;
+        self.end = snapshot.end;
+    }
+
+    pub fn take_snapshot(&self) -> PacketWriterSnapshot {
+        PacketWriterSnapshot {
+            len: self.buffer.len(),
+            start: self.start,
+            end: self.end,
+        }
     }
 
     pub fn poll(
@@ -231,10 +275,14 @@ impl PacketWriter {
         cx: &mut core::task::Context<'_>,
         dest: &mut (impl futures::AsyncWrite + Unpin),
     ) -> Poll<Result<(), io::Error>> {
-        crate::set_waker(&mut self.waker, cx.waker());
         loop {
-            let (left, riht) = self.queue.as_slices();
+            let (left, riht) = self.writable_parts();
             let Some(some_bytes) = [left, riht].into_iter().find(|s| !s.is_empty()) else {
+                crate::set_waker(&mut self.waker, cx.waker());
+                if self.start == self.end {
+                    self.start = 0;
+                    self.end = 0;
+                }
                 return Poll::Ready(Ok(()));
             };
 
@@ -242,23 +290,48 @@ impl PacketWriter {
             if n == 0 {
                 return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
             }
-            self.queue.drain(..n);
+            self.start += n;
+            self.start -= self.buffer.len() * (self.start >= self.buffer.len()) as usize;
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.queue.is_empty()
+        self.buffer.is_empty()
     }
+
+    fn writable_parts(&mut self) -> (&mut [u8], &mut [u8]) {
+        if self.start > self.end {
+            let (rest, second) = self.buffer.split_at_mut(self.start);
+            let (first, _) = rest.split_at_mut(self.end);
+            (first, second)
+        } else {
+            (&mut self.buffer[self.start..self.end], &mut [])
+        }
+    }
+
+    fn in_buffer_space(&mut self) -> &mut [u8] {
+        if self.start > self.end {
+            &mut self.buffer[self.end..self.start]
+        } else {
+            &mut self.buffer[..self.start]
+        }
+    }
+}
+
+pub struct PacketWriterSnapshot {
+    len: usize,
+    start: usize,
+    end: usize,
 }
 
 pub struct ClosingStream<S> {
     stream: S,
-    writer: PacketWriter,
+    error: u8,
 }
 
 impl<S> ClosingStream<S> {
-    pub fn new(stream: S, writer: PacketWriter) -> Self {
-        Self { stream, writer }
+    pub fn new(stream: S, error: u8) -> Self {
+        Self { stream, error }
     }
 }
 
@@ -267,7 +340,9 @@ impl<S: futures::AsyncWrite + Unpin> Future for ClosingStream<S> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
         let this = &mut *self;
-        futures::ready!(this.writer.poll(cx, &mut this.stream))?;
-        Pin::new(&mut this.stream).poll_close(cx)
+        match futures::ready!(Pin::new(&mut this.stream).poll_write(cx, &[this.error]))? {
+            0 => Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
+            _ => Poll::Ready(Ok(())),
+        }
     }
 }

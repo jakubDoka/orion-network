@@ -356,12 +356,11 @@ impl Node {
             .await
             .context("searching profile replicators")?;
 
-        set_state!(ProfileLoad);
-
         let (mut profile_stream, profile_stream_id, profile_stream_peer) =
             if members.contains(&init_stream_per) {
                 (init_stream, init_stream_id, init_stream_per)
             } else {
+                set_state!(ProfileOpen);
                 let pick = members.into_iter().choose(&mut rand::thread_rng()).unwrap();
                 let route = pick_route(&swarm.behaviour_mut().key_share.keys, pick);
                 let pid = swarm.behaviour_mut().onion.open_path(route)?;
@@ -377,6 +376,7 @@ impl Node {
                     }
                 }
             };
+        set_state!(VaultLoad);
         let (mut account_nonce, Reminder(vault)) = match request_dispatch
             .dispatch_direct::<FetchVault>(&mut profile_stream, &profile_hash.sign)
             .await
@@ -385,6 +385,7 @@ impl Node {
             Err(_) => Default::default(),
         };
         let vault = if vault.is_empty() && account_nonce == 0 {
+            set_state!(ProfileCreate);
             let proof = Proof::for_profile(&keys.sign, &mut account_nonce);
             request_dispatch
                 .dispatch_direct::<CreateAccount>(

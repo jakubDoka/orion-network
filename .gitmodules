@@ -7,9 +7,3 @@
 [submodule "forked/substrate-node-template"]
 	path = forked/substrate-node-template
 	url = git@github.com:jakubDoka/minimal-contract-chain.git
-[submodule "forked/rust-libp2p"]
-	path = forked/rust-libp2p
-	url = /forked/rust-libp2p
-[submodule "forked/rust-yamux"]
-	path = forked/rust-yamux
-	url = /forked/rust-yamux

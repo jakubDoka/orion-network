@@ -9,11 +9,11 @@ use {
         aead::{generic_array::GenericArray, OsRng},
         AeadCore, AeadInPlace, Aes256Gcm, KeyInit,
     },
-    component_utils::{FindAndRemove, PacketReader},
+    component_utils::{ClosingStream, Codec, FindAndRemove, PacketReader, PacketWriter, Reminder},
     core::fmt,
     futures::{
         stream::{FusedStream, FuturesUnordered},
-        AsyncRead, StreamExt,
+        AsyncRead, AsyncWrite, StreamExt,
     },
     instant::{Duration, Instant},
     libp2p::{
@@ -128,9 +128,8 @@ impl Behaviour {
                 return;
             }
 
-            let mut stream = is.stream;
-            stream.write_error(packet::OCCUPIED_PEER);
-            self.error_streams.push(stream.into_closing_stream());
+            self.error_streams
+                .push(ClosingStream::new(is.stream, packet::OCCUPIED_PEER));
             return;
         }
 
@@ -200,8 +199,8 @@ impl Behaviour {
     /// leaked for each `ConnectionRequest`.
     pub fn report_unreachable(&mut self, peer: PeerId) {
         for mut p in self.pending_connections.extract_if(|p| p.meta.to == peer) {
-            p.stream.write_error(MISSING_PEER);
-            self.error_streams.push(p.stream.into_closing_stream());
+            self.error_streams
+                .push(ClosingStream::new(p.stream, MISSING_PEER));
         }
 
         for r in self.pending_requests.extract_if(|p| p.to == peer) {
@@ -301,8 +300,12 @@ impl NetworkBehaviour for Behaviour {
                     log::error!("no pending connection for path id {}", peer_id);
                     return;
                 };
-                self.router
-                    .push(Channel::new(from.stream, to, self.buffer.clone()))
+                self.router.push(Channel::new(
+                    from.stream,
+                    to,
+                    self.config.buffer_cap,
+                    self.buffer.clone(),
+                ));
             }
             HTB::IncomingStream(IncomingOrResponse::Incoming(s)) => self.push_incoming_stream(s),
             HTB::IncomingStream(IncomingOrResponse::Response(s)) => {
@@ -376,31 +379,32 @@ component_utils::gen_unique_id!(pub PathId);
 
 #[derive(Debug)]
 pub struct EncryptedStream {
-    inner: Option<Stream>,
+    inner: Option<libp2p::Stream>,
     key: SharedSecret,
     reader: PacketReader,
+    writer: PacketWriter,
 }
 
 impl EncryptedStream {
-    pub(crate) fn new(inner: Stream, key: SharedSecret) -> Self {
+    pub(crate) fn new(inner: libp2p::Stream, key: SharedSecret, cap: usize) -> Self {
         Self {
             inner: Some(inner),
             key,
             reader: Default::default(),
+            writer: PacketWriter::new(cap),
         }
     }
 
-    pub fn write(&mut self, data: &mut [u8]) -> Option<()> {
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        let tag = Aes256Gcm::new(&GenericArray::from(self.key))
-            .encrypt_in_place_detached(&nonce, ASOC_DATA, data)
-            .unwrap();
+    #[must_use = "write could have failed"]
+    pub fn write_bytes(&mut self, data: &[u8]) -> Option<()> {
+        self.write(&Reminder(data))
+    }
 
-        self.inner
-            .as_mut()?
-            .writer
-            .packet(data.iter().cloned().chain(tag).chain(nonce))
-            .then_some(())
+    #[must_use = "write could have failed"]
+    pub fn write<'a>(&mut self, data: &impl Codec<'a>) -> Option<()> {
+        let aes = Aes256Gcm::new(GenericArray::from_slice(&self.key));
+        let mut nonce = Aes256Gcm::generate_nonce(OsRng);
+        todo!()
     }
 
     pub fn poll(&mut self, cx: &mut std::task::Context<'_>) -> Poll<io::Result<&mut [u8]>> {
@@ -408,12 +412,12 @@ impl EncryptedStream {
             return Poll::Pending;
         };
 
-        if let Poll::Ready(Err(e)) = stream.writer.poll(cx, &mut stream.inner) {
+        if let Poll::Ready(Err(e)) = self.writer.poll(cx, stream) {
             self.inner.take();
             return Poll::Ready(Err(e));
         }
 
-        let read = match futures::ready!(self.reader.poll_packet(cx, &mut stream.inner)) {
+        let read = match futures::ready!(self.reader.poll_packet(cx, stream)) {
             Ok(r) => r,
             Err(err) => {
                 self.inner.take();
@@ -451,16 +455,18 @@ impl futures::stream::FusedStream for EncryptedStream {
 }
 
 #[derive(Debug)]
-pub struct Stream {
-    inner: libp2p::swarm::Stream,
-    writer: component_utils::PacketWriter,
+pub(crate) struct Stream {
+    pub(crate) inner: libp2p::swarm::Stream,
+    pub(crate) poll_cache: Vec<u8>,
+    pub(crate) written: usize,
 }
 
 impl Stream {
     pub(crate) fn new(inner: libp2p::swarm::Stream, cap: usize) -> Self {
         Self {
             inner,
-            writer: component_utils::PacketWriter::new(cap),
+            poll_cache: Vec::with_capacity(cap),
+            written: 0,
         }
     }
 
@@ -468,7 +474,7 @@ impl Stream {
         &mut self.inner
     }
 
-    pub(crate) fn forward_from(
+    fn forward_from(
         &mut self,
         from: &mut libp2p::swarm::Stream,
         temp: &mut [u8],
@@ -476,24 +482,43 @@ impl Stream {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<Infallible, io::Error>> {
         loop {
-            futures::ready!(self.writer.poll(cx, &mut self.inner))?;
-            let n = futures::ready!(Pin::new(&mut *from).poll_read(cx, temp))?;
-            if n == 0 {
-                return Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()));
+            while self.written < self.poll_cache.len() {
+                let w = futures::ready!(
+                    Pin::new(&mut self.inner).poll_write(cx, &self.poll_cache[self.written..])
+                )?;
+                if w == 0 {
+                    return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
+                }
+                self.written += w;
             }
-            *last_packet = Instant::now();
-            if !self.writer.write(&temp[..n]) {
-                return Poll::Ready(Err(io::ErrorKind::InvalidData.into()));
+            self.poll_cache.clear();
+
+            loop {
+                let n = futures::ready!(Pin::new(&mut *from).poll_read(cx, temp))?;
+                if n == 0 {
+                    return Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()));
+                }
+                *last_packet = instant::Instant::now();
+                let w = match Pin::new(&mut self.inner).poll_write(cx, &temp[..n])? {
+                    Poll::Ready(w) => w,
+                    Poll::Pending => 0,
+                };
+                if w == 0 {
+                    return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
+                }
+                if w != n {
+                    self.poll_cache.extend_from_slice(&temp[w..n]);
+                    break;
+                }
             }
         }
     }
 
-    fn write_error(&mut self, bytes: u8) {
-        self.writer.write(&[bytes]);
-    }
-
-    fn into_closing_stream(self) -> component_utils::ClosingStream<libp2p::swarm::Stream> {
-        component_utils::ClosingStream::new(self.inner, self.writer)
+    fn into_closing_stream(
+        self,
+        error: u8,
+    ) -> component_utils::ClosingStream<libp2p::swarm::Stream> {
+        component_utils::ClosingStream::new(self.inner, error)
     }
 }
 
@@ -513,10 +538,15 @@ impl fmt::Debug for Channel {
 }
 
 impl Channel {
-    pub fn new(from: Stream, to: Stream, buffer: Arc<spin::Mutex<[u8; 1 << 16]>>) -> Self {
+    pub fn new(
+        from: libp2p::Stream,
+        to: libp2p::Stream,
+        buffer_cap: usize,
+        buffer: Arc<spin::Mutex<[u8; 1 << 16]>>,
+    ) -> Self {
         Self {
-            from,
-            to,
+            from: Stream::new(from, buffer_cap),
+            to: Stream::new(to, buffer_cap),
             waker: None,
             invalid: false,
             buffer,

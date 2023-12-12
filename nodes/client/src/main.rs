@@ -545,8 +545,12 @@ pub enum BootPhase {
     InitialRoute,
     #[error("searching profile...")]
     ProfileSearch,
-    #[error("loading profile...")]
-    ProfileLoad,
+    #[error("opening route to profile...")]
+    ProfileOpen,
+    #[error("loading vault...")]
+    VaultLoad,
+    #[error("creating new profile...")]
+    ProfileCreate,
     #[error("searching chats...")]
     ChatSearch,
     #[error("loading chats...")]

@@ -330,7 +330,9 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .dispatch::<AddUser>((invitee.sign, chat, proof))
             .await
         {
-            Err(RequestError::Handler(AddUserError::InvalidAction(nonce))) => {
+            Err(RequestError::Handler(chat_logic::ReplicationError::Inner(
+                AddUserError::InvalidAction(nonce),
+            ))) => {
                 let proof = state
                     .next_chat_proof(chat, Some(nonce))
                     .expect("we checked we are part of the chat");
@@ -478,7 +480,9 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 .dispatch::<SendMessage>((chat, proof, Reminder(&content)))
                 .await
             {
-                Err(RequestError::Handler(SendMessageError::InvalidAction(nonce))) => {
+                Err(RequestError::Handler(chat_logic::ReplicationError::Inner(
+                    SendMessageError::InvalidAction(nonce),
+                ))) => {
                     let proof = state
                         .next_chat_proof(chat, Some(nonce))
                         .expect("we checked we are part of the chat");

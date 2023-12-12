@@ -1,18 +1,12 @@
 use {
-    crate::{advance_nonce, HandlerResult, PassedContext},
-    std::convert::Infallible,
+    super::Storage,
+    crate::{advance_nonce, HandlerResult, Identity, Nonce, PassedContext, Proof},
+    component_utils::Reminder,
+    crypto::{enc, sign, Serialized},
+    std::collections::hash_map::Entry,
 };
 
 const MAIL_BOX_CAP: usize = 1024 * 1024;
-
-use {
-    super::Storage,
-    crate::{Identity, Nonce, Proof},
-    component_utils::{Codec, Reminder},
-    crypto::{enc, sign, Serialized},
-    libp2p::kad::{GetRecordOk, PeerRecord, QueryId},
-    std::collections::hash_map::Entry,
-};
 
 component_utils::protocol! {'a:
     #[derive(Clone)]
@@ -35,65 +29,37 @@ impl Profile {
     }
 }
 
-pub struct FetchProfile {
-    id: QueryId,
-}
+pub enum FetchProfile {}
 
-impl crate::Handler for FetchProfile {
+impl crate::SyncHandler for FetchProfile {
     type Context = libp2p::kad::Behaviour<Storage>;
     type Error = FetchProfileError;
     type Request<'a> = Identity;
     type Response<'a> = FetchProfileResp;
-    type Topic = Infallible;
+    type Topic = Identity;
 
-    fn spawn<'a>(
+    fn execute<'a>(
         context: PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
-    ) -> Result<HandlerResult<'a, Self>, Self> {
-        if let Some(profile) = context.store_mut().profiles.get(request) {
-            return Ok(Ok(profile.into()));
-        }
-
-        Err(Self {
-            id: context.get_record(request.0.to_vec().into()),
-        })
+    ) -> HandlerResult<'a, Self> {
+        context
+            .store_mut()
+            .profiles
+            .get(request)
+            .map(|profile| profile.into())
+            .ok_or(FetchProfileError::NotFound)
     }
 
-    fn try_complete(
-        self,
-        _context: &mut Self::Context,
-        _: &mut crate::EventDispatch<Self>,
-        event: &<Self::Context as crate::Context>::ToSwarm,
-    ) -> Result<HandlerResult<'static, Self>, Self> {
-        let libp2p::kad::Event::OutboundQueryProgressed {
-            id,
-            result: libp2p::kad::QueryResult::GetRecord(result),
-            step,
-            ..
-        } = event
-        else {
-            return Err(self);
-        };
-
-        crate::ensure!(self.id == *id, self);
-
-        let Ok(GetRecordOk::FoundRecord(PeerRecord { record, .. })) = result else {
-            crate::ensure!(step.last, self);
-            return Ok(Err(FetchProfileError::NotFound));
-        };
-
-        let res = FetchProfileResp::decode(&mut record.value.as_slice())
-            .ok_or(FetchProfileError::InvalidRecord);
-        Ok(res)
+    fn extract_topic(req: &Self::Request<'_>) -> Option<Self::Topic> {
+        Some(*req)
     }
 }
 
 component_utils::gen_simple_error! {
     error FetchProfileError {
         NotFound => "account not found",
-        InvalidRecord => "invalid record",
     }
 }
 
@@ -131,7 +97,7 @@ impl crate::SyncHandler for CreateAccount {
         crate::ensure!(proof.verify_profile(), CreateAccountError::InvalidProof);
 
         let user_id = crypto::hash::new_raw(&proof.pk);
-        let replicating = context.store_mut().replicating;
+        let replicating = context.store_mut().dont_replicate;
         let entry = context.store_mut().profiles.entry(user_id);
 
         match entry {

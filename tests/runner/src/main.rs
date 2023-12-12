@@ -11,6 +11,8 @@ struct Command {
     first_port: u16,
     #[clap(long, env, default_value = "./target/debug/miner")]
     miner: String,
+    #[clap(long, env, default_value = "false")]
+    first_run: bool,
 }
 
 fn main() {
@@ -20,7 +22,7 @@ fn main() {
     let _children = (0..cmd.node_count)
         .map(|i| {
             println!("Starting node {i} ({})", cmd.miner);
-            if i % accounts.len() == 0 && i != 0 {
+            if i % accounts.len() == 0 && i != 0 && cmd.first_run {
                 sleep(std::time::Duration::from_secs(7));
             }
             let mut command = process::Command::new(&cmd.miner);

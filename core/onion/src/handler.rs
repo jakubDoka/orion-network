@@ -84,7 +84,6 @@ impl ConnectionHandler for Handler {
                             OUpgrade {
                                 keypair: self.keypair.clone().unwrap_or_default(),
                                 incoming,
-                                buffer_cap: self.buffer_cap,
                             },
                             info,
                         ),
@@ -114,7 +113,7 @@ impl ConnectionHandler for Handler {
             }) => match from {
                 ChannelSource::Relay(from) => ToBehaviour::NewChannel(to, from),
                 ChannelSource::ThisNode(key, id, from) => ToBehaviour::OutboundStream {
-                    to: Ok(EncryptedStream::new(to, key)),
+                    to: Ok(EncryptedStream::new(to, key, self.buffer_cap)),
                     id,
                     from,
                 },
@@ -139,7 +138,7 @@ impl ConnectionHandler for Handler {
 
 #[derive(Debug)]
 pub enum ToBehaviour {
-    NewChannel(Stream, PathId),
+    NewChannel(libp2p::Stream, PathId),
     OutboundStream {
         to: Result<EncryptedStream, StreamUpgradeError<OUpgradeError>>,
         id: PathId,
@@ -194,7 +193,7 @@ pub enum IncomingOrResponse {
 
 #[derive(Debug)]
 pub struct IncomingStream {
-    pub(crate) stream: Stream,
+    pub(crate) stream: libp2p::Stream,
     pub(crate) meta: IncomingStreamMeta,
 }
 
@@ -270,13 +269,12 @@ impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
                     .map_err(IUpgradeError::WriteAuthPacket)?;
 
                 return Ok(Some(IncomingOrResponse::Response(EncryptedStream::new(
-                    Stream::new(stream, buffer_cap),
-                    ss,
+                    stream, ss, buffer_cap,
                 ))));
             };
 
             Ok(Some(IncomingOrResponse::Incoming(IncomingStream {
-                stream: Stream::new(stream, buffer_cap),
+                stream,
                 meta: IncomingStreamMeta {
                     to,
                     buffer: buffer[..new_len].to_vec(),
@@ -304,7 +302,6 @@ pub enum IUpgradeError {
 pub struct OUpgrade {
     keypair: KeyPair,
     incoming: IncomingOrRequest,
-    buffer_cap: usize,
 }
 
 impl fmt::Debug for OUpgrade {
@@ -312,7 +309,6 @@ impl fmt::Debug for OUpgrade {
         f.debug_struct("OUpgrade")
             .field("incoming", &self.incoming)
             .field("secret", &"no you dont")
-            .field("buffer_cap", &self.buffer_cap)
             .finish()
     }
 }
@@ -335,7 +331,7 @@ pub enum ChannelSource {
 #[derive(Debug)]
 pub struct ChannelMeta {
     from: ChannelSource,
-    to: Stream,
+    to: libp2p::Stream,
 }
 
 impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
@@ -347,11 +343,7 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
     fn upgrade_outbound(self, mut stream: libp2p::swarm::Stream, _: Self::Info) -> Self::Future {
         log::debug!("upgrading outbound stream");
         async move {
-            let Self {
-                keypair,
-                incoming,
-                buffer_cap,
-            } = self;
+            let Self { keypair, incoming } = self;
 
             let mut written_packet = vec![];
             let mut ss = [0; 32];
@@ -381,7 +373,7 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                     log::debug!("received incoming routable stream");
                     return Ok(ChannelMeta {
                         from: ChannelSource::Relay(i.path_id),
-                        to: Stream::new(stream, buffer_cap),
+                        to: stream,
                     });
                 }
                 IncomingOrRequest::Request(r) => r,
@@ -409,7 +401,7 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                     } else {
                         Ok(ChannelMeta {
                             from: ChannelSource::ThisNode(ss, request.path_id, peer_id),
-                            to: Stream::new(stream, buffer_cap),
+                            to: stream,
                         })
                     }
                 }

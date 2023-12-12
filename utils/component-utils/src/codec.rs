@@ -27,11 +27,11 @@ macro_rules! protocol {
         }
 
         impl<$lt> $crate::codec::Codec<$lt> for $name$(<$lt2>)? {
-            fn encode(&self, buffer: &mut Vec<u8>) {
+            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
                 match self {
                     $($crate::protocol!(@pattern $variant value $($value)?) => {
-                        (${index()} as u8).encode(buffer);
-                        $(<$value as $crate::codec::Codec<$lt>>::encode(value, buffer);)?
+                        (${index()} as u8).encode(buffer)
+                        $(?;<$value as $crate::codec::Codec<$lt>>::encode(value, buffer))?
                     })*
                 }
             }
@@ -60,8 +60,9 @@ macro_rules! protocol {
         }
 
         impl<$lt> $crate::codec::Codec<$lt> for $name$(<$lt2>)? {
-            fn encode(&self, buffer: &mut Vec<u8>) {
-                $(<$ty as $crate::codec::Codec<$lt>>::encode(&self.$field, buffer);)*
+            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
+                $(<$ty as $crate::codec::Codec<$lt>>::encode(&self.$field, buffer)?;)*
+                Some(())
             }
 
             fn decode(buffer: &mut &$lt [u8]) -> Option<Self> {
@@ -81,26 +82,85 @@ macro_rules! protocol {
     };
 }
 
+pub struct WritableBuffer<'a, T> {
+    buffer: &'a mut T,
+}
+
+impl<'a, T: Buffer> std::io::Write for WritableBuffer<'a, T> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.buffer
+            .extend_from_slice(buf)
+            .ok_or(std::io::ErrorKind::OutOfMemory)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+pub trait Buffer {
+    #[must_use = "handle the error"]
+    fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()>;
+    #[must_use = "handle the error"]
+    fn push(&mut self, byte: u8) -> Option<()>;
+}
+
+impl Buffer for Vec<u8> {
+    fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()> {
+        self.extend_from_slice(slice);
+        Some(())
+    }
+
+    fn push(&mut self, byte: u8) -> Option<()> {
+        self.push(byte);
+        Some(())
+    }
+}
+
+impl Buffer for &mut [u8] {
+    fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()> {
+        self.take_mut(..slice.len())?.copy_from_slice(slice);
+        Some(())
+    }
+
+    fn push(&mut self, byte: u8) -> Option<()> {
+        *self.take_first_mut()? = byte;
+        Some(())
+    }
+}
+
 pub trait Codec<'a>: Sized {
-    fn encode(&self, buffer: &mut Vec<u8>);
+    #[must_use = "handle the error"]
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()>;
     fn decode(buffer: &mut &'a [u8]) -> Option<Self>;
 
     fn to_bytes(&self) -> Vec<u8> {
         let mut buffer = Vec::new();
-        self.encode(&mut buffer);
+        self.encode(&mut buffer).expect("to encode");
         buffer
     }
 
     fn to_packet(&self) -> Vec<u8> {
         let mut buffer = vec![0; 4];
-        self.encode(&mut buffer);
+        self.encode(&mut buffer).expect("to encode");
         buffer.splice(..4, encode_len(buffer.len() - 4));
         buffer
     }
 }
 
+impl<'a, 'b, T: Codec<'a>> Codec<'a> for &'b T {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        (*self).encode(buffer)
+    }
+
+    fn decode(_: &mut &'a [u8]) -> Option<Self> {
+        unreachable!("&T is not a valid codec")
+    }
+}
+
 impl Codec<'_> for Infallible {
-    fn encode(&self, _: &mut Vec<u8>) {
+    fn encode(&self, _: &mut impl Buffer) -> Option<()> {
         match *self {}
     }
 
@@ -111,11 +171,12 @@ impl Codec<'_> for Infallible {
 
 #[cfg(feature = "std")]
 impl<'a, T: Codec<'a>> Codec<'a> for std::collections::VecDeque<T> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.len().encode(buffer);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.len().encode(buffer)?;
         for i in self {
-            i.encode(buffer);
+            i.encode(buffer)?;
         }
+        Some(())
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -132,7 +193,9 @@ impl<'a, T: Codec<'a>> Codec<'a> for std::collections::VecDeque<T> {
 }
 
 impl<'a, T> Codec<'a> for PhantomData<T> {
-    fn encode(&self, _: &mut Vec<u8>) {}
+    fn encode(&self, _: &mut impl Buffer) -> Option<()> {
+        Some(())
+    }
 
     fn decode(_: &mut &'a [u8]) -> Option<Self> {
         Some(Self)
@@ -140,15 +203,15 @@ impl<'a, T> Codec<'a> for PhantomData<T> {
 }
 
 impl<'a, R: Codec<'a>, E: Codec<'a>> Codec<'a> for Result<R, E> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
         match self {
             Ok(r) => {
-                true.encode(buffer);
-                r.encode(buffer);
+                true.encode(buffer)?;
+                r.encode(buffer)
             }
             Err(e) => {
-                false.encode(buffer);
-                e.encode(buffer);
+                false.encode(buffer)?;
+                e.encode(buffer)
             }
         }
     }
@@ -183,7 +246,9 @@ pub trait CodecExt: for<'a> Codec<'a> {
 impl<T: for<'a> Codec<'a>> CodecExt for T {}
 
 impl Codec<'_> for () {
-    fn encode(&self, _buffer: &mut Vec<u8>) {}
+    fn encode(&self, _buffer: &mut impl Buffer) -> Option<()> {
+        Some(())
+    }
 
     fn decode(_buffer: &mut &[u8]) -> Option<Self> {
         Some(())
@@ -215,16 +280,16 @@ impl Iterator for Base128Bytes {
     }
 }
 
-fn base128_encode(mut value: u64, buffer: &mut Vec<u8>) {
+fn base128_encode(mut value: u64, buffer: &mut impl Buffer) -> Option<()> {
     loop {
         let mut byte = (value & 0b0111_1111) as u8;
         value >>= 7;
         if value != 0 {
             byte |= 0b1000_0000;
         }
-        buffer.push(byte);
+        buffer.push(byte)?;
         if value == 0 {
-            break;
+            break Some(());
         }
     }
 }
@@ -248,8 +313,8 @@ macro_rules! impl_int {
     ($($t:ty),*) => {
         $(
             impl<'a> Codec<'a> for $t {
-                fn encode(&self, buffer: &mut Vec<u8>) {
-                    base128_encode(*self as u64, buffer);
+                fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+                    base128_encode(*self as u64, buffer)
                 }
 
                 fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -263,8 +328,8 @@ macro_rules! impl_int {
 impl_int!(u16, u32, u64, u128, usize);
 
 impl<'a> Codec<'a> for bool {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        buffer.push(*self as u8);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        buffer.push(*self as u8)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -277,8 +342,8 @@ impl<'a> Codec<'a> for bool {
 }
 
 impl<'a> Codec<'a> for u8 {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        buffer.push(*self);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        buffer.push(*self)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -292,8 +357,8 @@ impl<'a> Codec<'a> for u8 {
 pub struct Reminder<'a>(pub &'a [u8]);
 
 impl<'a> Codec<'a> for Reminder<'a> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        buffer.extend_from_slice(self.0);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        buffer.extend_from_slice(self.0)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -305,8 +370,8 @@ impl<'a> Codec<'a> for Reminder<'a> {
 pub struct OwnedReminder(pub Arc<[u8]>);
 
 impl<'a> Codec<'a> for OwnedReminder {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        buffer.extend_from_slice(&self.0);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        buffer.extend_from_slice(&self.0)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -319,8 +384,8 @@ impl<'a> Codec<'a> for OwnedReminder {
 pub struct Unbound<T>(pub T);
 
 impl<'a> Codec<'a> for Unbound<Vec<u8>> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        buffer.extend_from_slice(&self.0);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        buffer.extend_from_slice(&self.0)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -329,8 +394,8 @@ impl<'a> Codec<'a> for Unbound<Vec<u8>> {
 }
 
 impl<'a> Codec<'a> for String {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.as_str().encode(buffer);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.as_str().encode(buffer)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -340,8 +405,8 @@ impl<'a> Codec<'a> for String {
 }
 
 impl<'a> Codec<'a> for &'a str {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.as_bytes().encode(buffer);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.as_bytes().encode(buffer)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -351,11 +416,12 @@ impl<'a> Codec<'a> for &'a str {
 }
 
 impl<'a, T: Codec<'a>, const LEN: usize> Codec<'a> for ArrayVec<T, LEN> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.len().encode(buffer);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.len().encode(buffer)?;
         for i in self {
-            i.encode(buffer);
+            i.encode(buffer)?;
         }
+        Some(())
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -372,8 +438,8 @@ impl<'a, T: Codec<'a>, const LEN: usize> Codec<'a> for ArrayVec<T, LEN> {
 }
 
 impl<'a, const LEN: usize> Codec<'a> for ArrayString<LEN> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.as_bytes().encode(buffer);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.as_bytes().encode(buffer)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -384,11 +450,12 @@ impl<'a, const LEN: usize> Codec<'a> for ArrayString<LEN> {
 }
 
 impl<'a, T: Codec<'a>> Codec<'a> for Vec<T> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.len().encode(buffer);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.len().encode(buffer)?;
         for i in self {
-            i.encode(buffer);
+            i.encode(buffer)?;
         }
+        Some(())
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -405,11 +472,12 @@ impl<'a, T: Codec<'a>> Codec<'a> for Vec<T> {
 }
 
 impl<'a, T: Codec<'a>> Codec<'a> for Arc<[T]> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.len().encode(buffer);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.len().encode(buffer)?;
         for i in self.iter() {
-            i.encode(buffer);
+            i.encode(buffer)?;
         }
+        Some(())
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -418,9 +486,10 @@ impl<'a, T: Codec<'a>> Codec<'a> for Arc<[T]> {
 }
 
 impl<'a> Codec<'a> for &'a [u8] {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.len().encode(buffer);
-        buffer.extend_from_slice(self);
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.len().encode(buffer)?;
+        buffer.extend_from_slice(self)?;
+        Some(())
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -436,10 +505,11 @@ impl<'a> Codec<'a> for &'a [u8] {
 }
 
 impl<'a, T: Codec<'a>, const SIZE: usize> Codec<'a> for [T; SIZE] {
-    fn encode(&self, buffer: &mut Vec<u8>) {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
         for i in self {
-            i.encode(buffer);
+            i.encode(buffer)?;
         }
+        Some(())
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -453,9 +523,10 @@ impl<'a, T: Codec<'a>, const SIZE: usize> Codec<'a> for [T; SIZE] {
 
 #[cfg(feature = "libp2p")]
 impl<'a> Codec<'a> for PeerId {
-    fn encode(&self, buffer: &mut Vec<u8>) {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
         let mh = Multihash::from(*self);
-        mh.write(buffer).expect("unreachable");
+        mh.write(WritableBuffer { buffer }).ok()?;
+        Some(())
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -466,11 +537,11 @@ impl<'a> Codec<'a> for PeerId {
 }
 
 impl<'a, T: Codec<'a>> Codec<'a> for Option<T> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
         match self {
             Some(t) => {
                 true.encode(buffer);
-                t.encode(buffer);
+                t.encode(buffer)
             }
             None => false.encode(buffer),
         }
@@ -490,9 +561,10 @@ macro_rules! derive_tuples {
     ($($($t:ident),*;)*) => {$(
         #[allow(non_snake_case)]
         impl<'a, $($t: Codec<'a>),*> Codec<'a> for ($($t,)*) {
-            fn encode(&self, buffer: &mut Vec<u8>) {
+            fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
                 let ($($t,)*) = self;
-                $($t.encode(buffer);)*
+                $($t.encode(buffer)?;)*
+                Some(())
             }
 
             fn decode(buffer: &mut &'a [u8]) -> Option<Self> {

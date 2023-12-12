@@ -344,7 +344,7 @@ pub mod muxer {
 pub mod report {
     use {
         crate::{EventReceiver, ExtraEvent},
-        component_utils::{Codec, PacketWriter},
+        component_utils::{encode_len, Codec, PacketWriter},
         libp2p::{
             core::UpgradeInfo,
             futures::{stream::FuturesUnordered, StreamExt},
@@ -456,7 +456,7 @@ pub mod report {
                             peer: *peer,
                             connection: *connection,
                         };
-                        stream.writer.packet(update.to_bytes().iter().copied());
+                        stream.writer.write_packet(&update);
                     }
                 }
             }
@@ -488,9 +488,8 @@ pub mod report {
                     peer,
                     connection,
                 };
-                let event_bytes = update.to_bytes();
                 for l in self.listeners.iter_mut() {
-                    l.writer.packet(event_bytes.iter().copied());
+                    l.writer.write_packet(&update);
                 }
 
                 match extra {
@@ -525,9 +524,8 @@ pub mod report {
                     peer,
                     connection,
                 };
-                let event_bytes = update.to_bytes();
                 for l in self.listeners.iter_mut() {
-                    l.writer.packet(event_bytes.iter().copied());
+                    l.writer.write_packet(&update);
                 }
 
                 if let crate::PacketKind::Closed = kind {

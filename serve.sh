@@ -37,17 +37,21 @@ rm -rf node_keys node_logs
 mkdir node_keys node_logs
 
 # build
+rebuild_workspace() {
+	cargo build $FLAGS --workspace \
+		--exclude client \
+		--exclude websocket-websys \
+		--exclude node_staker \
+		--exclude user_manager \
+		--exclude topology-vis \
+		--exclude indexed_db || exit 1
+}
+
 (cd nodes/client/wallet-integration && npm i || exit 1)
 (cd forked/substrate-node-template && cargo build --release || exit 1)
 (cd contracts/node_staker && cargo contract build $WASM_FLAGS || exit 1)
 (cd contracts/user_manager && cargo contract build $WASM_FLAGS || exit 1)
-cargo build $FLAGS --workspace \
-	--exclude client \
-	--exclude websocket-websys \
-	--exclude node_staker \
-	--exclude user_manager \
-	--exclude topology-vis \
-	--exclude indexed_db || exit 1
+rebuild_workspace
 (cd nodes/client && trunk build $WASM_FLAGS --features building || exit 1)
 (cd nodes/topology-vis && ./build.sh "$1" || exit 1)
 
@@ -63,8 +67,21 @@ echo "user contract: $USER_CONTRACT"
 $TARGET_DIR/init-transfer || exit 1
 
 # run
+run_miners() { $TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START --miner $TARGET_DIR/miner $1 & }
+
 (cd nodes/topology-vis/dist && live-server --host localhost --port $TOPOLOGY_PORT &)
 (cd nodes/client && trunk serve $WASM_FLAGS --port $FRONTEND_PORT --features building &)
-$TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START --miner $TARGET_DIR/miner &
+run_miners --first-run
 
-read -p "press enter to exit"
+while read -r line; do
+	case "$line" in
+		"miners")
+			killall runner miner
+			rebuild_workspace
+			run_miners
+			;;
+		"exit")
+			exit 0
+			;;
+	esac
+done

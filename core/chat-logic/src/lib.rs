@@ -1,4 +1,5 @@
 #![feature(iter_next_chunk)]
+#![feature(slice_take)]
 #![feature(iter_advance_by)]
 #![feature(macro_metavar_expr)]
 #![feature(associated_type_defaults)]
@@ -6,8 +7,8 @@
 #![feature(extract_if)]
 
 use {
-    component_utils::{Codec, Reminder},
-    libp2p::{futures::StreamExt, swarm::NetworkBehaviour},
+    component_utils::{codec, Codec, Reminder},
+    libp2p::{futures::StreamExt, swarm::NetworkBehaviour, PeerId},
     onion::{EncryptedStream, PathId},
     std::{
         collections::{hash_map, HashMap},
@@ -46,19 +47,21 @@ macro_rules! compose_handlers {
                 &mut self,
                 context: &mut T,
                 message: $crate::DispatchMessage<'_>,
-                pid: Option<onion::PathId>,
+                origin: $crate::RequestOrigin,
                 buffer: &mut $crate::RootPacketBuffer
             ) -> Result<(), $crate::DispatchError>
             where
                 $(T: $crate::SubContext<<$handler_ty as $crate::Handler>::Context>,
                 T::ToSwarm: From<<<$handler_ty as $crate::Handler>::Context as $crate::Context>::ToSwarm>,)*
             {
-                if message.prefix >> 7 == 1 && pid.is_some() {
-                    return self.try_handle_subscription(pid.unwrap(), message);
+                if message.prefix >> 7 == 1 {
+                    if let $crate::RequestOrigin::Client(pid) = origin {
+                        return self.try_handle_subscription(pid, message);
+                    }
                 }
 
                 match message.prefix {
-                    $(${index()} => self.$handler.dispatch(context, pid, message, buffer),)*
+                    $(${index()} => self.$handler.dispatch(context, origin, message, buffer),)*
                     p => Err($crate::DispatchError::InvalidPrefix(p)),
                 }
             }
@@ -110,6 +113,12 @@ macro_rules! compose_handlers {
 
 mod impls;
 
+pub enum RequestOrigin {
+    Client(PathId),
+    Miner(PeerId),
+    NotImportant,
+}
+
 pub use {impls::*, rpc::CallId};
 
 pub struct HandlerNest<H: Handler> {
@@ -137,12 +146,14 @@ impl<H: Handler> HandlerNest<H> {
             {
                 Err(h) => Err(ActiveHandler {
                     handler: h,
-                    path_id: handler.path_id,
-                    request_id: handler.request_id,
+                    origin: handler.origin,
+                    id: handler.id,
                 }),
                 Ok(r) => {
-                    if let Some(pid) = handler.path_id {
-                        buffer.push(&r, (handler.request_id, pid))
+                    match handler.origin {
+                        RequestOrigin::Client(cid) => buffer.push(&r, (handler.id, Ok(cid))),
+                        RequestOrigin::Miner(mid) => buffer.push(&r, (handler.id, Err(mid))),
+                        RequestOrigin::NotImportant => {}
                     }
                     Ok(())
                 }
@@ -159,7 +170,7 @@ impl<H: Handler> HandlerNest<H> {
     pub fn dispatch<T: Context>(
         &mut self,
         context: &mut T,
-        path_id: Option<PathId>,
+        path_id: RequestOrigin,
         message: DispatchMessage<'_>,
         buffer: &mut RootPacketBuffer,
     ) -> Result<(), DispatchError>
@@ -178,15 +189,15 @@ impl<H: Handler> HandlerNest<H> {
             Err(handler) => {
                 self.handlers.push(ActiveHandler {
                     handler,
-                    path_id,
-                    request_id: message.request_id,
+                    origin: path_id,
+                    id: message.request_id,
                 });
             }
-            Ok(response) => {
-                if let Some(pid) = path_id {
-                    buffer.push(&response, (message.request_id, pid))
-                }
-            }
+            Ok(response) => match path_id {
+                RequestOrigin::Client(pid) => buffer.push(&response, (message.request_id, Ok(pid))),
+                RequestOrigin::Miner(mid) => buffer.push(&response, (message.request_id, Err(mid))),
+                RequestOrigin::NotImportant => {}
+            },
         }
 
         Ok(())
@@ -240,8 +251,8 @@ impl<H: Handler> Default for HandlerNest<H> {
 }
 
 pub struct ActiveHandler<H: Handler> {
-    pub request_id: CallId,
-    pub path_id: Option<PathId>,
+    pub id: CallId,
+    pub origin: RequestOrigin,
     pub handler: H,
 }
 
@@ -426,9 +437,7 @@ impl<S> RequestDispatch<S> {
         let id = CallId::new();
 
         self.buffer.clear();
-        self.buffer.push(S::PREFIX);
-        id.encode(&mut self.buffer);
-        request.encode(&mut self.buffer);
+        (S::PREFIX, id, request).encode(&mut self.buffer);
 
         stream.write(&mut self.buffer);
 
@@ -628,7 +637,7 @@ impl<H: Handler> std::fmt::Display for RequestError<H> {
 
 impl<H: Handler> std::error::Error for RequestError<H> {}
 
-pub type RootPacketBuffer = PacketBuffer<(CallId, PathId)>;
+pub type RootPacketBuffer = PacketBuffer<(CallId, Result<PathId, PeerId>)>;
 
 pub struct PacketBuffer<M> {
     packets: Vec<u8>,
@@ -650,7 +659,7 @@ impl<M> PacketBuffer<M> {
     }
 
     fn push<'a>(&mut self, packet: &impl Codec<'a>, id: M) {
-        packet.encode(&mut self.packets);
+        packet.encode(&mut self.packets).expect("packet encode");
         self.bounds.push((self.packets.len(), id));
     }
 
@@ -717,9 +726,9 @@ pub struct DispatchResponse<T> {
 }
 
 impl<'a, T: Codec<'a>> Codec<'a> for DispatchResponse<T> {
-    fn encode(&self, buffer: &mut Vec<u8>) {
-        self.request_id.encode(buffer);
-        self.response.encode(buffer);
+    fn encode(&self, buffer: &mut impl codec::Buffer) -> Option<()> {
+        self.request_id.encode(buffer)?;
+        self.response.encode(buffer)
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {

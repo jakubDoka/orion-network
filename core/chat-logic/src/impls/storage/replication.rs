@@ -1,9 +1,6 @@
 use {
-    crate::{
-        Context, EventDispatch, Handler, SearchPeers, Storage, SubContext, SyncHandler,
-        REPLICATION_FACTOR,
-    },
-    component_utils::{Codec, FindAndRemove, Reminder},
+    crate::{Context, Handler, SearchPeers, Storage, SubContext, SyncHandler, REPLICATION_FACTOR},
+    component_utils::{codec, Codec, FindAndRemove},
     rpc::CallId,
 };
 
@@ -66,7 +63,7 @@ where
     H: ReplicationHandler,
 {
     type Context = ReplContext<'static>;
-    type Error = H::Error;
+    type Error = ReplicationError<H::Error>;
     type Event<'a> = H::Event<'a>;
     type Request<'a> = H::Request<'a>;
     type Response<'a> = H::Response<'a>;
@@ -76,7 +73,7 @@ where
         context: crate::PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         dispatch: &mut crate::EventDispatch<Self>,
-        meta: crate::RequestMeta,
+        meta @ (prefix, ..): crate::RequestMeta,
     ) -> Result<crate::HandlerResult<'a, Self>, Self> {
         let r = match H::execute(
             // SAFETY: rust is stupid in this case since we get rid of all potentially borrowed
@@ -86,24 +83,18 @@ where
             dispatch.cast(),
             meta,
         ) {
-            Ok(r) if context.kad.store_mut().replicating => return Ok(Ok(r)),
+            Ok(r) if context.kad.store_mut().dont_replicate => return Ok(Ok(r)),
             Ok(r) => Ok::<_, ()>(r).to_bytes(),
-            Err(e) => return Ok(Err(e)),
+            Err(e) => return Ok(Err(ReplicationError::Inner(e))),
         };
 
-        let topic = H::extract_topic(request).to_bytes();
-        let peers = SearchPeers::spawn(
-            context.kad,
-            &Reminder(&topic),
-            &mut EventDispatch::default(),
-            meta,
-        )
-        .unwrap_err();
+        let topic = H::extract_topic(request).unwrap();
+        log::info!("replicating {:?}", prefix);
 
         Err(Self {
-            request: request.to_bytes(),
+            request: (prefix, request).to_bytes(),
             response: r,
-            stage: Stage::FindingPeers(peers),
+            stage: Stage::FindingPeers(SearchPeers::new(context.kad, &topic)),
             phantom: std::marker::PhantomData,
         })
     }
@@ -114,18 +105,11 @@ where
         _: &mut crate::EventDispatch<Self>,
         event: &'a <Self::Context as Context>::ToSwarm,
     ) -> Result<crate::HandlerResult<'a, Self>, Self> {
-        match self.stage {
-            Stage::FindingPeers(peers) => {
-                let ToSwarm::Kad(e) = event else {
-                    return Err(Self {
-                        stage: Stage::FindingPeers(peers),
-                        ..self
-                    });
-                };
-
-                let peers = match peers.try_complete(context.kad, &mut EventDispatch::default(), e)
-                {
-                    Ok(p) => p.unwrap_or_default(),
+        match (event, self.stage) {
+            (ToSwarm::Kad(e), Stage::FindingPeers(peers)) => {
+                log::info!("kad event: {:?}", e);
+                let peers = match peers.try_complete(e) {
+                    Ok(p) => p,
                     Err(s) => {
                         return Err(Self {
                             stage: Stage::FindingPeers(s),
@@ -135,8 +119,8 @@ where
                 };
 
                 let calls = peers
-                    .into_iter()
-                    .map(|peer| context.rpc.request(peer, self.request.as_slice()))
+                    .iter()
+                    .map(|&peer| context.rpc.request(peer, self.request.as_slice()))
                     .collect();
                 Err(Self {
                     stage: Stage::SendingRpcs {
@@ -146,41 +130,39 @@ where
                     ..self
                 })
             }
-            Stage::SendingRpcs {
-                mut ongoing,
-                mut matched,
-            } => {
-                let ToSwarm::Rpc(rpc::Event::Response(res)) = event else {
-                    return Err(Self {
-                        stage: Stage::SendingRpcs { ongoing, matched },
-                        ..self
-                    });
-                };
+            (
+                ToSwarm::Rpc(rpc::Event::Response(res)),
+                Stage::SendingRpcs {
+                    mut ongoing,
+                    mut matched,
+                },
+            ) => {
+                log::info!("rpc event: {:?}", res);
+                match res {
+                    Ok((_, call, response, _)) => {
+                        if ongoing.find_and_remove(|c| c == call).is_none() {
+                            return Err(Self {
+                                stage: Stage::SendingRpcs { ongoing, matched },
+                                ..self
+                            });
+                        }
 
-                let (_, call, response, _) = match res {
-                    Ok(r) => r,
-                    Err((failed, _)) => {
+                        matched += (self.response.as_slice() == response.as_slice()) as usize;
+
+                        if matched > REPLICATION_FACTOR.get() / 2 {
+                            return Ok(Ok(Codec::decode(&mut response.as_slice()).unwrap()));
+                        }
+                    }
+                    Err((failed, e)) => {
                         for f in failed {
                             ongoing.find_and_remove(|c| c == f);
                         }
-                        return Err(Self {
-                            stage: Stage::SendingRpcs { ongoing, matched },
-                            ..self
-                        });
+                        log::warn!("rpc failed: {}", e);
                     }
-                };
-
-                if ongoing.find_and_remove(|c| c == call).is_none() {
-                    return Err(Self {
-                        stage: Stage::SendingRpcs { ongoing, matched },
-                        ..self
-                    });
                 }
 
-                matched += (self.response.as_slice() == response.as_slice()) as usize;
-
-                if matched > REPLICATION_FACTOR.get() / 2 {
-                    return Ok(Ok(Codec::decode(&mut response.as_slice()).unwrap()));
+                if ongoing.len() + matched < REPLICATION_FACTOR.get() / 2 {
+                    return Ok(Err(ReplicationError::NoMajority));
                 }
 
                 Err(Self {
@@ -188,6 +170,39 @@ where
                     ..self
                 })
             }
+            (_, stage) => Err(Self { stage, ..self }),
+        }
+    }
+
+    fn extract_topic(r: &Self::Request<'_>) -> Option<Self::Topic> {
+        H::extract_topic(r)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReplicationError<T> {
+    #[error("no majority")]
+    NoMajority,
+    #[error(transparent)]
+    Inner(T),
+}
+
+impl<'a, T: Codec<'a>> Codec<'a> for ReplicationError<T> {
+    fn encode(&self, buf: &mut impl codec::Buffer) -> Option<()> {
+        match self {
+            Self::NoMajority => buf.push(0),
+            Self::Inner(e) => {
+                buf.push(1)?;
+                e.encode(buf)
+            }
+        }
+    }
+
+    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
+        match buf.take_first()? {
+            0 => Some(Self::NoMajority),
+            1 => Some(Self::Inner(T::decode(buf)?)),
+            _ => None,
         }
     }
 }

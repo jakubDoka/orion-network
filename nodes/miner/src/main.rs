@@ -5,13 +5,11 @@
 use {
     anyhow::Context,
     chain_api::ContractId,
-    chat_logic::{DispatchResponse, ReplContext, RootPacketBuffer, SubContext, REPLICATION_FACTOR},
-    component_utils::{
-        codec::Codec,
-        kad::KadPeerSearch,
-        libp2p::kad::{InboundRequest, StoreInserts},
-        Reminder,
+    chat_logic::{
+        DispatchResponse, ReplContext, RequestOrigin, RootPacketBuffer, SubContext,
+        REPLICATION_FACTOR,
     },
+    component_utils::{codec::Codec, kad::KadPeerSearch, libp2p::kad::StoreInserts, Reminder},
     crypto::{enc, sign, TransmutationCircle},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version, ConnectedPoint},
@@ -218,35 +216,6 @@ impl Miner {
         Ok((nk.enc, nk.sign, false))
     }
 
-    fn handle_put_record(&mut self, record: kad::Record) {
-        let Some(message) = chat_logic::DispatchMessage::decode(&mut record.value.as_slice())
-        else {
-            log::warn!("invalid put record message");
-            return;
-        };
-
-        self.swarm
-            .behaviour_mut()
-            .kad
-            .store_mut()
-            .start_replication();
-        if let Err(e) =
-            self.server
-                .dispatch(self.swarm.behaviour_mut(), message, None, &mut self.packets)
-        {
-            log::error!("failed to dispatch put record message: {}", e);
-        }
-        self.swarm
-            .behaviour_mut()
-            .kad
-            .store_mut()
-            .stop_replication();
-        _ = self.packets.drain();
-
-        self.dispatch_events();
-        log::info!("put record message");
-    }
-
     fn handle_event(&mut self, event: SE) {
         match event {
             SwarmEvent::ConnectionEstablished {
@@ -288,10 +257,16 @@ impl Miner {
                 ) => {}
             SwarmEvent::Behaviour(BehaviourEvent::Rpc(rpc::Event::Request(peer, cid, body))) => {
                 let Some((&prefix, rest)) = body.split_first() else {
+                    log::info!("invalid rpc request");
                     return;
                 };
 
-                if let Err(e) = self.server.dispatch(
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .store_mut()
+                    .disable_replication();
+                let res = self.server.dispatch(
                     self.swarm.behaviour_mut(),
                     chat_logic::DispatchMessage {
                         prefix,
@@ -299,10 +274,17 @@ impl Miner {
                         payload: Reminder(rest),
                     },
                     // TODO: this is unreadable
-                    Some(PathId::whatever()),
+                    RequestOrigin::Miner(peer),
                     &mut self.packets,
-                ) {
-                    log::info!("failed to dispatch init request: {}", e);
+                );
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .store_mut()
+                    .enable_replication();
+
+                if let Err(e) = res {
+                    log::info!("failed to dispatch rpc request: {}", e);
                     return;
                 };
 
@@ -317,27 +299,31 @@ impl Miner {
             ))) => {
                 self.clients.push(Stream { assoc: id, inner });
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Kad(kad::Event::InboundRequest {
-                request:
-                    InboundRequest::PutRecord {
-                        record: Some(record),
-                        ..
-                    },
-            })) => self.handle_put_record(record),
-            SwarmEvent::Behaviour(b) => {
+            SwarmEvent::Behaviour(ev) => {
+                log::info!("unhandled behaviour event: {:?}", ev);
                 let _ =
                     self.server
-                        .try_handle_event(self.swarm.behaviour_mut(), b, &mut self.packets);
+                        .try_handle_event(self.swarm.behaviour_mut(), ev, &mut self.packets);
 
                 for ((rid, id), packet) in self.packets.drain() {
-                    let resp = DispatchResponse {
-                        request_id: rid,
-                        response: Reminder(packet),
-                    };
-                    let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == id) else {
-                        continue;
-                    };
-                    send_response(resp, &mut stream.inner, &mut self.buffer);
+                    match id {
+                        Ok(pid) => {
+                            let resp = DispatchResponse {
+                                request_id: rid,
+                                response: Reminder(packet),
+                            };
+                            let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == pid)
+                            else {
+                                log::info!("client did not stay for response");
+                                continue;
+                            };
+                            send_response(resp, &mut stream.inner, &mut self.buffer);
+                        }
+                        Err(pid) => {
+                            log::info!("sending response to peer: {:?}", self.buffer);
+                            self.swarm.behaviour_mut().rpc.respond(pid, rid, &*packet);
+                        }
+                    }
                 }
 
                 self.dispatch_events();
@@ -367,10 +353,12 @@ impl Miner {
             req.prefix
         );
 
-        if let Err(e) =
-            self.server
-                .dispatch(self.swarm.behaviour_mut(), req, Some(id), &mut self.packets)
-        {
+        if let Err(e) = self.server.dispatch(
+            self.swarm.behaviour_mut(),
+            req,
+            RequestOrigin::Client(id),
+            &mut self.packets,
+        ) {
             log::info!("failed to dispatch init request: {}", e);
             return;
         };

@@ -15,7 +15,8 @@ macro_rules! replicating_handlers {
 }
 
 replicating_handlers! {
-    profile::{CreateAccount, SetVault, SendMail, ReadMail},
+    // TODO: replicating some of the requests is suboptimal
+    profile::{CreateAccount, SetVault, SendMail, ReadMail, FetchProfile},
     chat::{CreateChat, AddUser, SendMessage},
 }
 
@@ -24,7 +25,7 @@ pub struct Storage {
     chats: HashMap<crate::ChatName, Chat>,
 
     // this is true if we are dispatching put_record
-    replicating: bool,
+    dont_replicate: bool,
 }
 
 impl Default for Storage {
@@ -38,16 +39,16 @@ impl Storage {
         Self {
             profiles: HashMap::new(),
             chats: HashMap::new(),
-            replicating: false,
+            dont_replicate: false,
         }
     }
 
-    pub fn start_replication(&mut self) {
-        self.replicating = true;
+    pub fn disable_replication(&mut self) {
+        self.dont_replicate = true;
     }
 
-    pub fn stop_replication(&mut self) {
-        self.replicating = false;
+    pub fn enable_replication(&mut self) {
+        self.dont_replicate = false;
     }
 }
 

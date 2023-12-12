@@ -1,7 +1,7 @@
 use {
     super::Storage,
     crate::HandlerResult,
-    component_utils::Reminder,
+    component_utils::{Codec, Reminder},
     libp2p::{
         kad::{GetClosestPeersOk, QueryId, QueryResult},
         PeerId,
@@ -11,7 +11,30 @@ use {
 
 pub struct SearchPeers {
     query: QueryId,
-    peers: Vec<PeerId>,
+}
+
+impl SearchPeers {
+    pub fn new(kad: &mut libp2p::kad::Behaviour<Storage>, target: &impl for<'a> Codec<'a>) -> Self {
+        Self {
+            query: kad.get_closest_peers(target.to_bytes()),
+        }
+    }
+
+    pub fn try_complete(self, event: &libp2p::kad::Event) -> Result<&[PeerId], Self> {
+        crate::ensure!(let libp2p::kad::Event::OutboundQueryProgressed {
+            id,
+            result: QueryResult::GetClosestPeers(result),
+            ..
+        } = event, self);
+
+        crate::ensure!(id == &self.query, self);
+
+        let Ok(GetClosestPeersOk { peers, .. }) = result else {
+            return Ok(&[]);
+        };
+
+        Ok(peers)
+    }
 }
 
 impl crate::Handler for SearchPeers {
@@ -29,36 +52,15 @@ impl crate::Handler for SearchPeers {
     ) -> Result<HandlerResult<'a, Self>, Self> {
         Err(Self {
             query: context.get_closest_peers(request.0.to_vec()),
-            peers: Vec::new(),
         })
     }
 
     fn try_complete(
-        mut self,
+        self,
         _: &mut Self::Context,
         _: &mut crate::EventDispatch<Self>,
         event: &<Self::Context as crate::Context>::ToSwarm,
     ) -> Result<HandlerResult<'static, Self>, Self> {
-        let libp2p::kad::Event::OutboundQueryProgressed {
-            id,
-            result: QueryResult::GetClosestPeers(result),
-            stats: _,
-            step,
-        } = event
-        else {
-            return Err(self);
-        };
-
-        crate::ensure!(id == &self.query, self);
-
-        let Ok(GetClosestPeersOk { peers, .. }) = result else {
-            return Ok(Ok(Vec::new()));
-        };
-
-        self.peers.extend(peers);
-
-        crate::ensure!(step.last, self);
-
-        Ok(Ok(self.peers))
+        self.try_complete(event).map(ToOwned::to_owned).map(Ok)
     }
 }

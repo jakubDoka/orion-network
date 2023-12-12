@@ -9,7 +9,7 @@ use {
         core::UpgradeInfo,
         futures::{stream::SelectAll, AsyncWriteExt, StreamExt},
         swarm::{
-            dial_opts::DialOpts, ConnectionHandler, ConnectionId, NetworkBehaviour,
+            dial_opts::DialOpts, ConnectionHandler, ConnectionId, DialFailure, NetworkBehaviour,
             StreamUpgradeError, SubstreamProtocol,
         },
         InboundUpgrade, OutboundUpgrade, PeerId, StreamProtocol,
@@ -38,10 +38,11 @@ impl libp2p::futures::Stream for Stream {
     ) -> Poll<Option<Self::Item>> {
         let this = self.deref_mut();
         let Some(stream) = this.inner.as_mut() else {
-            return Poll::Pending;
+            return Poll::Ready(None);
         };
 
-        if let Poll::Ready(Err(e)) = this.writer.poll(cx, stream) {
+        let f = this.writer.poll(cx, stream);
+        if let Poll::Ready(Err(e)) = f {
             this.inner.take();
             return Poll::Ready(Some((this.peer, Err(e))));
         }
@@ -56,6 +57,7 @@ impl libp2p::futures::Stream for Stream {
 
         let Some((call, is_request, Reminder(payload))) = <_>::decode(&mut &*read) else {
             this.inner.take();
+            log::warn!("invalid packet from {}", this.peer);
             return Poll::Ready(Some((this.peer, Err(io::ErrorKind::InvalidData.into()))));
         };
 
@@ -65,10 +67,12 @@ impl libp2p::futures::Stream for Stream {
 }
 
 impl Stream {
-    pub fn write(&mut self, call: CallId, payload: &[u8], is_request: bool) {
+    pub fn write(&mut self, call: CallId, payload: &[u8], is_request: bool) -> io::Result<()> {
         self.last_packet = std::time::Instant::now();
         self.writer
-            .packet((call, is_request, Reminder(payload)).to_bytes());
+            .write(&(call, is_request, Reminder(payload)))
+            .ok_or(io::ErrorKind::OutOfMemory)?;
+        Ok(())
     }
 
     pub fn close(&mut self) {
@@ -136,15 +140,36 @@ impl Behaviour {
         peer: PeerId,
         listening: bool,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        if self.streams.iter().any(|s| s.peer == peer) {
+        let duplicate = self.streams.iter().any(|s| s.peer == peer);
+        if duplicate {
             log::warn!("duplicate connection for peer {}", peer);
         }
 
+        let dialing = self.ongoing_dials.contains(&peer)
+            || self.pending_dials.find_and_remove_value(&peer).is_some();
+
         Ok(Handler {
-            requested: listening,
+            requested: listening || !dialing || duplicate,
             stream: None,
             waker: None,
         })
+    }
+
+    fn clean_failed_requests(&mut self, failed: PeerId, error: StreamUpgradeError<Infallible>) {
+        self.pending_repsonses.retain(|(p, ..)| *p != failed);
+        let failed = self
+            .ongoing_requests
+            .extract_if(|(_, p, ..)| *p == failed)
+            .map(|(c, ..)| c)
+            .chain(
+                self.pending_requests
+                    .extract_if(|(p, ..)| *p == failed)
+                    .map(|(_, c, ..)| c),
+            )
+            .collect::<Vec<_>>();
+        if !failed.is_empty() {
+            self.events.push(Event::Response(Err((failed, error))));
+        }
     }
 }
 
@@ -173,18 +198,25 @@ impl NetworkBehaviour for Behaviour {
     }
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
-        if let libp2p::swarm::FromSwarm::DialFailure(c) = event {
-            self.ongoing_dials
-                .find_and_remove(|p| Some(*p) == c.peer_id);
-            let failed = self
-                .pending_requests
-                .extract_if(|(p, ..)| Some(*p) == c.peer_id)
-                .map(|(_, c, ..)| c)
-                .collect::<Vec<_>>();
-            self.events.push(Event::Response(Err((
-                failed,
-                StreamUpgradeError::Io(io::Error::other(c.error.to_string())),
-            ))));
+        if let libp2p::swarm::FromSwarm::DialFailure(DialFailure {
+            peer_id: Some(peer_id),
+            error,
+            ..
+        }) = event
+        {
+            self.ongoing_dials.find_and_remove_value(&peer_id);
+            self.clean_failed_requests(
+                peer_id,
+                StreamUpgradeError::Io(io::Error::other(error.to_string())),
+            );
+        }
+
+        if let libp2p::swarm::FromSwarm::ConnectionClosed(c) = event {
+            if self.pending_requests.iter().any(|(p, ..)| *p == c.peer_id)
+                || self.pending_repsonses.iter().any(|(p, ..)| *p == c.peer_id)
+            {
+                self.pending_dials.push(c.peer_id);
+            }
         }
     }
 
@@ -196,7 +228,7 @@ impl NetworkBehaviour for Behaviour {
     ) {
         match event {
             Ok(stream) => {
-                log::info!("connected to {}", peer_id);
+                self.ongoing_dials.find_and_remove_value(&peer_id);
                 let mut stream = Stream::new(peer_id, stream, self.config.buffer_size);
                 for (peer, call, packet, rt) in
                     self.pending_requests.extract_if(|(p, ..)| *p == peer_id)
@@ -210,14 +242,7 @@ impl NetworkBehaviour for Behaviour {
                 }
                 self.streams.push(stream);
             }
-            Err(e) => {
-                let failed = self
-                    .pending_requests
-                    .extract_if(|(p, ..)| *p == peer_id)
-                    .map(|(_, c, ..)| c)
-                    .collect::<Vec<_>>();
-                self.events.push(Event::Response(Err((failed, e))));
-            }
+            Err(e) => self.clean_failed_requests(peer_id, e),
         }
     }
 
@@ -247,16 +272,7 @@ impl NetworkBehaviour for Behaviour {
                         pid, cid, content,
                     )));
                 }
-                Err(e) => {
-                    let failed = self
-                        .ongoing_requests
-                        .extract_if(|(_, p, ..)| *p == pid)
-                        .map(|(c, ..)| c)
-                        .collect::<Vec<_>>();
-                    return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(Event::Response(
-                        Err((failed, StreamUpgradeError::Io(e))),
-                    )));
-                }
+                Err(e) => self.clean_failed_requests(pid, StreamUpgradeError::Io(e)),
             }
         }
 
@@ -280,7 +296,7 @@ impl NetworkBehaviour for Behaviour {
 component_utils::gen_config! {
     ;;
     max_cached_connections: usize = 10,
-    buffer_size: usize = 1 << 12,
+    buffer_size: usize = 1 << 14,
     request_timeout: std::time::Duration = std::time::Duration::from_secs(10),
 }
 
@@ -501,7 +517,7 @@ mod test {
             while total_requests < 1000000 {
                 if max_pending_requests > pending_request_count {
                     let peer_id = all_peers[iteration % all_peers.len()];
-                    swarm.behaviour_mut().rpc.request(peer_id, []);
+                    swarm.behaviour_mut().rpc.request(peer_id, [0, 0]);
                     pending_request_count += 1;
                     total_requests += 1;
                 }
