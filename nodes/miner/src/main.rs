@@ -300,7 +300,6 @@ impl Miner {
                 self.clients.push(Stream { assoc: id, inner });
             }
             SwarmEvent::Behaviour(ev) => {
-                log::info!("unhandled behaviour event: {:?}", ev);
                 let _ =
                     self.server
                         .try_handle_event(self.swarm.behaviour_mut(), ev, &mut self.packets);

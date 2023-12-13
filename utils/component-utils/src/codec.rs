@@ -8,12 +8,15 @@ use {
     std::{sync::Arc, u32, usize},
 };
 
-pub fn encode_len(len: usize) -> [u8; 4] {
-    (len as u32).to_be_bytes()
+pub const PACKET_LEN_WIDTH: usize = std::mem::size_of::<PacketLen>();
+pub type PacketLen = u16;
+
+pub fn encode_len(len: usize) -> [u8; PACKET_LEN_WIDTH] {
+    (len as PacketLen).to_be_bytes()
 }
 
-pub fn decode_len(bytes: [u8; 4]) -> usize {
-    u32::from_be_bytes(bytes) as usize
+pub fn decode_len(bytes: [u8; PACKET_LEN_WIDTH]) -> usize {
+    PacketLen::from_be_bytes(bytes) as usize
 }
 
 #[macro_export]
@@ -232,7 +235,7 @@ use futures::{AsyncRead, AsyncReadExt};
 pub trait CodecExt: for<'a> Codec<'a> {
     #[allow(async_fn_in_trait)]
     async fn from_stream(mut stream: impl AsyncRead + Unpin) -> std::io::Result<Self> {
-        let mut len = [0; 4];
+        let mut len = [0; 2];
         stream.read_exact(&mut len).await?;
         let len = decode_len(len);
         let mut buffer = vec![0; len];

@@ -34,6 +34,10 @@ pub fn unpack_messages(buffer: &mut [u8]) -> impl Iterator<Item = &mut [u8]> {
             .map(u16::from_be_bytes)
             .ok()?;
 
+        if len > iter.as_slice().len() as u16 {
+            return None;
+        }
+
         let (slice, rest) = std::mem::take(&mut iter)
             .into_slice()
             .split_at_mut(len as usize);
@@ -52,6 +56,10 @@ pub fn unpack_messages_ref(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
             .next_chunk()
             .map(u16::from_be_bytes)
             .ok()?;
+
+        if len > iter.as_slice().len() as u16 {
+            return None;
+        }
 
         let (slice, rest) = iter.as_slice().split_at(len as usize);
         iter = rest.iter();

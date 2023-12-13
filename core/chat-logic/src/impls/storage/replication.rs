@@ -89,7 +89,7 @@ where
         };
 
         let topic = H::extract_topic(request).unwrap();
-        log::info!("replicating {:?}", prefix);
+        log::debug!("replicating {:?}", prefix);
 
         Err(Self {
             request: (prefix, request).to_bytes(),
@@ -107,7 +107,7 @@ where
     ) -> Result<crate::HandlerResult<'a, Self>, Self> {
         match (event, self.stage) {
             (ToSwarm::Kad(e), Stage::FindingPeers(peers)) => {
-                log::info!("kad event: {:?}", e);
+                log::debug!("kad event: {:?}", e);
                 let peers = match peers.try_complete(e) {
                     Ok(p) => p,
                     Err(s) => {
@@ -137,20 +137,21 @@ where
                     mut matched,
                 },
             ) => {
-                log::info!("rpc event: {:?}", res);
+                log::debug!("rpc event: {:?}", res);
                 match res {
-                    Ok((_, call, response, _)) => {
+                    Ok((_, call, response, _)) => 'a: {
                         if ongoing.find_and_remove(|c| c == call).is_none() {
-                            return Err(Self {
-                                stage: Stage::SendingRpcs { ongoing, matched },
-                                ..self
-                            });
+                            break 'a;
                         }
 
                         matched += (self.response.as_slice() == response.as_slice()) as usize;
 
                         if matched > REPLICATION_FACTOR.get() / 2 {
-                            return Ok(Ok(Codec::decode(&mut response.as_slice()).unwrap()));
+                            let Some(resp) = Codec::decode(&mut response.as_slice()) else {
+                                return Ok(Err(ReplicationError::InvalidResponse));
+                            };
+
+                            return Ok(resp);
                         }
                     }
                     Err((failed, e)) => {
@@ -183,6 +184,8 @@ where
 pub enum ReplicationError<T> {
     #[error("no majority")]
     NoMajority,
+    #[error("invalid response from majority")]
+    InvalidResponse,
     #[error(transparent)]
     Inner(T),
 }
@@ -191,8 +194,9 @@ impl<'a, T: Codec<'a>> Codec<'a> for ReplicationError<T> {
     fn encode(&self, buf: &mut impl codec::Buffer) -> Option<()> {
         match self {
             Self::NoMajority => buf.push(0),
+            Self::InvalidResponse => buf.push(1),
             Self::Inner(e) => {
-                buf.push(1)?;
+                buf.push(2)?;
                 e.encode(buf)
             }
         }

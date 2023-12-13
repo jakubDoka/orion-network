@@ -57,7 +57,7 @@ impl libp2p::futures::Stream for Stream {
 
         let Some((call, is_request, Reminder(payload))) = <_>::decode(&mut &*read) else {
             this.inner.take();
-            log::warn!("invalid packet from {}", this.peer);
+            log::warn!("invalid packet from {}, {:?}", this.peer, read);
             return Poll::Ready(Some((this.peer, Err(io::ErrorKind::InvalidData.into()))));
         };
 
@@ -70,7 +70,7 @@ impl Stream {
     pub fn write(&mut self, call: CallId, payload: &[u8], is_request: bool) -> io::Result<()> {
         self.last_packet = std::time::Instant::now();
         self.writer
-            .write(&(call, is_request, Reminder(payload)))
+            .write_packet(&(call, is_request, Reminder(payload)))
             .ok_or(io::ErrorKind::OutOfMemory)?;
         Ok(())
     }

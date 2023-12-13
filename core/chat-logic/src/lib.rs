@@ -434,10 +434,8 @@ impl<S> RequestDispatch<S> {
     where
         S: Dispatches<H>,
     {
-        let id = CallId::new();
-
         stream
-            .write(&(S::PREFIX, id, request))
+            .write(&(S::PREFIX, CallId::whatever(), request))
             .ok_or(RequestError::ServerIsOwervhelmed)?;
 
         self.buffer = stream

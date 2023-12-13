@@ -1,5 +1,5 @@
 use {
-    crate::{decode_len, encode_len, Buffer, Codec, Reminder},
+    crate::{decode_len, encode_len, Buffer, Codec, Reminder, PACKET_LEN_WIDTH},
     core::ops::Range,
     futures::Future,
     std::{io, pin::Pin, task::Poll},
@@ -89,9 +89,6 @@ impl<K, V> Default for LinearMap<K, V> {
     }
 }
 
-type PacketSize = u32;
-const PACKET_SIZE_WIDTH: usize = core::mem::size_of::<PacketSize>();
-
 pub struct AsocStream<A, S> {
     pub inner: S,
     pub assoc: A,
@@ -154,16 +151,13 @@ impl PacketReader {
         cx: &mut core::task::Context<'_>,
         stream: &mut (impl futures::AsyncRead + Unpin),
     ) -> Poll<Result<&'a mut [u8], io::Error>> {
-        log::info!("poll_packet");
-        futures::ready!(self.poll_read_exact(cx, stream, PACKET_SIZE_WIDTH))?;
+        futures::ready!(self.poll_read_exact(cx, stream, PACKET_LEN_WIDTH))?;
 
-        let packet_size = decode_len(self.read_buffer[..PACKET_SIZE_WIDTH].try_into().unwrap());
-        log::info!("packet_size: {}", packet_size);
+        let packet_size = decode_len(self.read_buffer[..PACKET_LEN_WIDTH].try_into().unwrap());
 
-        futures::ready!(self.poll_read_exact(cx, stream, packet_size + PACKET_SIZE_WIDTH))?;
-        log::info!("read_offset: {}", self.read_offset);
+        futures::ready!(self.poll_read_exact(cx, stream, packet_size + PACKET_LEN_WIDTH))?;
 
-        let packet = &mut self.read_buffer[PACKET_SIZE_WIDTH..packet_size + PACKET_SIZE_WIDTH];
+        let packet = &mut self.read_buffer[PACKET_LEN_WIDTH..packet_size + PACKET_LEN_WIDTH];
         self.read_offset = 0;
         Poll::Ready(Ok(packet))
     }
@@ -202,7 +196,7 @@ pub struct PacketWriter {
 impl PacketWriter {
     pub fn new(cap: usize) -> Self {
         Self {
-            buffer: vec![0; cap],
+            buffer: Vec::with_capacity(cap),
             start: 0,
             end: 0,
             waker: None,
@@ -210,7 +204,7 @@ impl PacketWriter {
     }
 
     pub fn write_packet<'a>(&mut self, message: &impl Codec<'a>) -> Option<&mut [u8]> {
-        let reserved = self.write_with_range(&[0u8; PACKET_SIZE_WIDTH])?;
+        let reserved = self.write_with_range(&[0u8; PACKET_LEN_WIDTH])?;
         let written = self.write_with_range(message)?;
         // SAFETY: we do not reallocate the buffer, ever
         self.slice(reserved)
@@ -237,7 +231,10 @@ impl PacketWriter {
             buf.encode(&mut space)?;
             let writtern = prev_len - space.len();
             self.end += writtern;
-            self.end -= self.buffer.len() * (self.end >= self.buffer.len()) as usize;
+            self.end -= self.buffer.len() * (self.end > self.buffer.len()) as usize;
+            if let Some(waker) = self.waker.take() {
+                waker.wake();
+            }
             Some(unsafe { core::slice::from_raw_parts_mut(prev_ptr, writtern) })
         } else {
             let prev_len = self.buffer.len();
@@ -246,6 +243,9 @@ impl PacketWriter {
             })?;
             let writtern = self.buffer.len() - prev_len;
             self.end += writtern;
+            if let Some(waker) = self.waker.take() {
+                waker.wake();
+            }
             Some(&mut self.buffer[prev_len..])
         }
     }
@@ -283,6 +283,9 @@ impl PacketWriter {
                     self.start = 0;
                     self.end = 0;
                 }
+                if self.start <= self.end {
+                    self.buffer.truncate(self.end);
+                }
                 return Poll::Ready(Ok(()));
             };
 
@@ -291,7 +294,7 @@ impl PacketWriter {
                 return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
             }
             self.start += n;
-            self.start -= self.buffer.len() * (self.start >= self.buffer.len()) as usize;
+            self.start -= self.buffer.len() * (self.start > self.buffer.len()) as usize;
         }
     }
 
@@ -301,8 +304,8 @@ impl PacketWriter {
 
     fn writable_parts(&mut self) -> (&mut [u8], &mut [u8]) {
         if self.start > self.end {
-            let (rest, second) = self.buffer.split_at_mut(self.start);
-            let (first, _) = rest.split_at_mut(self.end);
+            let (rest, first) = self.buffer.split_at_mut(self.start);
+            let (second, _) = rest.split_at_mut(self.end);
             (first, second)
         } else {
             (&mut self.buffer[self.start..self.end], &mut [])
@@ -344,5 +347,71 @@ impl<S: futures::AsyncWrite + Unpin> Future for ClosingStream<S> {
             0 => Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
             _ => Poll::Ready(Ok(())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, core::task::Context, futures::task::noop_waker_ref};
+
+    #[test]
+    fn test_write() {
+        let mut writer = PacketWriter::new(14);
+        let mut buf = [3u8; 10];
+        assert_eq!(writer.write_bytes(&buf), Some(&mut buf[..]));
+
+        writer.end = 6;
+        let mut buf = [1u8; 4];
+        assert_eq!(writer.write_bytes(&buf), Some(&mut buf[..]));
+
+        writer.start = 8;
+        let mut buf = [2u8; 4];
+        assert_eq!(writer.write_bytes(&buf), Some(&mut buf[..]));
+    }
+
+    #[test]
+    fn test_poll() {
+        struct DummyWrite(usize);
+
+        impl futures::AsyncWrite for DummyWrite {
+            fn poll_write(
+                self: Pin<&mut Self>,
+                _: &mut core::task::Context<'_>,
+                buf: &[u8],
+            ) -> Poll<Result<usize, io::Error>> {
+                Poll::Ready(Ok(buf.len().min(self.0)))
+            }
+
+            fn poll_flush(
+                self: Pin<&mut Self>,
+                _: &mut core::task::Context<'_>,
+            ) -> Poll<Result<(), io::Error>> {
+                Poll::Ready(Ok(()))
+            }
+
+            fn poll_close(
+                self: Pin<&mut Self>,
+                _: &mut core::task::Context<'_>,
+            ) -> Poll<Result<(), io::Error>> {
+                Poll::Ready(Ok(()))
+            }
+        }
+
+        let mut writer = PacketWriter::new(100);
+
+        for i in 0..15 {
+            writer.write_bytes(&[0u8; 10]).unwrap();
+            _ = writer.poll(
+                &mut Context::from_waker(noop_waker_ref()),
+                &mut DummyWrite(15 - i),
+            );
+        }
+    }
+
+    #[test]
+    fn test_overflow() {
+        let mut writer = PacketWriter::new(10);
+        let buf = [0u8; 11];
+        assert_eq!(writer.write_bytes(&buf), None);
     }
 }

@@ -268,15 +268,16 @@ fn App() -> impl IntoView {
         }))
     }
 
-    let handle_mail = move |mail: &[u8],
+    let handle_mail = move |mut raw_mail: &[u8],
                             dispatch: &RequestDispatch<Server>,
                             enc: enc::KeyPair,
                             my_id: Identity,
                             my_name: UserName,
                             new_messages: &mut Vec<db::Message>| {
-        let Some(mail) = Mail::decode(&mut &*mail) else {
+        let Some(mail) = Mail::decode(&mut raw_mail) else {
             anyhow::bail!("failed to decode chat message");
         };
+        assert!(raw_mail.is_empty());
 
         match mail {
             Mail::ChatInvite(ChatInvite { chat, cp }) => {

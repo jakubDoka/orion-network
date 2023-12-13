@@ -11,6 +11,7 @@ use {
     },
     component_utils::{
         encode_len, ClosingStream, Codec, FindAndRemove, PacketReader, PacketWriter, Reminder,
+        PACKET_LEN_WIDTH,
     },
     core::fmt,
     futures::{
@@ -409,14 +410,14 @@ impl EncryptedStream {
         let snapshot = self.writer.take_snapshot();
 
         let mut handle_write = || {
-            let reserved = self.writer.write_with_range(&[0u8; 4])?;
+            let reserved = self.writer.write_with_range(&[0u8; PACKET_LEN_WIDTH])?;
             let raw = self.writer.write(data)?;
             let tag = aes
                 .encrypt_in_place_detached(&nonce, ASOC_DATA, raw)
                 .expect("no");
             let full_len = raw.len() + tag.len() + nonce.len();
-            self.write_bytes(&tag)?;
-            self.write_bytes(&nonce)?;
+            self.writer.write_bytes(&tag)?;
+            self.writer.write_bytes(&nonce)?;
             self.writer
                 .slice(reserved)
                 .copy_from_slice(&encode_len(full_len));
