@@ -1,6 +1,5 @@
 use {
-    crate::{decode_len, encode_len, Buffer, Codec, Reminder, PACKET_LEN_WIDTH},
-    core::ops::Range,
+    crate::{codec, decode_len, encode_len, Buffer, Codec, Reminder, PACKET_LEN_WIDTH},
     futures::Future,
     std::{io, pin::Pin, task::Poll},
 };
@@ -203,70 +202,40 @@ impl PacketWriter {
         }
     }
 
-    pub fn write_packet<'a>(&mut self, message: &impl Codec<'a>) -> Option<&mut [u8]> {
-        let reserved = self.write_with_range(&[0u8; PACKET_LEN_WIDTH])?;
-        let written = self.write_with_range(message)?;
-        // SAFETY: we do not reallocate the buffer, ever
-        self.slice(reserved)
-            .copy_from_slice(&encode_len(written.len()));
-        Some(self.slice(written))
+    pub fn write_packet<'a>(&mut self, message: &impl Codec<'a>) -> Option<()> {
+        let mut writer = self.guard();
+        let reserved = writer.write(&[0u8; PACKET_LEN_WIDTH])?;
+        let len = writer.write(message)?.len();
+        reserved.copy_from_slice(&encode_len(len));
+        Some(())
     }
 
-    pub fn slice(&mut self, range: Range<usize>) -> &mut [u8] {
-        &mut self.buffer[range]
-    }
-
-    pub fn write_with_range<'a>(&mut self, message: &impl Codec<'a>) -> Option<Range<usize>> {
-        let res = self.write(message)?.len();
-        Some(self.end - res..self.end)
-    }
-
-    #[must_use = "handle the buffer overflow"]
-    pub fn write<'a>(&mut self, buf: &impl Codec<'a>) -> Option<&mut [u8]> {
+    pub fn guard(&mut self) -> PacketWriterGuard {
         let free_cap = self.buffer.capacity() - self.buffer.len();
-        let mut space = self.in_buffer_space();
-        if free_cap < space.len() {
-            let prev_ptr = space.as_mut_ptr();
-            let prev_len = space.len();
-            buf.encode(&mut space)?;
-            let writtern = prev_len - space.len();
-            self.end += writtern;
-            self.end -= self.buffer.len() * (self.end > self.buffer.len()) as usize;
-            if let Some(waker) = self.waker.take() {
-                waker.wake();
-            }
-            Some(unsafe { core::slice::from_raw_parts_mut(prev_ptr, writtern) })
+        let space = if self.start > self.end {
+            self.end..self.start
         } else {
-            let prev_len = self.buffer.len();
-            buf.encode(&mut NoCapOverflow {
-                vec: &mut self.buffer,
-            })?;
-            let writtern = self.buffer.len() - prev_len;
-            self.end += writtern;
-            if let Some(waker) = self.waker.take() {
-                waker.wake();
-            }
-            Some(&mut self.buffer[prev_len..])
+            0..self.start
+        };
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
         }
-    }
-
-    #[must_use = "handle the buffer overflow"]
-    pub fn write_bytes(&mut self, buf: &[u8]) -> Option<&mut [u8]> {
-        self.write(&Reminder(buf))
-    }
-
-    /// this can panic if poll was called inbetween, the sole purpose is to revert writes
-    pub fn revert(&mut self, snapshot: PacketWriterSnapshot) {
-        self.buffer.truncate(snapshot.len);
-        self.start = snapshot.start;
-        self.end = snapshot.end;
-    }
-
-    pub fn take_snapshot(&self) -> PacketWriterSnapshot {
-        PacketWriterSnapshot {
-            len: self.buffer.len(),
-            start: self.start,
-            end: self.end,
+        if free_cap < space.len() {
+            self.end *= (self.buffer.len() != self.end) as usize;
+            PacketWriterGuard::Replacing {
+                written: 0,
+                target: &mut self.buffer[space],
+                end: &mut self.end,
+            }
+        } else {
+            PacketWriterGuard::Extending {
+                end: if self.end >= self.start {
+                    Ok(&mut self.end)
+                } else {
+                    Err(self.buffer.len())
+                },
+                target: &mut self.buffer,
+            }
         }
     }
 
@@ -303,28 +272,125 @@ impl PacketWriter {
     }
 
     fn writable_parts(&mut self) -> (&mut [u8], &mut [u8]) {
-        if self.start > self.end {
-            let (rest, first) = self.buffer.split_at_mut(self.start);
-            let (second, _) = rest.split_at_mut(self.end);
-            (first, second)
-        } else {
-            (&mut self.buffer[self.start..self.end], &mut [])
-        }
-    }
-
-    fn in_buffer_space(&mut self) -> &mut [u8] {
-        if self.start > self.end {
-            &mut self.buffer[self.end..self.start]
-        } else {
-            &mut self.buffer[..self.start]
+        match self.start.cmp(&self.end) {
+            std::cmp::Ordering::Greater => {
+                let (rest, first) = self.buffer.split_at_mut(self.start);
+                let (second, _) = rest.split_at_mut(self.end);
+                (first, second)
+            }
+            std::cmp::Ordering::Less => (&mut self.buffer[self.start..self.end], &mut []),
+            std::cmp::Ordering::Equal => (&mut [], &mut []),
         }
     }
 }
 
-pub struct PacketWriterSnapshot {
-    len: usize,
-    start: usize,
-    end: usize,
+pub enum PacketWriterGuard<'a> {
+    Extending {
+        target: &'a mut Vec<u8>,
+        end: Result<&'a mut usize, usize>,
+    },
+    Replacing {
+        written: usize,
+        target: &'a mut [u8],
+        end: &'a mut usize,
+    },
+}
+
+impl<'a> PacketWriterGuard<'a> {
+    pub fn write<'b>(&mut self, value: &impl Codec<'b>) -> Option<&'a mut [u8]> {
+        struct RawSliceBuffer {
+            start: *mut u8,
+            end: *mut u8,
+        }
+
+        impl codec::Buffer for RawSliceBuffer {
+            fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()> {
+                if (self.end as usize) < self.start as usize + slice.len() {
+                    return None;
+                }
+
+                unsafe {
+                    core::ptr::copy_nonoverlapping(slice.as_ptr(), self.start, slice.len());
+                    self.start = self.start.add(slice.len());
+                }
+
+                Some(())
+            }
+
+            fn push(&mut self, byte: u8) -> Option<()> {
+                if self.end == self.start {
+                    return None;
+                }
+
+                unsafe {
+                    *self.start = byte;
+                    self.start = self.start.add(1);
+                }
+
+                Some(())
+            }
+        }
+
+        match self {
+            PacketWriterGuard::Extending { target, end, .. } => {
+                let end = end.as_mut().map(|v| &mut **v).unwrap_or_else(|e| e);
+                let mut sbuf = RawSliceBuffer {
+                    start: unsafe { target.as_mut_ptr().add(*end) },
+                    end: unsafe { target.as_mut_ptr().add(target.capacity()) },
+                };
+                let failed = value.encode(&mut sbuf).is_none();
+                if failed {
+                    *end = target.len();
+                    None
+                } else {
+                    // SAFETY: we do not reallocate the buffer, ever
+                    let slice = unsafe {
+                        core::slice::from_raw_parts_mut(
+                            target.as_mut_ptr().add(*end),
+                            sbuf.start as usize - *end - target.as_mut_ptr() as usize,
+                        )
+                    };
+                    *end += slice.len();
+                    Some(slice)
+                }
+            }
+            PacketWriterGuard::Replacing {
+                target, written, ..
+            } => {
+                let mut sub_target = &mut **target;
+                let failed = value.encode(&mut sub_target).is_none();
+                let remonder_len = sub_target.len();
+                let space_taken = target.len() - remonder_len;
+                let (written_slice, rest) =
+                    unsafe { std::mem::take(target).split_at_mut_unchecked(space_taken) };
+                *target = rest;
+
+                if failed {
+                    *written = 0;
+                    None
+                } else {
+                    *written += written_slice.len();
+                    Some(written_slice)
+                }
+            }
+        }
+    }
+
+    pub fn write_bytes(&mut self, bytes: &[u8]) -> Option<&'a mut [u8]> {
+        self.write(&Reminder(bytes))
+    }
+}
+
+impl Drop for PacketWriterGuard<'_> {
+    fn drop(&mut self) {
+        match self {
+            &mut PacketWriterGuard::Extending {
+                end: Ok(&mut end) | Err(end),
+                ref mut target,
+            } => unsafe { target.set_len(end) },
+            PacketWriterGuard::Replacing { end, written, .. } => **end += *written,
+        }
+    }
 }
 
 pub struct ClosingStream<S> {
@@ -358,15 +424,15 @@ mod tests {
     fn test_write() {
         let mut writer = PacketWriter::new(14);
         let mut buf = [3u8; 10];
-        assert_eq!(writer.write_bytes(&buf), Some(&mut buf[..]));
+        assert_eq!(writer.guard().write(&buf), Some(&mut buf[..]));
 
         writer.end = 6;
         let mut buf = [1u8; 4];
-        assert_eq!(writer.write_bytes(&buf), Some(&mut buf[..]));
+        assert_eq!(writer.guard().write(&buf), Some(&mut buf[..]));
 
         writer.start = 8;
         let mut buf = [2u8; 4];
-        assert_eq!(writer.write_bytes(&buf), Some(&mut buf[..]));
+        assert_eq!(writer.guard().write(&buf), Some(&mut buf[..]));
     }
 
     #[test]
@@ -375,11 +441,11 @@ mod tests {
 
         impl futures::AsyncWrite for DummyWrite {
             fn poll_write(
-                self: Pin<&mut Self>,
+                mut self: Pin<&mut Self>,
                 _: &mut core::task::Context<'_>,
                 buf: &[u8],
             ) -> Poll<Result<usize, io::Error>> {
-                Poll::Ready(Ok(buf.len().min(self.0)))
+                Poll::Ready(Ok(buf.len().min(std::mem::take(&mut self.0))))
             }
 
             fn poll_flush(
@@ -399,12 +465,20 @@ mod tests {
 
         let mut writer = PacketWriter::new(100);
 
-        for i in 0..15 {
-            writer.write_bytes(&[0u8; 10]).unwrap();
+        for i in 0..10 {
+            writer.guard().write(&[0u8; 20]).unwrap();
             _ = writer.poll(
                 &mut Context::from_waker(noop_waker_ref()),
-                &mut DummyWrite(15 - i),
+                &mut DummyWrite(11 + i),
             );
+        }
+
+        for _ in 0..100 {
+            _ = writer.poll(
+                &mut Context::from_waker(noop_waker_ref()),
+                &mut DummyWrite(20),
+            );
+            writer.guard().write(&[0u8; 20]).unwrap();
         }
     }
 
@@ -412,6 +486,6 @@ mod tests {
     fn test_overflow() {
         let mut writer = PacketWriter::new(10);
         let buf = [0u8; 11];
-        assert_eq!(writer.write_bytes(&buf), None);
+        assert_eq!(writer.guard().write(&buf), None);
     }
 }

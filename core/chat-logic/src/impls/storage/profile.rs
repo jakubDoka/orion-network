@@ -3,6 +3,7 @@ use {
     crate::{advance_nonce, HandlerResult, Identity, Nonce, PassedContext, Proof},
     component_utils::Reminder,
     crypto::{enc, sign, Serialized},
+    libp2p::PeerId,
     std::collections::hash_map::Entry,
 };
 
@@ -17,7 +18,7 @@ component_utils::protocol! {'a:
         action: Nonce,
         vault: Vec<u8>,
         mail: Vec<u8>,
-        online: bool,
+        online: Option<PeerId>,
     }
 }
 
@@ -109,7 +110,7 @@ impl crate::SyncHandler for CreateAccount {
                     action: proof.nonce,
                     vault: vault.0.to_vec(),
                     mail: Vec::new(),
-                    online: false,
+                    online: None,
                 });
                 Ok(())
             }

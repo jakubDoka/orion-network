@@ -40,9 +40,6 @@ impl<'a> SubContext<libp2p::kad::Behaviour<Storage>> for ReplContext<'a> {
     }
 }
 
-pub trait ReplicationHandler: SyncHandler<Context = libp2p::kad::Behaviour<Storage>> {}
-impl<H> ReplicationHandler for H where H: SyncHandler<Context = libp2p::kad::Behaviour<Storage>> {}
-
 pub struct Replicated<H> {
     request: Vec<u8>,
     response: Vec<u8>,
@@ -60,7 +57,9 @@ enum Stage {
 
 impl<H> Handler for Replicated<H>
 where
-    H: ReplicationHandler,
+    H: SyncHandler,
+    ReplContext<'static>: SubContext<H::Context>,
+    ToSwarm: From<<<H as SyncHandler>::Context as Context>::ToSwarm>,
 {
     type Context = ReplContext<'static>;
     type Error = ReplicationError<H::Error>;
@@ -70,20 +69,31 @@ where
     type Topic = H::Topic;
 
     fn spawn<'a>(
-        context: crate::PassedContext<'a, Self>,
+        mut context: crate::PassedContext<'a, Self>,
         request: &Self::Request<'a>,
         dispatch: &mut crate::EventDispatch<Self>,
         meta @ (prefix, ..): crate::RequestMeta,
     ) -> Result<crate::HandlerResult<'a, Self>, Self> {
+        let replicating = context.kad.store_mut().dont_replicate;
         let r = match H::execute(
             // SAFETY: rust is stupid in this case since we get rid of all potentially borrowed
-            // data in the statement
-            unsafe { std::mem::transmute(&mut *context.kad) },
+            // data in the statement, also, rust is fucked by the semantics of RepliContext being
+            // its own borrow
+            unsafe {
+                type To = ReplContext<'static>;
+                if false {
+                    // this can catch some horiffic runtime errors
+                    std::mem::transmute::<_, To>(context);
+                    unreachable!();
+                }
+                std::mem::transmute::<_, &mut To>(&mut context)
+            }
+            .fragment(),
             request,
             dispatch.cast(),
             meta,
         ) {
-            Ok(r) if context.kad.store_mut().dont_replicate => return Ok(Ok(r)),
+            Ok(r) if replicating => return Ok(Ok(r)),
             Ok(r) => Ok::<_, ()>(r).to_bytes(),
             Err(e) => return Ok(Err(ReplicationError::Inner(e))),
         };

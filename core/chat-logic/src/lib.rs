@@ -111,8 +111,10 @@ macro_rules! compose_handlers {
     };
 }
 
+mod extractors;
 mod impls;
 
+#[derive(Debug, Clone, Copy)]
 pub enum RequestOrigin {
     Client(PathId),
     Miner(PeerId),
@@ -170,7 +172,7 @@ impl<H: Handler> HandlerNest<H> {
     pub fn dispatch<T: Context>(
         &mut self,
         context: &mut T,
-        path_id: RequestOrigin,
+        origin: RequestOrigin,
         message: DispatchMessage<'_>,
         buffer: &mut RootPacketBuffer,
     ) -> Result<(), DispatchError>
@@ -184,16 +186,16 @@ impl<H: Handler> HandlerNest<H> {
             context.fragment(),
             &request,
             &mut self.dispatch,
-            (message.prefix, message.request_id),
+            (message.prefix, message.request_id, origin),
         ) {
             Err(handler) => {
                 self.handlers.push(ActiveHandler {
                     handler,
-                    origin: path_id,
+                    origin,
                     id: message.request_id,
                 });
             }
-            Ok(response) => match path_id {
+            Ok(response) => match origin {
                 RequestOrigin::Client(pid) => buffer.push(&response, (message.request_id, Ok(pid))),
                 RequestOrigin::Miner(mid) => buffer.push(&response, (message.request_id, Err(mid))),
                 RequestOrigin::NotImportant => {}
@@ -264,7 +266,7 @@ pub enum DispatchError {
     InvalidRequest,
 }
 
-type RequestMeta = (u8, CallId);
+type RequestMeta = (u8, CallId, RequestOrigin);
 type HandlerResult<'a, H> = Result<<H as Handler>::Response<'a>, <H as Handler>::Error>;
 type PassedContext<'a, H> = <<H as Handler>::Context as Context>::Borrow<'a>;
 

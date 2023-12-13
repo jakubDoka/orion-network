@@ -407,27 +407,17 @@ impl EncryptedStream {
     pub fn write<'a>(&mut self, data: &impl Codec<'a>) -> Option<()> {
         let aes = Aes256Gcm::new(GenericArray::from_slice(&self.key));
         let nonce = Aes256Gcm::generate_nonce(OsRng);
-        let snapshot = self.writer.take_snapshot();
 
-        let mut handle_write = || {
-            let reserved = self.writer.write_with_range(&[0u8; PACKET_LEN_WIDTH])?;
-            let raw = self.writer.write(data)?;
-            let tag = aes
-                .encrypt_in_place_detached(&nonce, ASOC_DATA, raw)
-                .expect("no");
-            let full_len = raw.len() + tag.len() + nonce.len();
-            self.writer.write_bytes(&tag)?;
-            self.writer.write_bytes(&nonce)?;
-            self.writer
-                .slice(reserved)
-                .copy_from_slice(&encode_len(full_len));
-            Some(())
-        };
-
-        if handle_write().is_none() {
-            self.writer.revert(snapshot);
-            return None;
-        }
+        let mut writer = self.writer.guard();
+        let reserved = writer.write(&[0u8; PACKET_LEN_WIDTH])?;
+        let raw = writer.write(data)?;
+        let tag = aes
+            .encrypt_in_place_detached(&nonce, ASOC_DATA, raw)
+            .expect("no");
+        let full_len = raw.len() + tag.len() + nonce.len();
+        writer.write_bytes(&tag)?;
+        writer.write_bytes(&nonce)?;
+        reserved.copy_from_slice(&encode_len(full_len));
 
         Some(())
     }

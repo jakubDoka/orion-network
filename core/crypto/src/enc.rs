@@ -119,8 +119,7 @@ impl KeyPair {
         let data = ciphertext
             .pl
             .decrypt(x_secret.to_bytes(), ASOC_DATA)
-            .map_err(DecapsulationError::Aes)
-            .unwrap();
+            .map_err(DecapsulationError::Aes)?;
         let payload = ChoosenPayload::from_bytes(data);
         let secret = pqc_kyber::decapsulate(&payload.kyb, &self.kyb.secret)
             .map_err(DecapsulationError::Kyber)?;

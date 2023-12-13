@@ -2,6 +2,8 @@
 #![feature(array_chunks)]
 #![feature(macro_metavar_expr)]
 #![feature(slice_take)]
+#![feature(slice_from_ptr_range)]
+#![feature(slice_split_at_unchecked)]
 
 #[macro_export]
 macro_rules! decl_stream_protocol {
@@ -126,6 +128,8 @@ macro_rules! gen_simple_error {
 
 #[cfg(feature = "std")]
 pub mod codec;
+#[cfg(feature = "std")]
+pub mod extractors;
 #[cfg(feature = "std")]
 pub mod kad;
 #[cfg(feature = "std")]
