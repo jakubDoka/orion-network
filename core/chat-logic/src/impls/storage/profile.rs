@@ -1,6 +1,6 @@
 use {
     super::Storage,
-    crate::{advance_nonce, HandlerResult, Identity, Nonce, PassedContext, Proof},
+    crate::{advance_nonce, HandlerResult, Identity, Nonce, Proof},
     component_utils::Reminder,
     crypto::{enc, sign, Serialized},
     libp2p::PeerId,

@@ -1,9 +1,10 @@
 use {
     crate::CallId,
     component_utils::{arrayvec::ArrayString, Reminder},
-    crypto::{sign, Serialized, TransmutationCircle},
+    crypto::{enc, sign, Serialized, TransmutationCircle},
     std::{iter, num::NonZeroUsize},
 };
+pub use {chat::*, profile::*};
 
 pub const CHAT_NAME_CAP: usize = 32;
 pub const QUORUM: libp2p::kad::Quorum = libp2p::kad::Quorum::Majority;
@@ -14,6 +15,25 @@ pub type RawChatName = [u8; CHAT_NAME_CAP];
 pub type Nonce = u64;
 pub type ProofContext = [u8; CHAT_NAME_CAP];
 pub type Identity = crypto::Hash<sign::PublicKey>;
+
+mod chat;
+mod profile;
+
+crate::compose_protocols! {
+    // chat
+    fn CreateChat<'a>(Identity, ChatName) -> Result<(), CreateChatError>;
+    fn AddUser<'a>(Identity, ChatName, Proof) -> Result<(), AddUserError>;
+    fn SendMessage<'a>(ChatName, Proof, Reminder<'a>) -> Result<(), SendMessageError>;
+    fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Vec<u8>, Cursor), FetchMessagesError>;
+
+    // profile
+    fn CreateAccount<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>;
+    fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>;
+    fn FetchVault<'a>(Identity) -> Result<(Nonce, Reminder<'a>), FetchVaultError>;
+    fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>;
+    fn SendMail<'a>(Identity, Reminder<'a>) -> Result<(), SendMailError>;
+    fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>;
+}
 
 pub fn advance_nonce(current: &mut Nonce, new: Nonce) -> bool {
     if new > *current {
@@ -66,29 +86,6 @@ pub fn unpack_messages_ref(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
 
         Some(slice)
     })
-}
-
-mod search_peers;
-mod storage;
-
-pub use {search_peers::*, storage::*};
-
-compose_handlers! {
-    Server {
-        sp: SearchPeers,
-        fp: FetchProfile,
-
-        ca: CreateAccount,
-        sv: SetVault,
-        fv: FetchVault,
-        sm: SendMail,
-        rm: ReadMail,
-
-        cp: CreateChat,
-        au: AddUser,
-        smsg: SendMessage,
-        fm: FetchMessages,
-    }
 }
 
 component_utils::protocol! {'a:

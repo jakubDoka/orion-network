@@ -1,81 +1,10 @@
 use {
-    crate::RequestOrigin,
     component_utils::{codec, Codec},
+    libp2p::PeerId,
+    onion::PathId,
     rpc::CallId,
     std::convert::Infallible,
 };
-
-#[macro_export]
-macro_rules! compose_handlers_2 {
-    ($name:ident {$(
-        $handler:ty,
-    )*}) => {
-        pub struct $name($(
-           $crate::extractors::HandlerNest<$handler>,
-        )*);
-
-        impl Default for $name {
-            fn default() -> Self {
-                Self($(
-                    ${ignore(handler)}
-                    $crate::extractors::HandlerNest::default(),
-                ),*)
-            }
-        }
-
-        impl $name {
-            pub fn execute<C>(
-                &mut self,
-                cx: &mut C,
-                req: $crate::extractors::Request<'_>,
-                bp: &mut impl $crate::extractors::ProvideRequestBuffer,
-            ) -> Result<(), $crate::extractors::HandlerExecError>
-                where $($handler: $crate::extractors::Handler<C>,)*
-            {
-
-                match req.prefix {
-                    $(${ignore(handler)} ${index(0)} => self.${index(0)}.execute(cx, req, bp),)*
-                    _ => Err($crate::extractors::HandlerExecError::UnknownPrefix),
-                }
-            }
-
-            pub fn try_complete<C, E>(
-                &mut self,
-                cx: &mut C,
-                event: &E,
-                bp: &mut impl $crate::extractors::ProvideRequestBuffer,
-            ) -> Option<()>
-            where
-                $(
-                    E: $crate::extractors::TryUnwrap<<$handler as Handler<C>>::Event>,
-                    $handler: Handler<C>,
-                )*
-            {
-
-                (false $(
-                    ${ignore(handler)}
-                    || self.${index(0)}.try_complete(cx, event, bp).is_some()
-                )*).then_some(())
-            }
-        }
-
-        $(impl Dispatches<$handler> for $name {
-            const PREFIX: u8 = ${index(0)};
-        })*
-    };
-}
-
-#[macro_export]
-macro_rules! impl_protocol {
-    ($(fn $for:ident<$lt:lifetime>($req:ty) -> Result<$resp:ty, $error:ty>;)*) => {$(
-        pub enum $for {}
-        impl $crate::extractors::Protocol for $for {
-            type Error = $error;
-            type Request<$lt> = $req;
-            type Response<$lt> = $resp;
-        }
-    )*};
-}
 
 pub trait Dispatches<T> {
     const PREFIX: u8;
@@ -85,7 +14,10 @@ pub fn prefix_of<U, T: Dispatches<U>>() -> u8 {
     T::PREFIX
 }
 
+pub type ProtocolResult<'a, P> = Result<<P as Protocol>::Response<'a>, <P as Protocol>::Error>;
+
 pub trait Protocol {
+    const PREFIX: u8;
     type Request<'a>: Codec<'a>;
     type Response<'a>: Codec<'a>;
     type Error: for<'a> Codec<'a> + std::error::Error;
@@ -129,6 +61,31 @@ pub trait Handler<C>: Sized {
         buffer: &mut impl codec::Buffer,
     ) -> Result<Option<()>, Self> {
         self.resume(cx, enent).map(move |r| r.encode(buffer))
+    }
+}
+
+pub trait SyncHandler<C> {
+    type Protocol: Protocol;
+
+    fn execute<'a>(
+        cx: Scope<'a, C>,
+        req: <Self::Protocol as Protocol>::Request<'_>,
+    ) -> ProtocolResult<'a, Self::Protocol>;
+}
+
+impl<C, H: SyncHandler<C>> Handler<C> for H {
+    type Event = Infallible;
+    type Protocol = H::Protocol;
+
+    fn execute<'a>(
+        cx: Scope<'a, C>,
+        req: <Self::Protocol as Protocol>::Request<'_>,
+    ) -> HandlerResult<'a, Self, C> {
+        Ok(Self::execute(cx, req))
+    }
+
+    fn resume<'a>(self, _: Scope<'a, C>, e: &'a Self::Event) -> HandlerResult<'a, Self, C> {
+        match *e {}
     }
 }
 
@@ -260,4 +217,51 @@ pub struct Request<'a> {
     pub id: CallId,
     pub prefix: u8,
     pub body: &'a [u8],
+}
+
+pub struct PacketBuffer<M> {
+    packets: Vec<u8>,
+    bounds: Vec<(usize, M)>,
+}
+
+impl<M> Default for PacketBuffer<M> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<M> PacketBuffer<M> {
+    pub fn new() -> Self {
+        Self {
+            packets: Vec::new(),
+            bounds: Vec::new(),
+        }
+    }
+
+    pub fn push<'a>(&mut self, packet: &impl Codec<'a>, id: M) {
+        packet.encode(&mut self.packets).expect("packet encode");
+        self.bounds.push((self.packets.len(), id));
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = (M, &mut [u8])> {
+        let total_len = self.packets.len();
+        let slice = unsafe { std::mem::transmute::<_, &mut [u8]>(self.packets.as_mut_slice()) };
+        unsafe { self.packets.set_len(0) }
+        self.bounds
+            .drain(..)
+            .scan(slice, move |slice, (bound, req)| {
+                let current_len = slice.len();
+                let (head, tail) =
+                    std::mem::take(slice).split_at_mut(bound - (total_len - current_len));
+                *slice = tail;
+                Some((req, head))
+            })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RequestOrigin {
+    Client(PathId),
+    Miner(PeerId),
+    NotImportant,
 }
