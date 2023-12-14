@@ -1,8 +1,9 @@
 use {
-    crate::CallId,
-    component_utils::Reminder,
+    crate::Protocol,
+    component_utils::{codec, Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
-    std::{iter, num::NonZeroUsize},
+    libp2p::PeerId,
+    std::{convert::Infallible, iter, num::NonZeroUsize},
 };
 pub use {chat::*, profile::*};
 
@@ -17,23 +18,82 @@ mod chat;
 mod profile;
 
 crate::compose_protocols! {
-    fn CreateChat<'a>(Identity, ChatName) -> Result<(), CreateChatError>;
-    fn AddUser<'a>(Identity, ChatName, Proof) -> Result<(), AddUserError>;
-    fn SendMessage<'a>(ChatName, Proof, Reminder<'a>) -> Result<(), SendMessageError>;
-    fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Vec<u8>, Cursor), FetchMessagesError>;
+    fn Repl<'a, P: Protocol>(P::Request<'a>) -> Result<P::Response<'a>, ReplError<P::Error>>;
+    fn SearchPeers<'a>(PossibleTopic) -> Result<Vec<PeerId>, Infallible>;
+    fn Subscribe<'a>(PossibleTopic) -> Result<(), Infallible>;
 
-    fn CreateProfile<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>;
-    fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>;
-    fn FetchVault<'a>(Identity) -> Result<(Nonce, Reminder<'a>), FetchVaultError>;
-    fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>;
-    fn SendMail<'a>(Identity, Reminder<'a>) -> Result<(), SendMailError>;
-    fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>;
+    fn CreateChat<'a>(Identity, ChatName) -> Result<(), CreateChatError>
+        where Topic(ChatName): |&(.., c)| c;
+    fn AddUser<'a>(Identity, ChatName, Proof) -> Result<(), AddUserError>
+        where Topic(ChatName): |&(_, c, ..)| c;
+    fn SendMessage<'a>(ChatName, Proof, Reminder<'a>) -> Result<(), SendMessageError>
+        where Topic(ChatName): |&(c, ..)| c;
+    fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Vec<u8>, Cursor), FetchMessagesError>
+        where Topic(ChatName): |&(c, ..)| c;
+
+    fn CreateProfile<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>
+        where Topic(Identity): |(p, ..)| crypto::hash::new_raw(&p.pk);
+    fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>
+        where Topic(Identity): |(p, ..)| crypto::hash::new_raw(&p.pk);
+    fn FetchVault<'a>(Identity) -> Result<(Nonce, Reminder<'a>), FetchVaultError>
+        where Topic(Identity): |&i| i;
+    fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>
+        where Topic(Identity): |p| crypto::hash::new_raw(&p.pk);
+    fn SendMail<'a>(Identity, Reminder<'a>) -> Result<(), SendMailError>
+        where Topic(Identity): |&(i, ..)| i;
+    fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>
+        where Topic(Identity): |&i| i;
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum PossibleTopic {
-    Chat(ChatName),
-    Profile(Identity),
+#[derive(Debug, thiserror::Error)]
+pub enum ReplError<T> {
+    #[error("no majority")]
+    NoMajority,
+    #[error("invalid response from majority")]
+    InvalidResponse,
+    #[error(transparent)]
+    Inner(T),
+}
+
+impl<'a, T: Codec<'a>> Codec<'a> for ReplError<T> {
+    fn encode(&self, buf: &mut impl codec::Buffer) -> Option<()> {
+        match self {
+            Self::NoMajority => buf.push(0),
+            Self::InvalidResponse => buf.push(1),
+            Self::Inner(e) => {
+                buf.push(2)?;
+                e.encode(buf)
+            }
+        }
+    }
+
+    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
+        match buf.take_first()? {
+            0 => Some(Self::NoMajority),
+            1 => Some(Self::Inner(T::decode(buf)?)),
+            _ => None,
+        }
+    }
+}
+
+component_utils::protocol! {'a:
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    untagged_enum PossibleTopic {
+        Chat: ChatName,
+        Profile: Identity,
+    }
+}
+
+impl From<ChatName> for PossibleTopic {
+    fn from(c: ChatName) -> Self {
+        Self::Chat(c)
+    }
+}
+
+impl From<Identity> for PossibleTopic {
+    fn from(i: Identity) -> Self {
+        Self::Profile(i)
+    }
 }
 
 pub fn advance_nonce(current: &mut Nonce, new: Nonce) -> bool {

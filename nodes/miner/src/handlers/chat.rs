@@ -24,7 +24,7 @@ impl<C: ProvideStorage> SyncHandler<C> for CreateChat {
 impl<C: ProvideStorage> SyncHandler<C> for AddUser {
     fn execute<'a>(
         mut cx: Scope<'a, C>,
-        (proof, name, identiy): Self::Request<'_>,
+        (identiy, name, proof): Self::Request<'_>,
     ) -> ProtocolResult<'a, Self> {
         ensure!(proof.verify_chat(name), AddUserError::InvalidProof);
 
@@ -57,7 +57,7 @@ impl<C: ProvideStorage> SyncHandler<C> for AddUser {
     }
 }
 
-impl<C: EventEmmiter<ChatName>> SyncHandler<C> for SendMessage {
+impl<C: EventEmmiter<ChatName> + ProvideStorage> SyncHandler<C> for SendMessage {
     fn execute<'a>(
         mut cx: Scope<'a, C>,
         (name, proof, message): Self::Request<'_>,
@@ -88,7 +88,7 @@ impl<C: EventEmmiter<ChatName>> SyncHandler<C> for SendMessage {
         );
 
         chat.messages.push(message.0.iter().copied());
-        cx.push(name, &(proof, message));
+        cx.push(name, ChatEvent::Message((proof, message)));
 
         Ok(())
     }
@@ -245,17 +245,6 @@ impl MessageBlob {
         }
 
         cursor
-    }
-
-    pub fn try_replace(&mut self, c: ChatHistory<'_>) {
-        if c.offset < self.offset || c.first.len() + c.last.0.len() <= self.data.len() {
-            return;
-        }
-
-        self.data.clear();
-        self.data.extend(c.first);
-        self.data.extend(c.last.0);
-        self.offset = c.offset;
     }
 }
 

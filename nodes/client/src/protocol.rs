@@ -32,9 +32,9 @@ impl RequestDispatch {
         )
     }
 
-    pub async fn dispatch<P: Protocol>(
+    async fn dispatch_low<P: Protocol>(
         &mut self,
-        topic: impl Into<Option<PossibleTopic>>,
+        topic: Option<PossibleTopic>,
         request: P::Request<'_>,
     ) -> Result<P::Response<'_>, RequestError<P>> {
         let id = CallId::new();
@@ -43,7 +43,7 @@ impl RequestDispatch {
         self.sink
             .send(RequestInit::Request(RawRequest {
                 id,
-                topic: topic.into(),
+                topic,
                 payload: (P::PREFIX, id, request).to_bytes(),
                 channel: tx,
             }))
@@ -53,13 +53,21 @@ impl RequestDispatch {
         Self::parse_response::<P>(&self.buffer)
     }
 
+    pub async fn dispatch<P: Protocol + ExtractTopic>(
+        &mut self,
+        request: <Repl<P> as Protocol>::Request<'_>,
+    ) -> Result<<Repl<P> as Protocol>::Response<'_>, RequestError<Repl<P>>> {
+        let topic = P::extract_topic(&request);
+        self.dispatch_low(Some(topic.into()), request).await
+    }
+
     pub async fn dispatch_direct<P: Protocol>(
         &mut self,
         stream: &mut EncryptedStream,
         request: &P::Request<'_>,
     ) -> Result<P::Response<'_>, RequestError<P>> {
         stream
-            .write(&(P::PREFIX, CallId::whatever(), request))
+            .write((P::PREFIX, CallId::whatever(), request))
             .ok_or(RequestError::ServerIsOwervhelmed)?;
 
         self.buffer = stream
@@ -74,9 +82,9 @@ impl RequestDispatch {
     pub fn parse_response<P: Protocol>(
         response: &[u8],
     ) -> Result<P::Response<'_>, RequestError<P>> {
-        <(CallId, _)>::decode(&mut &response[..])
+        <(CallId, ProtocolResult<'_, P>)>::decode(&mut &response[..])
             .ok_or(RequestError::InvalidResponse)
-            .and_then(|r| r.response.map_err(RequestError::Handler))
+            .and_then(|(_, resp)| resp.map_err(RequestError::Handler))
     }
 
     pub async fn dispatch_direct_batch<'a, 'b, P: Protocol>(
@@ -117,8 +125,8 @@ impl RequestDispatch {
         self.sink
             .try_send(RequestInit::Subscription(SubscriptionInit {
                 request_id,
-                topic: topic.to_bytes(),
-                payload: (P::PREFIX | 0x80, request_id, topic).to_bytes(),
+                payload: (<Subscribe as Protocol>::PREFIX, request_id, &topic).to_bytes(),
+                topic: topic.into(),
                 channel: tx,
             }))
             .map_err(|_| RequestError::ChannelClosed)?;
@@ -171,10 +179,10 @@ pub enum RequestInit {
 }
 
 impl RequestInit {
-    pub fn topic(&self) -> &[u8] {
+    pub fn topic(&self) -> PossibleTopic {
         match self {
-            RequestInit::Request(r) => r.topic.as_deref().unwrap(),
-            RequestInit::Subscription(s) => &s.topic,
+            RequestInit::Request(r) => r.topic.unwrap(),
+            RequestInit::Subscription(s) => s.topic,
             RequestInit::CloseSubscription(_) => unreachable!(),
         }
     }
@@ -195,7 +203,7 @@ impl<H: Topic> Subscription<H> {
 
 pub struct SubscriptionInit {
     pub request_id: CallId,
-    pub topic: Vec<u8>,
+    pub topic: PossibleTopic,
     pub payload: Vec<u8>,
     pub channel: libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>,
 }

@@ -51,6 +51,34 @@ macro_rules! protocol {
         }
     };
 
+    (@low $(#[$meta:meta])* untagged_enum $lt:lifetime $name:ident$(<$lt2:lifetime>)? {$(
+        $variant:ident: $value:ty,
+    )*}) => {
+       $(#[$meta])*
+        pub enum $name$(<$lt2>)? {
+            $($variant($value),)*
+        }
+
+        impl<$lt> $crate::codec::Codec<$lt> for $name$(<$lt2>)? {
+            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
+                match self {
+                    $(Self::$variant(value) => {
+                        <$value as $crate::codec::Codec<$lt>>::encode(value, buffer)
+                    })*
+                }
+            }
+
+            fn decode(buffer: &mut &$lt [u8]) -> Option<Self> {
+                $(
+                    if let Some(value) = <$value as $crate::codec::Codec<$lt>>::decode(buffer) {
+                        return Some(Self::$variant(value));
+                    }
+                )*
+                None
+            }
+        }
+    };
+
     (@pattern $variant:ident $var:ident) => {Self::$variant};
     (@pattern $variant:ident $var:ident $value:ty) => {Self::$variant($var)};
 

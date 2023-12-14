@@ -9,6 +9,14 @@ pub struct LinearMap<K, V> {
     values: Vec<(K, V)>,
 }
 
+impl<K, V, const N: usize> From<[(K, V); N]> for LinearMap<K, V> {
+    fn from(values: [(K, V); N]) -> Self {
+        Self {
+            values: values.into(),
+        }
+    }
+}
+
 impl<K: Eq, V> LinearMap<K, V> {
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         if let Some((_, current)) = self.values.iter_mut().find(|(k, _)| k == &key) {

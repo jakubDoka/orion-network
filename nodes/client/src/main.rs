@@ -4,7 +4,7 @@
 #![feature(macro_metavar_expr)]
 
 use {
-    self::web_sys::wasm_bindgen::JsValue,
+    self::{protocol::RequestDispatch, web_sys::wasm_bindgen::JsValue},
     crate::{
         chat::Chat,
         login::{Login, Register},
@@ -13,12 +13,10 @@ use {
             HardenedJoinRequest, JoinRequestPayload, Mail, MemberMeta, Node,
         },
         profile::Profile,
+        protocol::SubsOwner,
     },
     anyhow::Context,
-    chat_logic::{
-        ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, RequestDispatch, SendMail,
-        Server, SetVault, SubsOwner,
-    },
+    chat_logic::{ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, SendMail, SetVault},
     component_utils::{Codec, Reminder},
     crypto::{
         enc::{self, ChoosenCiphertext, Ciphertext},
@@ -136,7 +134,7 @@ impl UserKeys {
 #[derive(Default, Clone, Copy)]
 struct State {
     keys: RwSignal<Option<UserKeys>>,
-    requests: RwSignal<Option<chat_logic::RequestDispatch<chat_logic::Server>>>,
+    requests: RwSignal<Option<RequestDispatch>>,
     vault: RwSignal<Vault>,
     account_nonce: RwSignal<Nonce>,
     hardened_messages: RwSignal<Option<(ChatName, db::Message)>>,
@@ -189,7 +187,7 @@ fn App() -> impl IntoView {
         state.vault.with(Codec::to_bytes)
     });
     let timeout = store_value(None::<TimeoutHandle>);
-    let save_vault = move |keys: UserKeys, mut ed: RequestDispatch<Server>| {
+    let save_vault = move |keys: UserKeys, mut ed: RequestDispatch| {
         let mut vault_bytes = serialized_vault.get_untracked();
         let proof = state.next_profile_proof().expect("logged in");
         crypto::encrypt(&mut vault_bytes, keys.vault);
@@ -227,7 +225,7 @@ fn App() -> impl IntoView {
         my_name: UserName,
         enc: enc::KeyPair,
         identity: Identity,
-        mut dispatch: RequestDispatch<Server>,
+        mut dispatch: RequestDispatch,
     ) -> anyhow::Result<(UserName, MemberMeta)> {
         let client = chain::node(my_name).await?;
         let identity_hashes = client
@@ -270,7 +268,7 @@ fn App() -> impl IntoView {
     }
 
     let handle_mail = move |mut raw_mail: &[u8],
-                            dispatch: &RequestDispatch<Server>,
+                            dispatch: &RequestDispatch,
                             enc: enc::KeyPair,
                             my_id: Identity,
                             my_name: UserName,
@@ -400,7 +398,7 @@ fn App() -> impl IntoView {
         Ok(())
     };
 
-    let account_sub = store_value(None::<SubsOwner<SendMail>>);
+    let account_sub = store_value(None::<SubsOwner<Identity>>);
     create_effect(move |_| {
         let Some(keys) = state.keys.get() else {
             return;
@@ -441,7 +439,7 @@ fn App() -> impl IntoView {
                 db::save_messages(new_messages).await
             });
 
-            let (mut account, id) = dispatch.subscribe::<SendMail>(identity).unwrap();
+            let (mut account, id) = dispatch.subscribe(identity).unwrap();
             let dispatch_clone = dispatch.clone();
             account_sub.set_value(Some(id));
             let listen = async move {

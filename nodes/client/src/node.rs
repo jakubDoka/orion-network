@@ -1,9 +1,9 @@
 use {
-    crate::{BootPhase, UserKeys},
+    crate::{protocol::*, BootPhase, UserKeys},
     anyhow::Context,
     chat_logic::{
-        CallId, ChatName, CreateProfile, DispatchResponse, FetchVault, Identity, Nonce, Proof,
-        RawChatName,
+        CallId, ChatName, CreateProfile, FetchVault, Identity, Nonce, PossibleTopic, Proof,
+        Protocol, ProtocolResult, RawChatName, SearchPeers,
     },
     component_utils::{
         futures::{self},
@@ -198,7 +198,6 @@ pub struct Node {
     subscriptions: futures::stream::SelectAll<Subscription>,
     pending_requests: LinearMap<CallId, libp2p::futures::channel::oneshot::Sender<RawResponse>>,
     pending_topic_search: LinearMap<Result<CallId, PathId>, Vec<RequestInit>>,
-    active_subs: LinearMap<CallId, libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>>,
     requests: RequestStream,
 }
 
@@ -206,7 +205,7 @@ impl Node {
     pub async fn new(
         keys: UserKeys,
         wboot_phase: WriteSignal<Option<BootPhase>>,
-    ) -> anyhow::Result<(Self, Vault, RequestDispatch<Server>, Nonce)> {
+    ) -> anyhow::Result<(Self, Vault, RequestDispatch, Nonce)> {
         macro_rules! set_state { ($($t:tt)*) => {wboot_phase(Some(BootPhase::$($t)*))}; }
 
         set_state!(FetchNodesAndProfile);
@@ -351,7 +350,7 @@ impl Node {
         set_state!(ProfileSearch);
 
         let members = request_dispatch
-            .dispatch_direct::<SearchPeers>(&mut init_stream, &Reminder(&profile_hash.sign.0))
+            .dispatch_direct::<SearchPeers>(&mut init_stream, &profile_hash.sign.into())
             .await
             .context("searching profile replicators")?;
 
@@ -408,7 +407,8 @@ impl Node {
         let mut profile_sub = Subscription {
             id: profile_stream_id,
             peer_id: profile_stream_peer,
-            topics: [profile_hash.sign.0.to_vec()].into(),
+            topics: [PossibleTopic::Profile(profile_hash.sign)].into(),
+            subscriptions: Default::default(),
             stream: profile_stream,
         };
 
@@ -418,25 +418,20 @@ impl Node {
         for (peers, chat) in request_dispatch
             .dispatch_direct_batch::<SearchPeers>(
                 &mut profile_sub.stream,
-                vault
-                    .chats
-                    .keys()
-                    .copied()
-                    .map(|c| c.to_bytes())
-                    .collect::<Vec<_>>()
-                    .iter()
-                    .map(|c| Reminder(c.as_slice())),
+                vault.chats.keys().copied().map(PossibleTopic::Chat),
             )
             .await?
         {
             let peers = peers.unwrap();
             if peers.contains(&profile_sub.peer_id) {
-                profile_sub.topics.insert(chat.0.to_owned());
+                profile_sub.topics.push(chat);
                 continue;
             }
 
-            let chat =
-                ChatName::decode(&mut &*chat.0).expect("for just encoded chat to be decodable");
+            let PossibleTopic::Chat(chat) = chat else {
+                unreachable!();
+            };
+
             for peer in peers {
                 topology.entry(peer).or_default().insert(chat);
             }
@@ -500,7 +495,8 @@ impl Node {
             subscriptions.push(Subscription {
                 id,
                 peer_id,
-                topics: subs.into_iter().map(|c| c.to_bytes()).collect(),
+                topics: subs.into_iter().map(PossibleTopic::Chat).collect(),
+                subscriptions: Default::default(),
                 stream,
             });
         }
@@ -513,7 +509,6 @@ impl Node {
                 peer_search,
                 subscriptions,
                 pending_requests: Default::default(),
-                active_subs: Default::default(),
                 pending_topic_search: Default::default(),
                 requests: commands,
             },
@@ -571,11 +566,7 @@ impl Node {
         }
         let id = CallId::new();
         sub.stream
-            .write(&(
-                <Server as Dispatches<SearchPeers>>::PREFIX,
-                id,
-                Reminder(search_key),
-            ))
+            .write((<SearchPeers as Protocol>::PREFIX, id, search_key))
             .unwrap();
         log::debug!("searching for {:?}", search_key);
         self.pending_topic_search.insert(Ok(id), vec![command]);
@@ -611,7 +602,7 @@ impl Node {
         assert!(!sub.payload.is_empty());
 
         subs.stream.write_bytes(&sub.payload).unwrap();
-        self.active_subs.insert(sub.request_id, sub.channel);
+        subs.subscriptions.insert(sub.request_id, sub.channel);
         log::debug!("subscription request send, {:?}", sub.request_id);
     }
 
@@ -619,7 +610,16 @@ impl Node {
         match command {
             RequestInit::Request(req) => self.handle_request(req),
             RequestInit::Subscription(sub) => self.handle_subscription_request(sub),
-            RequestInit::CloseSubscription(id) => _ = self.active_subs.remove(&id).unwrap(),
+            RequestInit::CloseSubscription(id) => {
+                let Some(sub) = self
+                    .subscriptions
+                    .iter_mut()
+                    .find(|s| s.subscriptions.contains_key(&id))
+                else {
+                    return;
+                };
+                sub.subscriptions.remove(&id);
+            }
         }
     }
 
@@ -635,6 +635,7 @@ impl Node {
                         id,
                         peer_id,
                         topics: [req[0].topic().to_owned()].into(),
+                        subscriptions: Default::default(),
                         stream: stream.expect("TODO: somehow report this error"),
                     });
                     req.into_iter().for_each(|r| self.handle_command(r));
@@ -650,11 +651,7 @@ impl Node {
             return;
         };
 
-        let Some(DispatchResponse {
-            request_id,
-            response: Reminder(content),
-        }) = DispatchResponse::decode(&mut &*msg)
-        else {
+        let Some((request_id, Reminder(content))) = <_>::decode(&mut &*msg) else {
             log::error!("invalid chat subscription response");
             return;
         };
@@ -664,16 +661,24 @@ impl Node {
             return;
         }
 
-        if let Some(channel) = self.active_subs.get_mut(&request_id) {
+        if let Some(channel) = self
+            .subscriptions
+            .iter_mut()
+            .find_map(|s| s.subscriptions.get_mut(&request_id))
+        {
             if channel.send(content.to_owned()).await.is_err() {
-                self.active_subs.remove(&request_id).unwrap();
+                self.subscriptions
+                    .iter_mut()
+                    .find_map(|s| s.subscriptions.remove(&request_id))
+                    .expect("channel to exist");
             }
             return;
         }
 
         if let Some(req) = self.pending_topic_search.remove(&Ok(request_id)) {
             log::debug!("received pending topic search query");
-            let Ok(resp) = RequestDispatch::<Server>::parse_response::<SearchPeers>(&msg) else {
+
+            let Some(Ok(resp)) = ProtocolResult::<'_, SearchPeers>::decode(&mut &*content) else {
                 log::error!("search query response is invalid");
                 return;
             };
@@ -684,7 +689,7 @@ impl Node {
                 .find(|s| resp.iter().any(|p| s.peer_id == *p))
             {
                 log::debug!("shortcut topic found");
-                sub.topics.insert(req[0].topic().to_owned());
+                sub.topics.push(req[0].topic().to_owned());
                 req.into_iter().for_each(|r| self.handle_command(r));
                 return;
             }
@@ -728,7 +733,8 @@ type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 struct Subscription {
     id: PathId,
     peer_id: PeerId,
-    topics: HashSet<Vec<u8>>,
+    topics: Vec<PossibleTopic>,
+    subscriptions: LinearMap<CallId, libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>>,
     stream: EncryptedStream,
 }
 

@@ -1,8 +1,8 @@
-pub use {chat::*, profile::*};
+pub use {chat::*, peer_search::*, profile::*, replicated::*};
 use {
     chat_logic::{Protocol, ProtocolResult, Topic},
     component_utils::{codec, Codec},
-    libp2p::PeerId,
+    libp2p::{kad::store::RecordStore, PeerId},
     onion::PathId,
     rpc::CallId,
     std::{
@@ -28,19 +28,19 @@ macro_rules! ensure {
 
 #[macro_export]
 macro_rules! compose_handlers {
-    ($name:ident {$(
+    ($($name:ident {$(
         $handler:ty,
-    )*}) => {
+    )*})*) => {$(
         pub struct $name($(
-           $crate::extractors::HandlerNest<$handler>,
+           $crate::handlers::HandlerNest<$handler>,
         )*);
 
         impl Default for $name {
             fn default() -> Self {
                 Self($(
                     ${ignore(handler)}
-                    $crate::extractors::HandlerNest::default(),
-                ),*)
+                    $crate::handlers::HandlerNest::default(),
+                )*)
             }
         }
 
@@ -49,50 +49,58 @@ macro_rules! compose_handlers {
                 &mut self,
                 cx: &mut C,
                 req: $crate::handlers::Request<'_>,
-                bp: &mut impl $crate::handlers::ProvideRequestBuffer,
-            ) -> Result<(), $crate::handlers::HandlerExecError>
+                bp: &mut impl component_utils::codec::Buffer,
+            ) -> Result<$crate::handlers::ExitedEarly, $crate::handlers::HandlerExecError>
                 where $($handler: $crate::handlers::Handler<C>,)*
             {
-
-                match req.prefix {
-                    $(<<$handler as Handler<C>>::Protocol as Protocol>::PREFIX => self.${index(0)}.execute(cx, req, bp),)*
-                    _ => Err($crate::handlers::HandlerExecError::UnknownPrefix),
-                }
+                $(if <<$handler as Handler<C>>::Protocol as Protocol>::PREFIX == req.prefix { return self.${index(0)}.execute(cx, req, bp) })*
+                Err($crate::handlers::HandlerExecError::UnknownPrefix)
             }
 
             pub fn try_complete<C, E>(
                 &mut self,
                 cx: &mut C,
-                event: &E,
-                bp: &mut impl $crate::handlers::ProvideRequestBuffer,
-            ) -> Option<()>
+                mut event: E,
+                bp: &mut impl component_utils::codec::Buffer,
+            ) -> Result<(RequestOrigin, CallId), E>
             where
                 $(
-                    E: $crate::extractors::TryUnwrap<<$handler as Handler<C>>::Event>,
+                    E: $crate::handlers::TryUnwrap<<$handler as Handler<C>>::Event>,
                     $handler: Handler<C>,
                 )*
             {
-
-                (false $(
+                $(
                     ${ignore(handler)}
-                    || self.${index(0)}.try_complete(cx, event, bp).is_some()
-                )*).then_some(())
+                    match self.${index(0)}.try_complete(cx, event, bp) {
+                        Ok(res) => return Ok(res),
+                        Err(e) => event = e,
+                    }
+                )*
+                Err(event)
             }
         }
-    };
+    )*};
 }
 
 mod chat;
 mod peer_search;
 mod profile;
-//mod replicated;
+mod replicated;
+
+pub trait ProvideKad {
+    fn kad_mut(&mut self) -> &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>;
+}
+
+pub trait ProvideRpc {
+    fn rpc_mut(&mut self) -> &mut rpc::Behaviour;
+}
 
 pub trait ProvideStorage {
     fn store_mut(&mut self) -> &mut crate::Storage;
 }
 
 pub trait EventEmmiter<T: Topic> {
-    fn push<'a>(&mut self, topic: T, event: T::Event<'a>);
+    fn push(&mut self, topic: T, event: T::Event<'_>);
 }
 
 pub type HandlerResult<'a, H, C> = Result<
@@ -136,7 +144,9 @@ pub trait SyncHandler<C>: Protocol {
     fn execute<'a>(cx: Scope<'a, C>, req: Self::Request<'_>) -> ProtocolResult<'a, Self>;
 }
 
-impl<C, H: SyncHandler<C>> Handler<C> for H {
+pub struct Sync<T>(T);
+
+impl<C, H: SyncHandler<C>> Handler<C> for Sync<H> {
     type Event = Infallible;
     type Protocol = H;
 
@@ -144,7 +154,7 @@ impl<C, H: SyncHandler<C>> Handler<C> for H {
         cx: Scope<'a, C>,
         req: <Self::Protocol as Protocol>::Request<'_>,
     ) -> HandlerResult<'a, Self, C> {
-        Ok(Self::execute(cx, req))
+        Ok(H::execute(cx, req))
     }
 
     fn resume<'a>(self, _: Scope<'a, C>, e: &'a Self::Event) -> HandlerResult<'a, Self, C> {
@@ -157,6 +167,17 @@ pub struct Scope<'a, C> {
     pub origin: RequestOrigin,
     pub call_id: CallId,
     pub prefix: u8,
+}
+
+impl<'a, C> Scope<'a, C> {
+    fn reborrow(&mut self) -> Scope<'_, C> {
+        Scope {
+            cx: &mut *self.cx,
+            origin: self.origin,
+            call_id: self.call_id,
+            prefix: self.prefix,
+        }
+    }
 }
 
 impl<'a, C> Deref for Scope<'a, C> {
@@ -173,13 +194,13 @@ impl<'a, C> DerefMut for Scope<'a, C> {
     }
 }
 
-pub trait TryUnwrap<T>: Sized {
-    fn try_unwrap(&self) -> Option<&T>;
+pub trait TryUnwrap<T>: From<T> {
+    fn try_unwrap(self) -> Result<T, Self>;
 }
 
 impl<T> TryUnwrap<T> for T {
-    fn try_unwrap(&self) -> Option<&T> {
-        Some(self)
+    fn try_unwrap(self) -> Result<T, Self> {
+        Ok(self)
     }
 }
 
@@ -199,17 +220,18 @@ impl<H> Default for HandlerNest<H> {
     }
 }
 
+pub type ExitedEarly = bool;
+
 impl<H> HandlerNest<H> {
     pub fn execute<C>(
         &mut self,
         cx: &mut C,
         req: Request<'_>,
-        bp: &mut impl ProvideRequestBuffer,
-    ) -> Result<(), HandlerExecError>
+        bp: &mut impl component_utils::codec::Buffer,
+    ) -> Result<ExitedEarly, HandlerExecError>
     where
         H: Handler<C>,
     {
-        let mut buffer = bp.request_buffer(req.id, req.origin);
         let decoded = <H::Protocol as Protocol>::Request::decode(&mut &*req.body)
             .ok_or(HandlerExecError::DecodeRequest)?;
         if let Err(con) = H::execute_and_encode(
@@ -220,7 +242,7 @@ impl<H> HandlerNest<H> {
                 prefix: req.prefix,
             },
             decoded,
-            &mut buffer,
+            bp,
         ) {
             self.handlers.push(HandlerInstance {
                 prefix: req.prefix,
@@ -228,42 +250,48 @@ impl<H> HandlerNest<H> {
                 origin: req.origin,
                 handler: con,
             });
-        }
 
-        Ok(())
+            Ok(false)
+        } else {
+            Ok(true)
+        }
     }
 
     pub fn try_complete<C, E: TryUnwrap<H::Event>>(
         &mut self,
         cx: &mut C,
-        event: &E,
-        bp: &mut impl ProvideRequestBuffer,
-    ) -> Option<()>
+        event: E,
+        bp: &mut impl codec::Buffer,
+    ) -> Result<(RequestOrigin, CallId), E>
     where
         H: Handler<C>,
     {
         let event = event.try_unwrap()?;
 
-        let (i, res) = self.handlers.iter_mut().enumerate().find_map(|(i, h)| {
-            let read = unsafe { std::ptr::read(&h.handler) };
-            let mut buffer = bp.request_buffer(h.id, h.origin);
-            match read.resume_and_encode(
-                Scope {
-                    cx,
-                    origin: h.origin,
-                    call_id: h.id,
-                    prefix: h.prefix,
-                },
-                event,
-                &mut buffer,
-            ) {
-                Ok(res) => Some((i, res)),
-                Err(new_handler) => unsafe {
-                    std::ptr::write(&mut h.handler, new_handler);
-                    None
-                },
-            }
-        })?;
+        let (i, res, origin, id) = self
+            .handlers
+            .iter_mut()
+            .enumerate()
+            .find_map(|(i, h)| {
+                let read = unsafe { std::ptr::read(&h.handler) };
+                match read.resume_and_encode(
+                    Scope {
+                        cx,
+                        origin: h.origin,
+                        call_id: h.id,
+                        prefix: h.prefix,
+                    },
+                    &event,
+                    bp,
+                ) {
+                    Ok(res) => Some((i, res, h.origin, h.id)),
+                    Err(new_handler) => unsafe {
+                        std::ptr::write(&mut h.handler, new_handler);
+                        None
+                    },
+                }
+            })
+            .ok_or(event)?;
 
         std::mem::forget(self.handlers.swap_remove(i));
 
@@ -271,7 +299,7 @@ impl<H> HandlerNest<H> {
             log::info!("the response buffer is owerwhelmed");
         }
 
-        Some(())
+        Ok((origin, id))
     }
 }
 
@@ -289,10 +317,11 @@ struct HandlerInstance<H> {
     handler: H,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
-    pub origin: RequestOrigin,
-    pub id: CallId,
     pub prefix: u8,
+    pub id: CallId,
+    pub origin: RequestOrigin,
     pub body: &'a [u8],
 }
 

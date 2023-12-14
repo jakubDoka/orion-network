@@ -2,11 +2,12 @@ use {
     crate::{
         db, handled_async_closure, handled_callback, handled_spawn_local,
         node::{self, ChatInvite, HardenedChatInvitePayload, Mail, MessageContent, RawChatMessage},
+        protocol::{RequestError, SubsOwner},
     },
     anyhow::Context,
     chat_logic::{
-        AddUser, AddUserError, ChatName, CreateChat, FetchMessages, FetchProfile, SendMail,
-        SendMessage, SendMessageError,
+        AddUser, AddUserError, ChatEvent, ChatName, CreateChat, FetchMessages, FetchProfile,
+        SendMail, SendMessage, SendMessageError,
     },
     component_utils::{Codec, DropFn, Reminder},
     crypto::{
@@ -136,7 +137,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 let (mut messages, new_cursor) =
                     requests().dispatch::<FetchMessages>((chat, cursor)).await?;
                 let secret = state.chat_secret(chat).context("getting chat secret")?;
-                for message in chat_logic::unpack_messages(&mut messages) {
+                for message in chat_logic::unpack_messages(messages.as_mut_slice()) {
                     let Some(decrypted) = crypto::decrypt(message, secret) else {
                         log::error!("failed to decrypt fetched message");
                         continue;
@@ -166,7 +167,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         Ok(())
     });
 
-    let subscription_owner = store_value(None::<SubsOwner<SendMessage>>);
+    let subscription_owner = store_value(None::<SubsOwner<ChatName>>);
     create_effect(move |_| {
         let Some(chat) = current_chat() else {
             return;
@@ -182,9 +183,9 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         };
 
         handled_spawn_local("reading chat messages", async move {
-            let (mut sub, owner) = requests().subscribe::<SendMessage>(chat)?;
+            let (mut sub, owner) = requests().subscribe(chat)?;
             subscription_owner.set_value(Some(owner)); // drop old subscription
-            while let Some((proof, Reminder(message))) = sub.next().await {
+            while let Some(ChatEvent::Message((proof, Reminder(message)))) = sub.next().await {
                 if !proof.verify_chat(chat) {
                     log::warn!("received message with invalid proof");
                     continue;
@@ -330,7 +331,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .dispatch::<AddUser>((invitee.sign, chat, proof))
             .await
         {
-            Err(RequestError::Handler(chat_logic::ReplicationError::Inner(
+            Err(RequestError::Handler(chat_logic::ReplError::Inner(
                 AddUserError::InvalidAction(nonce),
             ))) => {
                 let proof = state
@@ -480,7 +481,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 .dispatch::<SendMessage>((chat, proof, Reminder(&content)))
                 .await
             {
-                Err(RequestError::Handler(chat_logic::ReplicationError::Inner(
+                Err(RequestError::Handler(chat_logic::ReplError::Inner(
                     SendMessageError::InvalidAction(nonce),
                 ))) => {
                     let proof = state

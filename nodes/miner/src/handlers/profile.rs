@@ -28,7 +28,6 @@ impl<C: ProvideStorage> SyncHandler<C> for CreateProfile {
         crate::ensure!(proof.verify_profile(), CreateAccountError::InvalidProof);
 
         let user_id = crypto::hash::new_raw(&proof.pk);
-        let replicating = cx.store_mut().dont_replicate;
         let entry = cx.store_mut().profiles.entry(user_id);
 
         match entry {
@@ -44,7 +43,7 @@ impl<C: ProvideStorage> SyncHandler<C> for CreateProfile {
                 });
                 Ok(())
             }
-            Entry::Occupied(mut entry) if replicating && entry.get().action < proof.nonce => {
+            Entry::Occupied(mut entry) if entry.get().action < proof.nonce => {
                 let account = entry.get_mut();
                 account.action = proof.nonce;
                 account.last_sig = proof.signature;
@@ -83,18 +82,19 @@ impl<C: ProvideStorage> SyncHandler<C> for SetVault {
 }
 
 impl<C: ProvideStorage> SyncHandler<C> for FetchVault {
-    fn execute<'a>(mut cx: Scope<'a, C>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
-        let profile = cx.store_mut().profiles.get(&request);
+    fn execute<'a>(sc: Scope<'a, C>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
+        let profile = sc.cx.store_mut().profiles.get(&request);
         crate::ensure!(let Some(profile) = profile, FetchVaultError::NotFound);
         Ok((profile.action, Reminder(profile.vault.as_slice())))
     }
 }
 
 impl<C: ProvideStorage> SyncHandler<C> for ReadMail {
-    fn execute<'a>(mut cx: Scope<'a, C>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
+    fn execute<'a>(sc: Scope<'a, C>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
         crate::ensure!(request.verify_profile(), ReadMailError::InvalidProof);
 
-        let profile = cx
+        let profile = sc
+            .cx
             .store_mut()
             .profiles
             .get_mut(&crypto::hash::new_raw(&request.pk));
@@ -157,5 +157,4 @@ impl From<&Profile> for FetchProfileResp {
         }
     }
 }
-
 

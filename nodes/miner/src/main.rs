@@ -1,33 +1,52 @@
 #![feature(iter_advance_by)]
+#![feature(iter_next_chunk)]
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
 #![feature(macro_metavar_expr)]
 
 use {
     self::handlers::RequestOrigin,
-    anyhow::Context,
+    anyhow::Context as _,
     chain_api::ContractId,
     chat_logic::*,
-    component_utils::{kad::KadPeerSearch, libp2p::kad::StoreInserts, Reminder},
+    component_utils::{kad::KadPeerSearch, libp2p::kad::StoreInserts, Codec, LinearMap, Reminder},
     crypto::{enc, sign, TransmutationCircle},
-    handlers::*,
+    handlers::{Repl, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version, ConnectedPoint},
-        futures::{self, StreamExt},
+        futures::{self, stream::SelectAll, StreamExt},
         kad::{self, QueryId},
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Transport,
     },
     onion::{EncryptedStream, PathId},
     primitives::contracts::NodeData,
-    std::{borrow::Cow, collections::HashMap, fs, io, iter, mem, time::Duration},
+    std::{
+        borrow::Cow, collections::HashMap, convert::Infallible, fs, io, iter, mem, time::Duration,
+    },
 };
+
+macro_rules! extract_ctx {
+    ($self:expr) => {
+        Context {
+            swarm: &mut $self.swarm,
+            streams: &mut $self.clients,
+        }
+    };
+}
 
 mod handlers;
 
 compose_handlers! {
-    Server {
+    InternalServer {
+        Sync<CreateProfile>, Sync<SetVault>, Sync<SendMail>, Sync<ReadMail>, Sync<FetchProfile>,
+        Sync<CreateChat>, Sync<AddUser>, Sync<SendMessage>,
+    }
 
+    ExternalServer {
+        handlers::SearchPeers,
+        Repl<CreateProfile>, Repl<SetVault>, Repl<SendMail>, Repl<ReadMail>, Repl<FetchProfile>,
+        Repl<CreateChat>, Repl<AddUser>, Repl<SendMessage>,
     }
 }
 
@@ -56,7 +75,8 @@ struct Miner {
     clients: futures::stream::SelectAll<Stream>,
     buffer: Vec<u8>,
     bootstrapped: Option<QueryId>,
-    server: Server,
+    internal: InternalServer,
+    external: ExternalServer,
 }
 
 impl Miner {
@@ -200,7 +220,8 @@ impl Miner {
             clients: Default::default(),
             buffer: Default::default(),
             bootstrapped: None,
-            server: Default::default(),
+            internal: Default::default(),
+            external: Default::default(),
         })
     }
 
@@ -261,69 +282,71 @@ impl Miner {
                     &mut self.swarm,
                     &mut self.peer_discovery,
                 ) => {}
-            SwarmEvent::Behaviour(BehaviourEvent::Rpc(rpc::Event::Request(peer, cid, body))) => {
-                let Some((&prefix, rest)) = body.split_first() else {
+            SwarmEvent::Behaviour(BehaviourEvent::Rpc(rpc::Event::Request(peer, id, body))) => {
+                let Some((&prefix, body)) = body.split_first() else {
                     log::info!("invalid rpc request");
                     return;
                 };
 
-                self.swarm
-                    .behaviour_mut()
-                    .kad
-                    .store_mut()
-                    .disable_replication();
-                let res = todo!("dispatch request");
-                self.swarm
-                    .behaviour_mut()
-                    .kad
-                    .store_mut()
-                    .enable_replication();
-
-                if let Err(e) = res {
-                    log::info!("failed to dispatch rpc request: {}", e);
-                    return;
+                let req = handlers::Request {
+                    prefix,
+                    id,
+                    origin: RequestOrigin::Miner(peer),
+                    body,
                 };
-
-                for (_, packet) in self.packets.drain() {
-                    self.swarm.behaviour_mut().rpc.respond(peer, cid, &*packet);
+                self.buffer.clear();
+                let res = self
+                    .internal
+                    .execute(&mut extract_ctx!(self), req, &mut self.buffer);
+                match res {
+                    Ok(false) => {}
+                    Ok(true) => {
+                        log::info!("sending response to peer: {:?}", self.buffer);
+                        self.swarm
+                            .behaviour_mut()
+                            .rpc
+                            .respond(peer, id, self.buffer.as_slice());
+                    }
+                    Err(e) => {
+                        log::info!("failed to dispatch rpc request: {}", e);
+                    }
                 }
-                self.dispatch_events();
             }
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::InboundStream(
                 inner,
                 id,
             ))) => {
-                self.clients.push(Stream { assoc: id, inner });
+                self.clients.push(Stream::new(id, inner));
             }
             SwarmEvent::Behaviour(ev) => {
-                let _ =
-                    self.server
-                        .try_handle_event(self.swarm.behaviour_mut(), ev, &mut self.packets);
+                self.buffer.clear();
+                let cx = &mut extract_ctx!(self);
+                let Ok((origin, id)) = Err(ev)
+                    .or_else(|ev| self.internal.try_complete(cx, ev, &mut self.buffer))
+                    .or_else(|ev| self.external.try_complete(cx, ev, &mut self.buffer))
+                else {
+                    return;
+                };
 
-                for ((rid, id), packet) in self.packets.drain() {
-                    match id {
-                        Ok(pid) => {
-                            let resp = DispatchResponse {
-                                id: rid,
-                                body: Reminder(packet),
-                            };
-                            let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == pid)
-                            else {
-                                log::info!("client did not stay for response");
-                                continue;
-                            };
-                            if stream.inner.write(&resp).is_none() {
-                                log::info!("client cannot process the late response");
-                            }
-                        }
-                        Err(pid) => {
-                            log::info!("sending response to peer: {:?}", self.buffer);
-                            self.swarm.behaviour_mut().rpc.respond(pid, rid, &*packet);
+                match origin {
+                    RequestOrigin::Client(pid) => {
+                        let Some(stream) = self.clients.iter_mut().find(|s| s.id == pid) else {
+                            log::info!("client did not stay for response");
+                            return;
+                        };
+                        if stream.inner.write((id, Reminder(&self.buffer))).is_none() {
+                            log::info!("client cannot process the late response");
                         }
                     }
+                    RequestOrigin::Miner(mid) => {
+                        log::info!("sending response to peer: {:?}", self.buffer);
+                        self.swarm
+                            .behaviour_mut()
+                            .rpc
+                            .respond(mid, id, self.buffer.as_slice());
+                    }
+                    RequestOrigin::NotImportant => {}
                 }
-
-                self.dispatch_events();
             }
             e => log::debug!("{e:?}"),
         }
@@ -333,7 +356,6 @@ impl Miner {
         let req = match req {
             Ok(req) => req,
             Err(e) => {
-                self.server.disconnected(id);
                 log::info!("failed to read from client: {}", e);
                 return;
             }
@@ -346,56 +368,39 @@ impl Miner {
 
         log::info!(
             "received message from client: {:?} {:?}",
-            req.request_id,
+            req.id,
             req.prefix
         );
 
-        if let Err(e) = self.server.dispatch(
-            self.swarm.behaviour_mut(),
-            req,
-            RequestOrigin::Client(id),
-            &mut self.packets,
-        ) {
-            log::info!("failed to dispatch init request: {}", e);
-            return;
+        let req = handlers::Request {
+            prefix: req.prefix,
+            id: req.id,
+            origin: RequestOrigin::Client(id),
+            body: req.body.0,
         };
+        self.buffer.clear();
+        let res = self
+            .external
+            .execute(&mut extract_ctx!(self), req, &mut self.buffer);
 
-        let stream = self
-            .clients
-            .iter_mut()
-            .find(|s| s.assoc == id)
-            .expect("we just received message");
-        for ((rid, _), packet) in self.packets.drain() {
-            let resp = DispatchResponse {
-                id: rid,
-                body: Reminder(packet),
-            };
-            if stream.inner.write(&resp).is_none() {
-                log::info!("client cannot process the response");
-            }
-        }
-
-        self.dispatch_events();
-    }
-
-    fn dispatch_events(&mut self) {
-        for (targets, event) in self
-            .server
-            .smsg
-            .drain_events()
-            .chain(self.server.sm.drain_events())
-        {
-            for (target, request_id) in targets {
-                let resp = DispatchResponse {
-                    id: request_id,
-                    body: Reminder(event),
-                };
-                let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == target) else {
-                    continue;
-                };
-                if stream.inner.write(&resp).is_none() {
-                    log::info!("clien cannot process the event");
+        match res {
+            Ok(false) => {}
+            Ok(true) => {
+                let stream = self
+                    .clients
+                    .iter_mut()
+                    .find(|s| s.id == id)
+                    .expect("we just received message");
+                if stream
+                    .inner
+                    .write((req.id, Reminder(&self.buffer)))
+                    .is_none()
+                {
+                    log::info!("client cannot process the response");
                 }
+            }
+            Err(e) => {
+                log::info!("failed to dispatch init request: {}", e);
             }
         }
     }
@@ -406,6 +411,55 @@ impl Miner {
                 e = self.swarm.select_next_some() => self.handle_event(e),
                 (id, m) = self.clients.select_next_some() => self.handle_client_message(id, m),
             };
+        }
+    }
+}
+
+struct Context<'a> {
+    swarm: &'a mut libp2p::swarm::Swarm<Behaviour>,
+    streams: &'a mut SelectAll<Stream>,
+}
+
+impl ProvideKad for Context<'_> {
+    fn kad_mut(
+        &mut self,
+    ) -> &mut libp2p::kad::Behaviour<impl kad::store::RecordStore + Send + 'static> {
+        &mut self.swarm.behaviour_mut().kad
+    }
+}
+
+impl ProvideStorage for Context<'_> {
+    fn store_mut(&mut self) -> &mut crate::Storage {
+        self.swarm.behaviour_mut().kad.store_mut()
+    }
+}
+
+impl ProvideRpc for Context<'_> {
+    fn rpc_mut(&mut self) -> &mut rpc::Behaviour {
+        &mut self.swarm.behaviour_mut().rpc
+    }
+}
+
+impl EventEmmiter<ChatName> for Context<'_> {
+    fn push(&mut self, topic: ChatName, event: <ChatName as Topic>::Event<'_>) {
+        handle_event(self.streams, PossibleTopic::Chat(topic), event);
+    }
+}
+
+impl EventEmmiter<Identity> for Context<'_> {
+    fn push(&mut self, topic: Identity, event: <Identity as Topic>::Event<'_>) {
+        handle_event(self.streams, PossibleTopic::Profile(topic), event);
+    }
+}
+
+fn handle_event<'a>(streams: &mut SelectAll<Stream>, topic: PossibleTopic, event: impl Codec<'a>) {
+    for stream in streams.iter_mut() {
+        let Some(&call_id) = stream.subscriptions.get(&topic) else {
+            continue;
+        };
+
+        if stream.inner.write((call_id, &event)).is_none() {
+            log::info!("client cannot process the subscription response");
         }
     }
 }
@@ -421,22 +475,86 @@ struct Behaviour {
     report: topology_wrapper::report::Behaviour,
 }
 
+impl From<Infallible> for BehaviourEvent {
+    fn from(v: Infallible) -> Self {
+        match v {}
+    }
+}
+
+impl TryUnwrap<Infallible> for BehaviourEvent {
+    fn try_unwrap(self) -> Result<Infallible, Self> {
+        Err(self)
+    }
+}
+
 impl From<libp2p::kad::Event> for BehaviourEvent {
-    fn from(e: libp2p::kad::Event) -> Self {
-        BehaviourEvent::Kad(e)
+    fn from(v: libp2p::kad::Event) -> Self {
+        BehaviourEvent::Kad(v)
+    }
+}
+
+impl TryUnwrap<kad::Event> for BehaviourEvent {
+    fn try_unwrap(self) -> Result<kad::Event, Self> {
+        match self {
+            BehaviourEvent::Kad(e) => Ok(e),
+            e => Err(e),
+        }
+    }
+}
+
+impl From<ReplEvent> for BehaviourEvent {
+    fn from(v: ReplEvent) -> Self {
+        match v {
+            ReplEvent::Kad(e) => BehaviourEvent::Kad(e),
+            ReplEvent::Rpc(e) => BehaviourEvent::Rpc(e),
+        }
+    }
+}
+
+impl TryUnwrap<ReplEvent> for BehaviourEvent {
+    fn try_unwrap(self) -> Result<ReplEvent, Self> {
+        match self {
+            BehaviourEvent::Kad(e) => Ok(ReplEvent::Kad(e)),
+            BehaviourEvent::Rpc(e) => Ok(ReplEvent::Rpc(e)),
+            e => Err(e),
+        }
     }
 }
 
 component_utils::impl_kad_search!(Behaviour => (Storage, onion::Behaviour => onion, kad));
 
-type Stream = component_utils::stream::AsocStream<PathId, EncryptedStream>;
+pub struct Stream {
+    id: PathId,
+    subscriptions: LinearMap<PossibleTopic, CallId>,
+    inner: EncryptedStream,
+}
+
+impl Stream {
+    fn new(id: PathId, inner: EncryptedStream) -> Stream {
+        Stream {
+            id,
+            subscriptions: Default::default(),
+            inner,
+        }
+    }
+}
+
+impl libp2p::futures::Stream for Stream {
+    type Item = (PathId, io::Result<Vec<u8>>);
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|v| v.map(|v| (self.id, v)))
+    }
+}
 
 pub struct Storage {
     profiles: HashMap<Identity, Profile>,
     chats: HashMap<ChatName, Chat>,
-
-    // this is true if we are dispatching put_record
-    dont_replicate: bool,
 }
 
 impl Default for Storage {
@@ -450,16 +568,7 @@ impl Storage {
         Self {
             profiles: HashMap::new(),
             chats: HashMap::new(),
-            dont_replicate: false,
         }
-    }
-
-    pub fn disable_replication(&mut self) {
-        self.dont_replicate = true;
-    }
-
-    pub fn enable_replication(&mut self) {
-        self.dont_replicate = false;
     }
 }
 
