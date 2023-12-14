@@ -1,6 +1,6 @@
 pub use {chat::*, peer_search::*, profile::*, replicated::*};
 use {
-    chat_logic::{Protocol, ProtocolResult, Topic},
+    chat_logic::{PossibleTopic, Protocol, ProtocolResult, Subscribe, Topic},
     component_utils::{codec, Codec},
     libp2p::{kad::store::RecordStore, PeerId},
     onion::PathId,
@@ -101,6 +101,20 @@ pub trait ProvideStorage {
 
 pub trait EventEmmiter<T: Topic> {
     fn push(&mut self, topic: T, event: T::Event<'_>);
+}
+
+pub trait ProvideSubscription {
+    fn subscribe(&mut self, topic: PossibleTopic, id: CallId, origin: PathId);
+}
+
+impl<C: ProvideSubscription> SyncHandler<C> for Subscribe {
+    fn execute<'a>(sc: Scope<'a, C>, req: Self::Request<'_>) -> ProtocolResult<'a, Self> {
+        if let RequestOrigin::Client(path) = sc.origin {
+            sc.cx.subscribe(req, sc.call_id, path);
+        }
+
+        Ok(())
+    }
 }
 
 pub type HandlerResult<'a, H, C> = Result<

@@ -121,11 +121,11 @@ impl RequestDispatch {
         topic: P,
     ) -> Result<(Subscription<P>, SubsOwner<P>), RequestError<Infallible>> {
         let (tx, rx) = libp2p::futures::channel::mpsc::channel(0);
-        let request_id = CallId::new();
+        let id = CallId::new();
         self.sink
             .try_send(RequestInit::Subscription(SubscriptionInit {
-                request_id,
-                payload: (<Subscribe as Protocol>::PREFIX, request_id, &topic).to_bytes(),
+                id,
+                payload: (<Subscribe as Protocol>::PREFIX, id, &topic).to_bytes(),
                 topic: topic.into(),
                 channel: tx,
             }))
@@ -138,7 +138,7 @@ impl RequestDispatch {
                 phantom: std::marker::PhantomData,
             },
             SubsOwner {
-                id: request_id,
+                id,
                 send_back: self.sink.clone(),
                 phantom: std::marker::PhantomData,
             },
@@ -196,13 +196,19 @@ pub struct Subscription<H> {
 
 impl<H: Topic> Subscription<H> {
     pub async fn next(&mut self) -> Option<H::Event<'_>> {
-        self.buffer = self.events.next().await?;
-        <H::Event<'_> as Codec<'_>>::decode(&mut &self.buffer[..])
+        loop {
+            self.buffer = self.events.next().await?;
+            let mut slc = &self.buffer[..];
+            if Result::<(), Infallible>::decode(&mut slc).is_some() && slc.is_empty() {
+                continue;
+            }
+            return <H::Event<'_> as Codec<'_>>::decode(&mut &self.buffer[..]);
+        }
     }
 }
 
 pub struct SubscriptionInit {
-    pub request_id: CallId,
+    pub id: CallId,
     pub topic: PossibleTopic,
     pub payload: Vec<u8>,
     pub channel: libp2p::futures::channel::mpsc::Sender<SubscriptionMessage>,

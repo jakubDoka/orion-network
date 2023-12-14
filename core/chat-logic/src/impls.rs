@@ -1,9 +1,9 @@
 use {
-    crate::Protocol,
+    crate::{ExtractTopic, Protocol},
     component_utils::{codec, Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
     libp2p::PeerId,
-    std::{convert::Infallible, iter, num::NonZeroUsize},
+    std::{convert::Infallible, fmt::Debug, iter, num::NonZeroUsize},
 };
 pub use {chat::*, profile::*};
 
@@ -18,7 +18,6 @@ mod chat;
 mod profile;
 
 crate::compose_protocols! {
-    fn Repl<'a, P: Protocol>(P::Request<'a>) -> Result<P::Response<'a>, ReplError<P::Error>>;
     fn SearchPeers<'a>(PossibleTopic) -> Result<Vec<PeerId>, Infallible>;
     fn Subscribe<'a>(PossibleTopic) -> Result<(), Infallible>;
 
@@ -43,6 +42,24 @@ crate::compose_protocols! {
         where Topic(Identity): |&(i, ..)| i;
     fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>
         where Topic(Identity): |&i| i;
+}
+
+pub struct Repl<T: Protocol>(T);
+
+impl<T: Protocol> Protocol for Repl<T> {
+    type Error = ReplError<T::Error>;
+    type Request<'a> = T::Request<'a>;
+    type Response<'a> = T::Response<'a>;
+
+    const PREFIX: u8 = T::PREFIX;
+}
+
+impl<T: ExtractTopic> ExtractTopic for Repl<T> {
+    type Topic = T::Topic;
+
+    fn extract_topic(request: &Self::Request<'_>) -> Self::Topic {
+        T::extract_topic(request)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -79,9 +96,21 @@ impl<'a, T: Codec<'a>> Codec<'a> for ReplError<T> {
 component_utils::protocol! {'a:
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     untagged_enum PossibleTopic {
-        Chat: ChatName,
         Profile: Identity,
+        Chat: ChatName,
     }
+}
+
+#[test]
+fn dec_end_untagged_enum() {
+    fn enc_dec(t: PossibleTopic) {
+        let mut buf = Vec::new();
+        t.encode(&mut buf).unwrap();
+        assert_eq!(PossibleTopic::decode(&mut buf.as_slice()), Some(t));
+    }
+
+    enc_dec(PossibleTopic::Chat(ChatName::from("test").unwrap()));
+    enc_dec(PossibleTopic::Profile(Identity::default()));
 }
 
 impl From<ChatName> for PossibleTopic {

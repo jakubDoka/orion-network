@@ -45,8 +45,12 @@ compose_handlers! {
 
     ExternalServer {
         handlers::SearchPeers,
+        Sync<Subscribe>,
+
         Repl<CreateProfile>, Repl<SetVault>, Repl<SendMail>, Repl<ReadMail>, Repl<FetchProfile>,
+        Sync<FetchVault>,
         Repl<CreateChat>, Repl<AddUser>, Repl<SendMessage>,
+        Sync<FetchMessages>,
     }
 }
 
@@ -301,7 +305,6 @@ impl Miner {
                 match res {
                     Ok(false) => {}
                     Ok(true) => {
-                        log::info!("sending response to peer: {:?}", self.buffer);
                         self.swarm
                             .behaviour_mut()
                             .rpc
@@ -339,7 +342,6 @@ impl Miner {
                         }
                     }
                     RequestOrigin::Miner(mid) => {
-                        log::info!("sending response to peer: {:?}", self.buffer);
                         self.swarm
                             .behaviour_mut()
                             .rpc
@@ -362,7 +364,7 @@ impl Miner {
         };
 
         let Some(req) = chat_logic::Request::decode(&mut req.as_slice()) else {
-            log::info!("failed to decode init request: {:?}", req);
+            log::info!("failed to decode client request: {:?}", req);
             return;
         };
 
@@ -400,7 +402,7 @@ impl Miner {
                 }
             }
             Err(e) => {
-                log::info!("failed to dispatch init request: {}", e);
+                log::info!("failed to dispatch client request request: {}", e);
             }
         }
     }
@@ -418,6 +420,16 @@ impl Miner {
 struct Context<'a> {
     swarm: &'a mut libp2p::swarm::Swarm<Behaviour>,
     streams: &'a mut SelectAll<Stream>,
+}
+
+impl ProvideSubscription for Context<'_> {
+    fn subscribe(&mut self, topic: PossibleTopic, id: CallId, origin: PathId) {
+        let Some(stream) = self.streams.iter_mut().find(|s| s.id == origin) else {
+            log::error!("whaaaat???");
+            return;
+        };
+        stream.subscriptions.insert(topic, id);
+    }
 }
 
 impl ProvideKad for Context<'_> {

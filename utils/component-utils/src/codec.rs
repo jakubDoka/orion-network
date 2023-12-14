@@ -70,9 +70,11 @@ macro_rules! protocol {
 
             fn decode(buffer: &mut &$lt [u8]) -> Option<Self> {
                 $(
+                    let slice_cpy = *buffer;
                     if let Some(value) = <$value as $crate::codec::Codec<$lt>>::decode(buffer) {
                         return Some(Self::$variant(value));
                     }
+                    *buffer = slice_cpy;
                 )*
                 None
             }

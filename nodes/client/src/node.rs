@@ -548,7 +548,7 @@ impl Node {
             futures::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event),
                 command = self.requests.select_next_some() => self.handle_command(command),
-                (_id, response) = self.subscriptions.select_next_some() => self.handle_subscription_response(response).await,
+                (id, response) = self.subscriptions.select_next_some() => self.handle_subscription_response(id, response).await,
             }
         }
     }
@@ -602,8 +602,8 @@ impl Node {
         assert!(!sub.payload.is_empty());
 
         subs.stream.write_bytes(&sub.payload).unwrap();
-        subs.subscriptions.insert(sub.request_id, sub.channel);
-        log::debug!("subscription request send, {:?}", sub.request_id);
+        subs.subscriptions.insert(sub.id, sub.channel);
+        log::debug!("subscription request sent, {:?}", sub.id);
     }
 
     fn handle_command(&mut self, command: RequestInit) {
@@ -646,17 +646,17 @@ impl Node {
         }
     }
 
-    async fn handle_subscription_response(&mut self, request: io::Result<Vec<u8>>) {
+    async fn handle_subscription_response(&mut self, id: PathId, request: io::Result<Vec<u8>>) {
         let Ok(msg) = request.inspect_err(|e| log::error!("chat subscription error: {e}")) else {
             return;
         };
 
-        let Some((request_id, Reminder(content))) = <_>::decode(&mut &*msg) else {
+        let Some((cid, Reminder(content))) = <_>::decode(&mut &*msg) else {
             log::error!("invalid chat subscription response");
             return;
         };
 
-        if let Some(channel) = self.pending_requests.remove(&request_id) {
+        if let Some(channel) = self.pending_requests.remove(&cid) {
             _ = channel.send(msg);
             return;
         }
@@ -664,18 +664,19 @@ impl Node {
         if let Some(channel) = self
             .subscriptions
             .iter_mut()
-            .find_map(|s| s.subscriptions.get_mut(&request_id))
+            .find(|s| s.id == id)
+            .and_then(|s| s.subscriptions.get_mut(&cid))
         {
             if channel.send(content.to_owned()).await.is_err() {
                 self.subscriptions
                     .iter_mut()
-                    .find_map(|s| s.subscriptions.remove(&request_id))
+                    .find_map(|s| s.subscriptions.remove(&cid))
                     .expect("channel to exist");
             }
             return;
         }
 
-        if let Some(req) = self.pending_topic_search.remove(&Ok(request_id)) {
+        if let Some(req) = self.pending_topic_search.remove(&Ok(cid)) {
             log::debug!("received pending topic search query");
 
             let Some(Ok(resp)) = ProtocolResult::<'_, SearchPeers>::decode(&mut &*content) else {
@@ -706,8 +707,8 @@ impl Node {
         }
 
         log::error!(
-            "request does not exits enev though we recieived it {:?}",
-            request_id
+            "request does not exits even though we recieived it {:?}",
+            cid
         );
     }
 }
