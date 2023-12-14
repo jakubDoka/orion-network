@@ -5,8 +5,8 @@ use {
     },
     anyhow::Context,
     chat_logic::{
-        AddUser, AddUserError, ChatName, CreateChat, FetchMessages, FetchProfile, RequestError,
-        SendMail, SendMessage, SendMessageError, SubsOwner,
+        AddUser, AddUserError, ChatName, CreateChat, FetchMessages, FetchProfile, SendMail,
+        SendMessage, SendMessageError,
     },
     component_utils::{Codec, DropFn, Reminder},
     crypto::{

@@ -1,17 +1,14 @@
 use {
     crate::CallId,
-    component_utils::{arrayvec::ArrayString, Reminder},
+    component_utils::Reminder,
     crypto::{enc, sign, Serialized, TransmutationCircle},
     std::{iter, num::NonZeroUsize},
 };
 pub use {chat::*, profile::*};
 
-pub const CHAT_NAME_CAP: usize = 32;
 pub const QUORUM: libp2p::kad::Quorum = libp2p::kad::Quorum::Majority;
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(4) };
 
-pub type ChatName = ArrayString<CHAT_NAME_CAP>;
-pub type RawChatName = [u8; CHAT_NAME_CAP];
 pub type Nonce = u64;
 pub type ProofContext = [u8; CHAT_NAME_CAP];
 pub type Identity = crypto::Hash<sign::PublicKey>;
@@ -20,14 +17,12 @@ mod chat;
 mod profile;
 
 crate::compose_protocols! {
-    // chat
     fn CreateChat<'a>(Identity, ChatName) -> Result<(), CreateChatError>;
     fn AddUser<'a>(Identity, ChatName, Proof) -> Result<(), AddUserError>;
     fn SendMessage<'a>(ChatName, Proof, Reminder<'a>) -> Result<(), SendMessageError>;
     fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Vec<u8>, Cursor), FetchMessagesError>;
 
-    // profile
-    fn CreateAccount<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>;
+    fn CreateProfile<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>;
     fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>;
     fn FetchVault<'a>(Identity) -> Result<(Nonce, Reminder<'a>), FetchVaultError>;
     fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>;
@@ -35,13 +30,18 @@ crate::compose_protocols! {
     fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PossibleTopic {
+    Chat(ChatName),
+    Profile(Identity),
+}
+
 pub fn advance_nonce(current: &mut Nonce, new: Nonce) -> bool {
-    if new > *current {
+    let valid = new > *current;
+    if valid {
         *current = new;
-        true
-    } else {
-        false
     }
+    valid
 }
 
 pub fn unpack_messages(buffer: &mut [u8]) -> impl Iterator<Item = &mut [u8]> {
@@ -94,12 +94,6 @@ component_utils::protocol! {'a:
         pk: Serialized<sign::PublicKey>,
         nonce: Nonce,
         signature: Serialized<sign::Signature>,
-    }
-
-    #[derive(Clone, Copy)]
-    struct DispatchResponse<'a> {
-        id: CallId,
-        body: Reminder<'a>,
     }
 }
 

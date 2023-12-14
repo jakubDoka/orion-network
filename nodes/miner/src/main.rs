@@ -1,27 +1,35 @@
 #![feature(iter_advance_by)]
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
+#![feature(macro_metavar_expr)]
 
 use {
+    self::handlers::RequestOrigin,
     anyhow::Context,
     chain_api::ContractId,
-    chat_logic::{
-        DispatchResponse, ReplContext, RequestOrigin, RootPacketBuffer, SubContext,
-        REPLICATION_FACTOR,
-    },
-    component_utils::{codec::Codec, kad::KadPeerSearch, libp2p::kad::StoreInserts, Reminder},
+    chat_logic::*,
+    component_utils::{kad::KadPeerSearch, libp2p::kad::StoreInserts, Reminder},
     crypto::{enc, sign, TransmutationCircle},
+    handlers::*,
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version, ConnectedPoint},
         futures::{self, StreamExt},
         kad::{self, QueryId},
         swarm::{NetworkBehaviour, SwarmEvent},
-        Multiaddr, Transport,
+        Multiaddr, PeerId, Transport,
     },
     onion::{EncryptedStream, PathId},
     primitives::contracts::NodeData,
-    std::{fs, io, mem, time::Duration},
+    std::{borrow::Cow, collections::HashMap, fs, io, iter, mem, time::Duration},
 };
+
+mod handlers;
+
+compose_handlers! {
+    Server {
+
+    }
+}
 
 #[derive(Default, Clone)]
 struct NodeKeys {
@@ -48,8 +56,7 @@ struct Miner {
     clients: futures::stream::SelectAll<Stream>,
     buffer: Vec<u8>,
     bootstrapped: Option<QueryId>,
-    server: chat_logic::Server,
-    packets: RootPacketBuffer,
+    server: Server,
 }
 
 impl Miner {
@@ -110,7 +117,7 @@ impl Miner {
             kad: topology_wrapper::new(
                 kad::Behaviour::with_config(
                     peer_id,
-                    chat_logic::Storage::new(),
+                    Storage::new(),
                     mem::take(
                         kad::Config::default()
                             .set_replication_factor(REPLICATION_FACTOR)
@@ -194,7 +201,6 @@ impl Miner {
             buffer: Default::default(),
             bootstrapped: None,
             server: Default::default(),
-            packets: RootPacketBuffer::new(),
         })
     }
 
@@ -266,17 +272,7 @@ impl Miner {
                     .kad
                     .store_mut()
                     .disable_replication();
-                let res = self.server.dispatch(
-                    self.swarm.behaviour_mut(),
-                    chat_logic::DispatchMessage {
-                        prefix,
-                        request_id: cid,
-                        payload: Reminder(rest),
-                    },
-                    // TODO: this is unreadable
-                    RequestOrigin::Miner(peer),
-                    &mut self.packets,
-                );
+                let res = todo!("dispatch request");
                 self.swarm
                     .behaviour_mut()
                     .kad
@@ -308,8 +304,8 @@ impl Miner {
                     match id {
                         Ok(pid) => {
                             let resp = DispatchResponse {
-                                request_id: rid,
-                                response: Reminder(packet),
+                                id: rid,
+                                body: Reminder(packet),
                             };
                             let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == pid)
                             else {
@@ -343,7 +339,7 @@ impl Miner {
             }
         };
 
-        let Some(req) = chat_logic::DispatchMessage::decode(&mut req.as_slice()) else {
+        let Some(req) = chat_logic::Request::decode(&mut req.as_slice()) else {
             log::info!("failed to decode init request: {:?}", req);
             return;
         };
@@ -371,8 +367,8 @@ impl Miner {
             .expect("we just received message");
         for ((rid, _), packet) in self.packets.drain() {
             let resp = DispatchResponse {
-                request_id: rid,
-                response: Reminder(packet),
+                id: rid,
+                body: Reminder(packet),
             };
             if stream.inner.write(&resp).is_none() {
                 log::info!("client cannot process the response");
@@ -391,8 +387,8 @@ impl Miner {
         {
             for (target, request_id) in targets {
                 let resp = DispatchResponse {
-                    request_id,
-                    response: Reminder(event),
+                    id: request_id,
+                    body: Reminder(event),
                 };
                 let Some(stream) = self.clients.iter_mut().find(|s| s.assoc == target) else {
                     continue;
@@ -419,7 +415,7 @@ type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 #[derive(NetworkBehaviour)]
 struct Behaviour {
     onion: topology_wrapper::Behaviour<onion::Behaviour>,
-    kad: topology_wrapper::Behaviour<kad::Behaviour<chat_logic::Storage>>,
+    kad: topology_wrapper::Behaviour<kad::Behaviour<Storage>>,
     identfy: topology_wrapper::Behaviour<libp2p::identify::Behaviour>,
     rpc: topology_wrapper::Behaviour<rpc::Behaviour>,
     report: topology_wrapper::report::Behaviour,
@@ -431,52 +427,75 @@ impl From<libp2p::kad::Event> for BehaviourEvent {
     }
 }
 
-impl SubContext<libp2p::kad::Behaviour<chat_logic::Storage>> for Behaviour {
-    fn fragment(&mut self) -> &mut libp2p::kad::Behaviour<chat_logic::Storage> {
-        &mut self.kad
-    }
-
-    fn try_unpack_event(
-        event: Self::ToSwarm,
-    ) -> Result<
-        <libp2p::kad::Behaviour<chat_logic::Storage> as chat_logic::Context>::ToSwarm,
-        Self::ToSwarm,
-    > {
-        match event {
-            BehaviourEvent::Kad(e) => Ok(e),
-            _ => Err(event),
-        }
-    }
-}
-
-impl<'a> SubContext<ReplContext<'a>> for Behaviour {
-    fn fragment(&mut self) -> <ReplContext<'a> as chat_logic::Context>::Borrow<'_> {
-        ReplContext {
-            kad: &mut self.kad,
-            rpc: &mut self.rpc,
-        }
-    }
-
-    fn try_unpack_event(
-        event: Self::ToSwarm,
-    ) -> Result<<ReplContext<'a> as chat_logic::Context>::ToSwarm, Self::ToSwarm> {
-        match event {
-            BehaviourEvent::Kad(e) => Ok(chat_logic::ToSwarm::Kad(e)),
-            BehaviourEvent::Rpc(e) => Ok(chat_logic::ToSwarm::Rpc(e)),
-            _ => Err(event),
-        }
-    }
-}
-
-impl From<chat_logic::ToSwarm> for BehaviourEvent {
-    fn from(value: chat_logic::ToSwarm) -> Self {
-        match value {
-            chat_logic::ToSwarm::Kad(e) => BehaviourEvent::Kad(e),
-            chat_logic::ToSwarm::Rpc(e) => BehaviourEvent::Rpc(e),
-        }
-    }
-}
-
-component_utils::impl_kad_search!(Behaviour => (chat_logic::Storage, onion::Behaviour => onion, kad));
+component_utils::impl_kad_search!(Behaviour => (Storage, onion::Behaviour => onion, kad));
 
 type Stream = component_utils::stream::AsocStream<PathId, EncryptedStream>;
+
+pub struct Storage {
+    profiles: HashMap<Identity, Profile>,
+    chats: HashMap<ChatName, Chat>,
+
+    // this is true if we are dispatching put_record
+    dont_replicate: bool,
+}
+
+impl Default for Storage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Storage {
+    pub fn new() -> Self {
+        Self {
+            profiles: HashMap::new(),
+            chats: HashMap::new(),
+            dont_replicate: false,
+        }
+    }
+
+    pub fn disable_replication(&mut self) {
+        self.dont_replicate = true;
+    }
+
+    pub fn enable_replication(&mut self) {
+        self.dont_replicate = false;
+    }
+}
+
+impl libp2p::kad::store::RecordStore for Storage {
+    type ProvidedIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::ProviderRecord>>
+    where
+        Self: 'a;
+    type RecordsIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::Record>>
+    where
+        Self: 'a;
+
+    fn get(&self, _: &libp2p::kad::RecordKey) -> Option<std::borrow::Cow<'_, libp2p::kad::Record>> {
+        None
+    }
+
+    fn put(&mut self, _: libp2p::kad::Record) -> libp2p::kad::store::Result<()> {
+        Ok(())
+    }
+
+    fn remove(&mut self, _: &libp2p::kad::RecordKey) {}
+
+    fn records(&self) -> Self::RecordsIter<'_> {
+        iter::empty()
+    }
+
+    fn add_provider(&mut self, _: libp2p::kad::ProviderRecord) -> libp2p::kad::store::Result<()> {
+        Ok(())
+    }
+
+    fn providers(&self, _: &libp2p::kad::RecordKey) -> Vec<libp2p::kad::ProviderRecord> {
+        Vec::new()
+    }
+
+    fn provided(&self) -> Self::ProvidedIter<'_> {
+        iter::empty()
+    }
+
+    fn remove_provider(&mut self, _: &libp2p::kad::RecordKey, _: &PeerId) {}
+}

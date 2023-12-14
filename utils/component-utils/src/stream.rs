@@ -204,7 +204,7 @@ impl PacketWriter {
 
     pub fn write_packet<'a>(&mut self, message: &impl Codec<'a>) -> Option<()> {
         let mut writer = self.guard();
-        let reserved = writer.write(&[0u8; PACKET_LEN_WIDTH])?;
+        let reserved = writer.write([0u8; PACKET_LEN_WIDTH])?;
         let len = writer.write(message)?.len();
         reserved.copy_from_slice(&encode_len(len));
         Some(())
@@ -297,7 +297,7 @@ pub enum PacketWriterGuard<'a> {
 }
 
 impl<'a> PacketWriterGuard<'a> {
-    pub fn write<'b>(&mut self, value: &impl Codec<'b>) -> Option<&'a mut [u8]> {
+    pub fn write<'b>(&mut self, value: impl Codec<'b>) -> Option<&'a mut [u8]> {
         struct RawSliceBuffer {
             start: *mut u8,
             end: *mut u8,
@@ -377,7 +377,7 @@ impl<'a> PacketWriterGuard<'a> {
     }
 
     pub fn write_bytes(&mut self, bytes: &[u8]) -> Option<&'a mut [u8]> {
-        self.write(&Reminder(bytes))
+        self.write(Reminder(bytes))
     }
 }
 
@@ -424,15 +424,15 @@ mod tests {
     fn test_write() {
         let mut writer = PacketWriter::new(14);
         let mut buf = [3u8; 10];
-        assert_eq!(writer.guard().write(&buf), Some(&mut buf[..]));
+        assert_eq!(writer.guard().write(buf), Some(&mut buf[..]));
 
         writer.end = 6;
         let mut buf = [1u8; 4];
-        assert_eq!(writer.guard().write(&buf), Some(&mut buf[..]));
+        assert_eq!(writer.guard().write(buf), Some(&mut buf[..]));
 
         writer.start = 8;
         let mut buf = [2u8; 4];
-        assert_eq!(writer.guard().write(&buf), Some(&mut buf[..]));
+        assert_eq!(writer.guard().write(buf), Some(&mut buf[..]));
     }
 
     #[test]
@@ -466,7 +466,7 @@ mod tests {
         let mut writer = PacketWriter::new(100);
 
         for i in 0..10 {
-            writer.guard().write(&[0u8; 20]).unwrap();
+            writer.guard().write([0u8; 20]).unwrap();
             _ = writer.poll(
                 &mut Context::from_waker(noop_waker_ref()),
                 &mut DummyWrite(11 + i),
@@ -478,7 +478,7 @@ mod tests {
                 &mut Context::from_waker(noop_waker_ref()),
                 &mut DummyWrite(20),
             );
-            writer.guard().write(&[0u8; 20]).unwrap();
+            writer.guard().write([0u8; 20]).unwrap();
         }
     }
 
@@ -486,6 +486,6 @@ mod tests {
     fn test_overflow() {
         let mut writer = PacketWriter::new(10);
         let buf = [0u8; 11];
-        assert_eq!(writer.guard().write(&buf), None);
+        assert_eq!(writer.guard().write(buf), None);
     }
 }

@@ -2,9 +2,8 @@ use {
     crate::{BootPhase, UserKeys},
     anyhow::Context,
     chat_logic::{
-        CallId, ChatName, CreateAccount, DispatchResponse, Dispatches, FetchVault, Identity, Nonce,
-        Proof, RawChatName, RawRequest, RawResponse, RequestDispatch, RequestInit, RequestStream,
-        SearchPeers, Server, SubscriptionInit, SubscriptionMessage,
+        CallId, ChatName, CreateProfile, DispatchResponse, FetchVault, Identity, Nonce, Proof,
+        RawChatName,
     },
     component_utils::{
         futures::{self},
@@ -388,7 +387,7 @@ impl Node {
             set_state!(ProfileCreate);
             let proof = Proof::for_profile(&keys.sign, &mut account_nonce);
             request_dispatch
-                .dispatch_direct::<CreateAccount>(
+                .dispatch_direct::<CreateProfile>(
                     &mut profile_stream,
                     &(proof, keys.enc.public_key().into_bytes(), Reminder(&[])),
                 )

@@ -14,7 +14,7 @@ pub struct SearchPeers {
 }
 
 impl SearchPeers {
-    pub fn new(kad: &mut libp2p::kad::Behaviour<Storage>, target: &impl for<'a> Codec<'a>) -> Self {
+    pub fn new(kad: &mut libp2p::kad::Behaviour<Storage>, target: impl for<'a> Codec<'a>) -> Self {
         Self {
             query: kad.get_closest_peers(target.to_bytes()),
         }

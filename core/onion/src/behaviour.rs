@@ -400,16 +400,16 @@ impl EncryptedStream {
 
     #[must_use = "write could have failed"]
     pub fn write_bytes(&mut self, data: &[u8]) -> Option<()> {
-        self.write(&Reminder(data))
+        self.write(Reminder(data))
     }
 
     #[must_use = "write could have failed"]
-    pub fn write<'a>(&mut self, data: &impl Codec<'a>) -> Option<()> {
+    pub fn write<'a>(&mut self, data: impl Codec<'a>) -> Option<()> {
         let aes = Aes256Gcm::new(GenericArray::from_slice(&self.key));
         let nonce = Aes256Gcm::generate_nonce(OsRng);
 
         let mut writer = self.writer.guard();
-        let reserved = writer.write(&[0u8; PACKET_LEN_WIDTH])?;
+        let reserved = writer.write([0u8; PACKET_LEN_WIDTH])?;
         let raw = writer.write(data)?;
         let tag = aes
             .encrypt_in_place_detached(&nonce, ASOC_DATA, raw)
