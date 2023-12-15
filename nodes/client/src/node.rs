@@ -286,7 +286,7 @@ impl Node {
             .kad
             .bootstrap()
             .expect("to have enough peers");
-        for node in node_data.iter() {
+        for (node, _) in node_data.iter() {
             let key = node.id;
             let key = libp2p::identity::ed25519::PublicKey::try_from_bytes(&key).unwrap();
             let peer_id = libp2p::identity::PublicKey::from(key).to_peer_id();

@@ -69,6 +69,8 @@ fn generate_contract_mod(contract_name: String, metadata: InkProject) -> proc_ma
     let contract_name = quote::format_ident!("{}", contract_name);
     let constructors = generate_constructors(&metadata, &type_generator);
     let messages = generate_messages(&metadata, &type_generator);
+    let events = generate_events(&metadata, &type_generator);
+    let root_event = generate_root_event(&metadata);
 
     quote::quote!(
         pub mod #contract_name {
@@ -83,6 +85,81 @@ fn generate_contract_mod(contract_name: String, metadata: InkProject) -> proc_ma
                 use super::#types_mod_ident;
                 #( #messages )*
             }
+
+            #root_event
+
+            pub mod events {
+                use super::#types_mod_ident;
+
+                #( #events )*
+            }
+        }
+    )
+}
+
+fn generate_events(
+    metadata: &ink_metadata::InkProject,
+    type_gen: &TypeGenerator,
+) -> Vec<proc_macro2::TokenStream> {
+    metadata
+        .spec()
+        .events()
+        .iter()
+        .map(|event| {
+            let name = event.label();
+            let args = event
+                .args()
+                .iter()
+                .map(|arg| (arg.label().as_str(), arg.ty().ty().id))
+                .collect::<Vec<_>>();
+            generate_event_impl(type_gen, name, args)
+        })
+        .collect()
+}
+
+fn generate_root_event(metadata: &ink_metadata::InkProject) -> proc_macro2::TokenStream {
+    let events = metadata
+        .spec()
+        .events()
+        .iter()
+        .map(|event| quote::format_ident!("{}", event.label()))
+        .collect::<Vec<_>>();
+
+    quote::quote! (
+        #[derive(::parity_scale_codec::Decode)]
+        pub enum Event {
+            #( #events ( events::#events ) ),*
+        }
+    )
+}
+
+fn generate_event_impl(
+    type_gen: &TypeGenerator<'_>,
+    name: &str,
+    args: Vec<(&str, u32)>,
+) -> proc_macro2::TokenStream {
+    let name_ident = quote::format_ident!("{}", name);
+    let (fields, _field_names): (Vec<_>, Vec<_>) = args
+        .iter()
+        .enumerate()
+        .map(|(i, (name, type_id))| {
+            // In Solidity, event arguments may not have names.
+            // If an argument without a name is included in the metadata, a name is generated for it
+            let name = if name.is_empty() {
+                format!("arg{}", i)
+            } else {
+                name.to_string()
+            };
+            let name = quote::format_ident!("{}", name.as_str());
+            let ty = type_gen.resolve_type_path(*type_id);
+            (quote::quote!( pub #name: #ty ), name)
+        })
+        .unzip();
+
+    quote::quote! (
+        #[derive(::parity_scale_codec::Decode)]
+        pub struct #name_ident {
+            #( #fields ),*
         }
     )
 }

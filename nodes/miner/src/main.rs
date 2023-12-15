@@ -14,7 +14,7 @@ use {
     handlers::{Repl, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version, ConnectedPoint},
-        futures::{self, stream::SelectAll, StreamExt},
+        futures::{self, stream::SelectAll, SinkExt, StreamExt},
         kad::{self, QueryId},
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Transport,
@@ -22,7 +22,12 @@ use {
     onion::{EncryptedStream, PathId},
     primitives::contracts::NodeData,
     std::{
-        borrow::Cow, collections::HashMap, convert::Infallible, fs, io, iter, mem, time::Duration,
+        borrow::Cow,
+        collections::HashMap,
+        convert::Infallible,
+        fs, io, iter, mem,
+        net::{IpAddr, Ipv4Addr},
+        time::Duration,
     },
 };
 
@@ -36,6 +41,7 @@ macro_rules! extract_ctx {
 }
 
 mod handlers;
+mod white_list;
 
 compose_handlers! {
     InternalServer {
@@ -81,11 +87,32 @@ struct Miner {
     bootstrapped: Option<QueryId>,
     internal: InternalServer,
     external: ExternalServer,
+    stake_events: futures::channel::mpsc::Receiver<Result<chain_api::StakeEvent, chain_api::Error>>,
+}
+
+fn unpack_node_id(id: sign::Ed) -> anyhow::Result<PeerId> {
+    let peer_id = {
+        let ed_kp = libp2p::identity::ed25519::PublicKey::try_from_bytes(&id)
+            .context("deriving ed signature")?;
+        libp2p::identity::PublicKey::from(ed_kp).to_peer_id()
+    };
+    Ok(peer_id)
+}
+
+fn unpack_node_addr(addr: chain_api::NodeAddress) -> Multiaddr {
+    let (addr, port) = addr.into();
+    Multiaddr::empty()
+        .with(match addr {
+            IpAddr::V4(ip) => multiaddr::Protocol::Ip4(ip),
+            IpAddr::V6(ip) => multiaddr::Protocol::Ip6(ip),
+        })
+        .with(multiaddr::Protocol::Tcp(port))
 }
 
 impl Miner {
     async fn new() -> anyhow::Result<Self> {
         config::env_config! {
+            EXPOSED_ADDRESS: IpAddr,
             PORT: u16,
             WS_PORT: u16,
             CHAIN_NODE: String,
@@ -110,26 +137,49 @@ impl Miner {
 
         log::info!("peer id: {}", peer_id);
 
+        let client = chain_api::Client::with_signer(&CHAIN_NODE, account)
+            .await
+            .context("connecting to chain")?;
+
+        let node_list = client
+            .list(NODE_CONTRACT.clone())
+            .await
+            .context("fetching node list")?;
+
         if is_new {
-            let client = chain_api::Client::with_signer(&CHAIN_NODE, account)
-                .await
-                .context("connecting to chain")?;
             client
                 .join(
-                    NODE_CONTRACT,
+                    NODE_CONTRACT.clone(),
                     NodeData {
                         sign: sign_keys.public_key(),
                         enc: enc_keys.public_key(),
                     }
                     .to_stored(),
+                    (EXPOSED_ADDRESS, PORT).into(),
                 )
                 .await
                 .context("registeing to chain")?;
             log::info!("registered on chain");
         }
 
+        log::info!("entered the network with {} nodes", node_list.len());
+
+        let (mut chain_events_tx, stake_events) = futures::channel::mpsc::channel(0);
+        tokio::spawn(async move {
+            // TODO: properly recover fro errors, add node pool to try
+            let mut stream = client
+                .node_contract_event_stream(NODE_CONTRACT)
+                .await
+                .map(Box::pin)
+                .unwrap();
+            while let Some(event) = stream.next().await {
+                _ = chain_events_tx.send(event).await;
+            }
+        });
+
         let (sender, receiver) = topology_wrapper::channel();
         let behaviour = Behaviour {
+            white_list: white_list::Behaviour::new(PORT + 100),
             onion: topology_wrapper::new(
                 onion::Behaviour::new(
                     onion::Config::new(enc_keys.clone().into(), peer_id)
@@ -198,7 +248,7 @@ impl Miner {
         swarm
             .listen_on(
                 Multiaddr::empty()
-                    .with(multiaddr::Protocol::Ip4([0; 4].into()))
+                    .with(multiaddr::Protocol::Ip4(Ipv4Addr::UNSPECIFIED))
                     .with(multiaddr::Protocol::Tcp(PORT)),
             )
             .context("starting to listen for peers")?;
@@ -206,13 +256,22 @@ impl Miner {
         swarm
             .listen_on(
                 Multiaddr::empty()
-                    .with(multiaddr::Protocol::Ip4([0; 4].into()))
+                    .with(multiaddr::Protocol::Ip4(Ipv4Addr::UNSPECIFIED))
                     .with(multiaddr::Protocol::Tcp(WS_PORT))
                     .with(multiaddr::Protocol::Ws("/".into())),
             )
             .context("starting to isten for clients")?;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
+
+        for (node, addr) in node_list {
+            let peer_id = unpack_node_id(node.id)?;
+            swarm
+                .behaviour_mut()
+                .kad
+                .add_address(&peer_id, unpack_node_addr(addr));
+            swarm.behaviour_mut().white_list.allow_peer(peer_id);
+        }
 
         for boot_node in BOOT_NODES.0 {
             swarm.dial(boot_node).context("dialing a boot peer")?;
@@ -224,6 +283,7 @@ impl Miner {
             clients: Default::default(),
             buffer: Default::default(),
             bootstrapped: None,
+            stake_events,
             internal: Default::default(),
             external: Default::default(),
         })
@@ -287,6 +347,14 @@ impl Miner {
                     &mut self.peer_discovery,
                 ) => {}
             SwarmEvent::Behaviour(BehaviourEvent::Rpc(rpc::Event::Request(peer, id, body))) => {
+                if !self.swarm.behaviour_mut().white_list.is_allowed(&peer) {
+                    log::warn!(
+                        "peer {} made rpc request but is not on the white list",
+                        peer
+                    );
+                    return;
+                }
+
                 let Some((&prefix, body)) = body.split_first() else {
                     log::info!("invalid rpc request");
                     return;
@@ -407,10 +475,53 @@ impl Miner {
         }
     }
 
+    fn handle_stake_event(&mut self, event: Result<chain_api::StakeEvent, chain_api::Error>) {
+        let event = match event {
+            Ok(event) => event,
+            Err(e) => {
+                log::info!("failed to read from chain: {}", e);
+                return;
+            }
+        };
+
+        match event {
+            chain_api::StakeEvent::Joined(j) => {
+                let Ok(peer_id) = unpack_node_id(j.identity) else {
+                    log::info!("invalid node id");
+                    return;
+                };
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .add_address(&peer_id, unpack_node_addr(j.addr));
+                self.swarm.behaviour_mut().white_list.allow_peer(peer_id);
+            }
+            chain_api::StakeEvent::Reclaimed(r) => {
+                let Ok(peer_id) = unpack_node_id(r.identity) else {
+                    log::info!("invalid node id");
+                    return;
+                };
+                self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
+                self.swarm.behaviour_mut().white_list.disallow_peer(peer_id);
+            }
+            chain_api::StakeEvent::AddrChanged(c) => {
+                let Ok(peer_id) = unpack_node_id(c.identity) else {
+                    log::info!("invalid node id");
+                    return;
+                };
+                self.swarm
+                    .behaviour_mut()
+                    .kad
+                    .add_address(&peer_id, unpack_node_addr(c.addr));
+            }
+        }
+    }
+
     async fn run(mut self) {
         loop {
             futures::select! {
                 e = self.swarm.select_next_some() => self.handle_event(e),
+                e = self.stake_events.select_next_some() => self.handle_stake_event(e),
                 (id, m) = self.clients.select_next_some() => self.handle_client_message(id, m),
             };
         }
@@ -432,23 +543,21 @@ impl ProvideSubscription for Context<'_> {
     }
 }
 
-impl ProvideKad for Context<'_> {
-    fn kad_mut(
+impl ProvideKadAndRpc for Context<'_> {
+    fn kad_and_rpc_mut(
         &mut self,
-    ) -> &mut libp2p::kad::Behaviour<impl kad::store::RecordStore + Send + 'static> {
-        &mut self.swarm.behaviour_mut().kad
+    ) -> (
+        &mut libp2p::kad::Behaviour<impl kad::store::RecordStore + Send + 'static>,
+        &mut rpc::Behaviour,
+    ) {
+        let beh = self.swarm.behaviour_mut();
+        (&mut beh.kad, &mut beh.rpc)
     }
 }
 
 impl ProvideStorage for Context<'_> {
     fn store_mut(&mut self) -> &mut crate::Storage {
         self.swarm.behaviour_mut().kad.store_mut()
-    }
-}
-
-impl ProvideRpc for Context<'_> {
-    fn rpc_mut(&mut self) -> &mut rpc::Behaviour {
-        &mut self.swarm.behaviour_mut().rpc
     }
 }
 
@@ -480,6 +589,7 @@ type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {
+    white_list: white_list::Behaviour,
     onion: topology_wrapper::Behaviour<onion::Behaviour>,
     kad: topology_wrapper::Behaviour<kad::Behaviour<Storage>>,
     identfy: topology_wrapper::Behaviour<libp2p::identify::Behaviour>,
@@ -514,20 +624,16 @@ impl TryUnwrap<kad::Event> for BehaviourEvent {
     }
 }
 
-impl From<ReplEvent> for BehaviourEvent {
-    fn from(v: ReplEvent) -> Self {
-        match v {
-            ReplEvent::Kad(e) => BehaviourEvent::Kad(e),
-            ReplEvent::Rpc(e) => BehaviourEvent::Rpc(e),
-        }
+impl From<rpc::Event> for BehaviourEvent {
+    fn from(v: rpc::Event) -> Self {
+        BehaviourEvent::Rpc(v)
     }
 }
 
-impl TryUnwrap<ReplEvent> for BehaviourEvent {
-    fn try_unwrap(self) -> Result<ReplEvent, Self> {
+impl TryUnwrap<rpc::Event> for BehaviourEvent {
+    fn try_unwrap(self) -> Result<rpc::Event, Self> {
         match self {
-            BehaviourEvent::Kad(e) => Ok(ReplEvent::Kad(e)),
-            BehaviourEvent::Rpc(e) => Ok(ReplEvent::Rpc(e)),
+            BehaviourEvent::Rpc(e) => Ok(e),
             e => Err(e),
         }
     }

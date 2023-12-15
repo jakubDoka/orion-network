@@ -9,6 +9,33 @@ mod node_staker {
         primitives::contracts::*,
     };
 
+    #[derive(scale::Decode, scale::Encode, Clone, Copy)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub enum NodeAddress {
+        Ip4([u8; 4 + 2]),
+        Ip6([u8; 16 + 2]),
+    }
+
+    #[ink(event)]
+    pub struct Joined {
+        pub identity: sign::Ed,
+        pub addr: NodeAddress,
+    }
+
+    #[ink(event)]
+    pub struct AddrChanged {
+        pub identity: sign::Ed,
+        pub addr: NodeAddress,
+    }
+
+    #[ink(event)]
+    pub struct Reclaimed {
+        pub identity: sign::Ed,
+    }
+
     #[derive(scale::Decode, scale::Encode)]
     #[cfg_attr(
         feature = "std",
@@ -77,6 +104,7 @@ mod node_staker {
         created_at: Timestamp,
         votes: Votes,
         id: sign::Ed,
+        addr: NodeAddress,
     }
 
     impl Stake {
@@ -119,7 +147,7 @@ mod node_staker {
         }
 
         #[ink(message, payable)]
-        pub fn join(&mut self, data: Serialized<StoredNodeData>) {
+        pub fn join(&mut self, data: Serialized<StoredNodeData>, addr: NodeAddress) {
             let amount = self.env().transferred_value();
             assert!(amount == STAKE_AMOUNT, "wrong amount");
             let data = StoredNodeData::from_bytes(data);
@@ -133,9 +161,15 @@ mod node_staker {
                 created_at: Self::env().block_timestamp(),
                 votes: Votes::default(),
                 id: data.id,
+                addr,
             };
             assert!(self.stakes.insert(id, &stake).is_none(), "already joined");
             self.stake_list.push(id);
+
+            self.env().emit_event(Joined {
+                identity: data.id,
+                addr,
+            });
         }
 
         #[ink(message)]
@@ -169,14 +203,26 @@ mod node_staker {
         }
 
         #[ink(message)]
-        pub fn list(&self) -> Vec<Serialized<StoredNodeData>> {
+        pub fn list(&self) -> Vec<(Serialized<StoredNodeData>, NodeAddress)> {
             self.stake_list
                 .iter()
                 .map(|id| {
                     let stake = self.stakes.get(id).unwrap();
-                    id.to_data_bytes(stake.id)
+                    (id.to_data_bytes(stake.id), stake.addr)
                 })
                 .collect()
+        }
+
+        pub fn change_addr(&mut self, identity: Serialized<StoredNodeIdentity>, addr: NodeAddress) {
+            let identity = NodeIdentity::from_bytes(identity);
+            let mut stake = self.stakes.get(identity).expect("not joined");
+            assert!(stake.owner == self.env().caller(), "not owner");
+            stake.addr = addr;
+            self.stakes.insert(identity, &stake);
+            self.env().emit_event(AddrChanged {
+                identity: stake.id,
+                addr,
+            });
         }
 
         #[ink(message)]
@@ -198,6 +244,8 @@ mod node_staker {
                 .iter()
                 .position(|&x| x == identity)
                 .map(|i| self.stake_list.swap_remove(i));
+
+            self.env().emit_event(Reclaimed { identity: stake.id });
         }
     }
 
@@ -245,6 +293,7 @@ mod node_staker {
                     id: sign::Ed::default(),
                 }
                 .into_bytes(),
+                NodeAddress::Ip4([0; 6]),
             );
             ink_env::set_account_balance::<Env>(
                 ink_env::callee::<Env>(),

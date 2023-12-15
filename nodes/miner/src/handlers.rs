@@ -95,6 +95,27 @@ pub trait ProvideRpc {
     fn rpc_mut(&mut self) -> &mut rpc::Behaviour;
 }
 
+pub trait ProvideKadAndRpc {
+    fn kad_and_rpc_mut(
+        &mut self,
+    ) -> (
+        &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>,
+        &mut rpc::Behaviour,
+    );
+}
+
+impl<T: ProvideKadAndRpc> ProvideKad for T {
+    fn kad_mut(&mut self) -> &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static> {
+        self.kad_and_rpc_mut().0
+    }
+}
+
+impl<T: ProvideKadAndRpc> ProvideRpc for T {
+    fn rpc_mut(&mut self) -> &mut rpc::Behaviour {
+        self.kad_and_rpc_mut().1
+    }
+}
+
 pub trait ProvideStorage {
     fn store_mut(&mut self) -> &mut crate::Storage;
 }

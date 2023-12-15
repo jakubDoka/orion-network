@@ -4,14 +4,14 @@ use {
     crypto::{enc, impl_transmute, sign},
 };
 
-type Balance = u128;
-type Timestamp = u64;
-
 pub const STAKE_AMOUNT: Balance = 1000000;
 pub const INIT_VOTE_POOL: u32 = 3;
 pub const STAKE_DURATION_MILIS: Timestamp = 1000 * 60 * 60 * 24 * 30;
 pub const BASE_SLASH: Balance = 2;
 pub const SLASH_FACTOR: u32 = 1;
+
+type Balance = u128;
+type Timestamp = u64;
 
 #[derive(Debug, Clone)]
 pub struct RawUserData {

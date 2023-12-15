@@ -2,6 +2,7 @@
 
 use {
     crypto::{sign, Serialized, TransmutationCircle},
+    futures::{StreamExt, TryFutureExt, TryStreamExt},
     parity_scale_codec::{Decode, Encode as _},
     polkadot::{
         contracts::calls::types::Call,
@@ -15,7 +16,7 @@ use {
         contracts::{StoredNodeData, StoredNodeIdentity, StoredUserIdentity},
         RawUserName, UserName,
     },
-    std::{str::FromStr, u64},
+    std::{net::IpAddr, str::FromStr},
     subxt::{
         backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
         tx::{Payload, Signer},
@@ -33,6 +34,9 @@ pub type Error = subxt::Error;
 pub type Keypair = subxt_signer::sr25519::Keypair;
 pub type Signature = subxt_signer::sr25519::Signature;
 pub type CallPayload = Payload<Call>;
+pub type NodeAddress =
+    contracts::node_staker::contract_types::node_staker::node_staker::NodeAddress;
+pub type StakeEvent = contracts::node_staker::Event;
 
 pub fn immortal_era() -> String {
     encode_then_hex(&subxt::utils::Era::Immortal)
@@ -167,6 +171,39 @@ pub struct Client<S: TransactionHandler> {
 }
 
 impl<S: TransactionHandler> Client<S> {
+    pub async fn node_contract_event_stream(
+        &self,
+        contract: ContractId,
+    ) -> Result<impl futures::Stream<Item = Result<StakeEvent, Error>>, Error> {
+        Ok(self
+            .inner
+            .client
+            .blocks()
+            .subscribe_finalized()
+            .await?
+            .then(move |block| {
+                let contract = contract.clone();
+                async move {
+                    Ok::<_, Error>(
+                        block?
+                            .events()
+                            .await?
+                            .find::<polkadot::contracts::events::ContractEmitted>()
+                            .filter_map(Result::ok)
+                            .filter(move |event| event.contract == contract)
+                            .map(|event| {
+                                StakeEvent::decode(&mut event.data.as_slice()).map_err(|e| {
+                                    Error::Decode(subxt::error::DecodeError::custom(e))
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                }
+                .map_ok(futures::stream::iter)
+            })
+            .try_flatten())
+    }
+
     pub async fn with_signer(url: &str, account: S) -> Result<Self, Error> {
         let rpc = RpcClient::from_url(url).await?;
         let client = OnlineClient::<Config>::from_rpc_client(rpc.clone()).await?;
@@ -184,17 +221,25 @@ impl<S: TransactionHandler> Client<S> {
         self.signer.handle(&self.inner, transaction).await
     }
 
-    pub async fn join(&self, dest: ContractId, data: StoredNodeData) -> Result<(), Error> {
+    pub async fn join(
+        &self,
+        dest: ContractId,
+        data: StoredNodeData,
+        addr: NodeAddress,
+    ) -> Result<(), Error> {
         self.call_auto_weight(
             1000000,
             dest,
-            contracts::node_staker::messages::join(data.into_bytes()),
+            contracts::node_staker::messages::join(data.into_bytes(), addr),
         )
         .await
     }
 
-    pub async fn list(&self, addr: ContractId) -> Result<Vec<StoredNodeData>, Error> {
-        self.call_dry::<Vec<Serialized<StoredNodeData>>>(
+    pub async fn list(
+        &self,
+        addr: ContractId,
+    ) -> Result<Vec<(StoredNodeData, NodeAddress)>, Error> {
+        self.call_dry::<Vec<(Serialized<StoredNodeData>, NodeAddress)>>(
             0,
             addr,
             contracts::node_staker::messages::list(),
@@ -375,4 +420,42 @@ struct CallRequest {
     gas_limit: Option<Weight>,
     storage_deposit_limit: Option<Balance>,
     input_data: Vec<u8>,
+}
+
+impl From<(IpAddr, u16)> for NodeAddress {
+    fn from((addr, port): (IpAddr, u16)) -> Self {
+        match addr {
+            IpAddr::V4(ip) => {
+                let mut bytes = [0; 4 + 2];
+                bytes[..4].copy_from_slice(&ip.octets());
+                bytes[4..].copy_from_slice(&port.to_be_bytes());
+                NodeAddress::Ip4(bytes)
+            }
+            IpAddr::V6(ip) => {
+                let mut bytes = [0; 16 + 2];
+                bytes[..16].copy_from_slice(&ip.octets());
+                bytes[16..].copy_from_slice(&port.to_be_bytes());
+                NodeAddress::Ip6(bytes)
+            }
+        }
+    }
+}
+
+impl From<NodeAddress> for (IpAddr, u16) {
+    fn from(value: NodeAddress) -> Self {
+        match value {
+            NodeAddress::Ip4(bytes) => {
+                let mut ip = [0; 4];
+                ip.copy_from_slice(&bytes[..4]);
+                let port = u16::from_be_bytes([bytes[4], bytes[5]]);
+                (IpAddr::V4(ip.into()), port)
+            }
+            NodeAddress::Ip6(bytes) => {
+                let mut ip = [0; 16];
+                ip.copy_from_slice(&bytes[..16]);
+                let port = u16::from_be_bytes([bytes[16], bytes[17]]);
+                (IpAddr::V6(ip.into()), port)
+            }
+        }
+    }
 }

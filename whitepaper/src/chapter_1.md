@@ -297,3 +297,20 @@ sequenceDiagram
     end
     S ->> SN: Message Sent
 ```
+
+# Optimizations
+
+Optimizing the network is crutial for user experience and redustion of costs for miners. In case of decentralized network, we strive to reduce amount of comunication between nodes. The most used protocol in the architecture is DHT, that ensures we know where to store and find data. The simplest way of finding nodes is performing the query each time we are looking for a group of nodes. Lackly DHT maintains a routing table that mignt ont be always up to date, though, since entering the network requires staking, we can assume nodes will not enter and exit the network often. This allows us to consider topology change as a cold path and optimize for common case where we have up to date routing table.
+
+## Query on Failure
+
+Only way outdated routing table can cause the request to fail is when peer no longer interested close enough to the request topic receives the request. TO prevent this, we want to maximize the chance of finding out we are serving to the wrong node:
+
+- recipient checks with his routing table whether it is supposed to serve the request (by topic)
+  - if he isnt, he reports his list of closest nodes to the sender, sender will diff the list and send request to nodes it missed
+    - if new topology obtained from the other node also fails, meaning both nodes are outdated, node will fall back to query and not only send the request but also notify other node baout the failure as a repairing mechanism
+- recipient also checks, if this is request internal to replication group, whether sender is withing the topic
+  - if he isnt, kad lookup is performed, since this can be melacious request, to validate the node in fact is supposed to send the request and routing table is outdated
+    - if table is not outdated and requester is in fact not part of the group, request is denayed and for next time period `P` we ignore such requests from the given peer as a ratelimmiting mechanism
+
+All of these points though are fallback mechanisms, each node should maintain his mapping of nodes obtained form the chain and also listen on events about new nodes joining te network. If the node taht connects to any miner isn't within the staking node list, the connecton is dropped. With full list of nodes we should have good idea about the topology and almost never query for peers.

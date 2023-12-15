@@ -50,9 +50,7 @@ impl crate::Handler for SearchPeers {
         _: &mut crate::EventDispatch<Self>,
         _: crate::RequestMeta,
     ) -> Result<HandlerResult<'a, Self>, Self> {
-        Err(Self {
-            query: context.get_closest_peers(request.0.to_vec()),
-        })
+        Err(Self::new(context.context, request))
     }
 
     fn try_complete(

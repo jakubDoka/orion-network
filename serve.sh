@@ -22,6 +22,7 @@ sod NETWORK_BOOT_NODE "/ip4/127.0.0.1/tcp/$((NODE_START + 100))/ws"
 sod MIN_NODES 5
 sod BALANCE 10000000000000
 sod TEST_WALLETS 5CwfgYUrq24dTpfh2sQ2st1FNCR2fM2JFSn3EtdWyrGdEaER,5E7YrzVdg1ovRYfWLQG1bJV7FvZWJpnVnQ3nVCKEwpFzkX8s
+sod EXPOSED_ADDRESS 127.0.0.1
 
 TARGET_DIR="target/debug"
 if [ "$1" = "release" ]; then
