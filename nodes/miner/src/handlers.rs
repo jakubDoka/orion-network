@@ -53,7 +53,7 @@ macro_rules! compose_handlers {
             ) -> Result<$crate::handlers::ExitedEarly, $crate::handlers::HandlerExecError>
                 where $($handler: $crate::handlers::Handler<C>,)*
             {
-                $(if <<$handler as Handler<C>>::Protocol as Protocol>::PREFIX == req.prefix { return self.${index(0)}.execute(cx, req, bp) })*
+                $(if <<$handler as HandlerTypes>::Protocol as Protocol>::PREFIX == req.prefix { return self.${index(0)}.execute(cx, req, bp) })*
                 Err($crate::handlers::HandlerExecError::UnknownPrefix)
             }
 
@@ -65,7 +65,8 @@ macro_rules! compose_handlers {
             ) -> Result<(RequestOrigin, CallId), E>
             where
                 $(
-                    E: $crate::handlers::TryUnwrap<<$handler as Handler<C>>::Event>,
+                    E: $crate::handlers::TryUnwrap<<$handler as HandlerTypes>::Event>,
+                    E: From<<$handler as HandlerTypes>::Event>,
                     $handler: Handler<C>,
                 )*
             {
@@ -138,22 +139,24 @@ impl<C: ProvideSubscription> SyncHandler<C> for Subscribe {
     }
 }
 
-pub type HandlerResult<'a, H, C> = Result<
+pub type HandlerResult<'a, H> = Result<
     Result<
-        <<H as Handler<C>>::Protocol as Protocol>::Response<'a>,
-        <<H as Handler<C>>::Protocol as Protocol>::Error,
+        <<H as HandlerTypes>::Protocol as Protocol>::Response<'a>,
+        <<H as HandlerTypes>::Protocol as Protocol>::Error,
     >,
     H,
 >;
 
-pub trait Handler<C>: Sized {
+pub trait HandlerTypes {
     type Protocol: Protocol;
     type Event;
+}
 
+pub trait Handler<C>: HandlerTypes + Sized {
     fn execute<'a>(
         cx: Scope<'a, C>,
         req: <Self::Protocol as Protocol>::Request<'_>,
-    ) -> HandlerResult<'a, Self, C>;
+    ) -> HandlerResult<'a, Self>;
 
     fn execute_and_encode(
         cx: Scope<'_, C>,
@@ -163,7 +166,7 @@ pub trait Handler<C>: Sized {
         Self::execute(cx, req).map(move |r| r.encode(buffer))
     }
 
-    fn resume<'a>(self, cx: Scope<'a, C>, enent: &'a Self::Event) -> HandlerResult<'a, Self, C>;
+    fn resume<'a>(self, cx: Scope<'a, C>, enent: &'a Self::Event) -> HandlerResult<'a, Self>;
 
     fn resume_and_encode(
         self,
@@ -181,18 +184,20 @@ pub trait SyncHandler<C>: Protocol {
 
 pub struct Sync<T>(T);
 
-impl<C, H: SyncHandler<C>> Handler<C> for Sync<H> {
+impl<T: Protocol> HandlerTypes for Sync<T> {
     type Event = Infallible;
-    type Protocol = H;
+    type Protocol = T;
+}
 
+impl<C, H: SyncHandler<C>> Handler<C> for Sync<H> {
     fn execute<'a>(
         cx: Scope<'a, C>,
         req: <Self::Protocol as Protocol>::Request<'_>,
-    ) -> HandlerResult<'a, Self, C> {
+    ) -> HandlerResult<'a, Self> {
         Ok(H::execute(cx, req))
     }
 
-    fn resume<'a>(self, _: Scope<'a, C>, e: &'a Self::Event) -> HandlerResult<'a, Self, C> {
+    fn resume<'a>(self, _: Scope<'a, C>, e: &'a Self::Event) -> HandlerResult<'a, Self> {
         match *e {}
     }
 }
@@ -229,7 +234,7 @@ impl<'a, C> DerefMut for Scope<'a, C> {
     }
 }
 
-pub trait TryUnwrap<T>: From<T> {
+pub trait TryUnwrap<T>: Sized {
     fn try_unwrap(self) -> Result<T, Self>;
 }
 
@@ -292,7 +297,7 @@ impl<H> HandlerNest<H> {
         }
     }
 
-    pub fn try_complete<C, E: TryUnwrap<H::Event>>(
+    pub fn try_complete<C, E: TryUnwrap<H::Event> + From<H::Event>>(
         &mut self,
         cx: &mut C,
         event: E,

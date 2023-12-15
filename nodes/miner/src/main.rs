@@ -11,7 +11,7 @@ use {
     chat_logic::*,
     component_utils::{kad::KadPeerSearch, libp2p::kad::StoreInserts, Codec, LinearMap, Reminder},
     crypto::{enc, sign, TransmutationCircle},
-    handlers::{Repl, *},
+    handlers::{SyncRepl, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version, ConnectedPoint},
         futures::{self, stream::SelectAll, SinkExt, StreamExt},
@@ -53,9 +53,9 @@ compose_handlers! {
         handlers::SearchPeers,
         Sync<Subscribe>,
 
-        Repl<CreateProfile>, Repl<SetVault>, Repl<SendMail>, Repl<ReadMail>, Repl<FetchProfile>,
+        SyncRepl<CreateProfile>, SyncRepl<SetVault>, SyncRepl<SendMail>, SyncRepl<ReadMail>, SyncRepl<FetchProfile>,
         Sync<FetchVault>,
-        Repl<CreateChat>, Repl<AddUser>, Repl<SendMessage>,
+        SyncRepl<CreateChat>, SyncRepl<AddUser>, SyncRepl<SendMessage>,
         Sync<FetchMessages>,
     }
 }
@@ -636,6 +636,18 @@ impl TryUnwrap<rpc::Event> for BehaviourEvent {
             BehaviourEvent::Rpc(e) => Ok(e),
             e => Err(e),
         }
+    }
+}
+
+impl<'a> TryUnwrap<&'a rpc::Event> for &'a Infallible {
+    fn try_unwrap(self) -> Result<&'a rpc::Event, &'a Infallible> {
+        Err(self)
+    }
+}
+
+impl<'a> TryUnwrap<&'a Infallible> for &'a rpc::Event {
+    fn try_unwrap(self) -> Result<&'a Infallible, &'a rpc::Event> {
+        Err(self)
     }
 }
 

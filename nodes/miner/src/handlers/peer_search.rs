@@ -39,18 +39,20 @@ impl SearchPeers {
     }
 }
 
-impl<C: ProvideKad> Handler<C> for SearchPeers {
+impl HandlerTypes for SearchPeers {
     type Event = libp2p::kad::Event;
     type Protocol = chat_logic::SearchPeers;
+}
 
+impl<C: ProvideKad> Handler<C> for SearchPeers {
     fn execute<'a>(
         mut cx: Scope<'a, C>,
         req: <Self::Protocol as Protocol>::Request<'_>,
-    ) -> HandlerResult<'a, Self, C> {
+    ) -> HandlerResult<'a, Self> {
         Err(Self::new(cx.kad_mut(), req))
     }
 
-    fn resume<'a>(self, _: Scope<'a, C>, enent: &'a Self::Event) -> HandlerResult<'a, Self, C> {
+    fn resume<'a>(self, _: Scope<'a, C>, enent: &'a Self::Event) -> HandlerResult<'a, Self> {
         Ok(Ok(self.try_complete(enent)?.into()))
     }
 }
