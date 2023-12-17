@@ -4,7 +4,11 @@ use libp2p::core::multihash::Multihash;
 use libp2p::identity::PeerId;
 use {
     arrayvec::{ArrayString, ArrayVec},
-    core::{convert::Infallible, marker::PhantomData},
+    core::{
+        convert::Infallible,
+        marker::PhantomData,
+        ops::{Deref, DerefMut},
+    },
     std::{sync::Arc, u32, usize},
 };
 
@@ -113,6 +117,33 @@ macro_rules! protocol {
             $field $(: $ty)?,
         )*});)*
     };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Ignored<T>(pub T);
+
+impl<'a, T: Codec<'a> + Default> Codec<'a> for Ignored<T> {
+    fn encode(&self, _: &mut impl Buffer) -> Option<()> {
+        Some(())
+    }
+
+    fn decode(_: &mut &'a [u8]) -> Option<Self> {
+        Some(Self(T::default()))
+    }
+}
+
+impl<T> Deref for Ignored<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Ignored<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 pub struct WritableBuffer<'a, T> {

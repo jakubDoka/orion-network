@@ -11,7 +11,7 @@ use {
     chat_logic::*,
     component_utils::{kad::KadPeerSearch, libp2p::kad::StoreInserts, Codec, LinearMap, Reminder},
     crypto::{enc, sign, TransmutationCircle},
-    handlers::{SyncRepl, *},
+    handlers::{Repl, SendMail, SyncRepl, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version, ConnectedPoint},
         futures::{self, stream::SelectAll, SinkExt, StreamExt},
@@ -45,15 +45,15 @@ mod white_list;
 
 compose_handlers! {
     InternalServer {
-        Sync<CreateProfile>, Sync<SetVault>, Sync<SendMail>, Sync<ReadMail>, Sync<FetchProfile>,
+        Sync<CreateProfile>, Sync<SetVault>, SendMail, Sync<ReadMail>, Sync<FetchProfile>,
         Sync<CreateChat>, Sync<AddUser>, Sync<SendMessage>,
     }
 
     ExternalServer {
-        handlers::SearchPeers,
+        Sync<SearchPeers>,
         Sync<Subscribe>,
 
-        SyncRepl<CreateProfile>, SyncRepl<SetVault>, SyncRepl<SendMail>, SyncRepl<ReadMail>, SyncRepl<FetchProfile>,
+        SyncRepl<CreateProfile>, SyncRepl<SetVault>, Repl<SendMail>, SyncRepl<ReadMail>, SyncRepl<FetchProfile>,
         Sync<FetchVault>,
         SyncRepl<CreateChat>, SyncRepl<AddUser>, SyncRepl<SendMessage>,
         Sync<FetchMessages>,
@@ -415,7 +415,6 @@ impl Miner {
                             .rpc
                             .respond(mid, id, self.buffer.as_slice());
                     }
-                    RequestOrigin::NotImportant => {}
                 }
             }
             e => log::debug!("{e:?}"),
@@ -543,6 +542,12 @@ impl ProvideSubscription for Context<'_> {
     }
 }
 
+impl ProvidePeerId for Context<'_> {
+    fn peer_id(&self) -> PeerId {
+        *self.swarm.local_peer_id()
+    }
+}
+
 impl ProvideKadAndRpc for Context<'_> {
     fn kad_and_rpc_mut(
         &mut self,
@@ -563,13 +568,30 @@ impl ProvideStorage for Context<'_> {
 
 impl EventEmmiter<ChatName> for Context<'_> {
     fn push(&mut self, topic: ChatName, event: <ChatName as Topic>::Event<'_>) {
-        handle_event(self.streams, PossibleTopic::Chat(topic), event);
+        handle_event(self.streams, PossibleTopic::Chat(topic), event)
     }
 }
 
-impl EventEmmiter<Identity> for Context<'_> {
-    fn push(&mut self, topic: Identity, event: <Identity as Topic>::Event<'_>) {
-        handle_event(self.streams, PossibleTopic::Profile(topic), event);
+impl DirectedEventEmmiter<Identity> for Context<'_> {
+    fn push(
+        &mut self,
+        topic: Identity,
+        event: <Identity as Topic>::Event<'_>,
+        recip: PathId,
+    ) -> bool {
+        let Some(stream) = self.streams.iter_mut().find(|s| s.id == recip) else {
+            return false;
+        };
+
+        let Some(&call_id) = stream.subscriptions.get(&PossibleTopic::Profile(topic)) else {
+            return false;
+        };
+
+        if stream.inner.write((call_id, &event)).is_none() {
+            return false;
+        }
+
+        true
     }
 }
 
@@ -581,6 +603,7 @@ fn handle_event<'a>(streams: &mut SelectAll<Stream>, topic: PossibleTopic, event
 
         if stream.inner.write((call_id, &event)).is_none() {
             log::info!("client cannot process the subscription response");
+            continue;
         }
     }
 }

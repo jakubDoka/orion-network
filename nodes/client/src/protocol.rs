@@ -61,6 +61,18 @@ impl RequestDispatch {
         self.dispatch_low(Some(topic.into()), request).await
     }
 
+    pub async fn dispatch_mail(
+        &mut self,
+        request: <Repl<SendMail> as Protocol>::Request<'_>,
+    ) -> Result<<Repl<SendMail> as Protocol>::Response<'_>, RequestError<Repl<SendMail>>> {
+        self.dispatch::<SendMail>(request)
+            .await
+            .or_else(|e| match e {
+                RequestError::Handler(ReplError::Inner(SendMailError::SentDirectly)) => Ok(()),
+                e => Err(e),
+            })
+    }
+
     pub async fn dispatch_direct<P: Protocol>(
         &mut self,
         stream: &mut EncryptedStream,

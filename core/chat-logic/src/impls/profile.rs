@@ -46,7 +46,9 @@ component_utils::gen_simple_error! {
     }
 
     error SendMailError {
+        SentDirectly => "sent directly",
         NotFound => "account not found",
+        SendingToSelf => "sending to self is not allowed",
         MailboxFull => "mailbox full (limit: {MAIL_BOX_CAP})",
     }
 }

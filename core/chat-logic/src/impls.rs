@@ -3,7 +3,7 @@ use {
     component_utils::{codec, Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
     libp2p::PeerId,
-    std::{convert::Infallible, fmt::Debug, iter, num::NonZeroUsize},
+    std::{borrow::Borrow, convert::Infallible, fmt::Debug, iter, num::NonZeroUsize},
 };
 pub use {chat::*, profile::*};
 
@@ -34,7 +34,7 @@ crate::compose_protocols! {
         where Topic(Identity): |(p, ..)| crypto::hash::new_raw(&p.pk);
     fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>
         where Topic(Identity): |(p, ..)| crypto::hash::new_raw(&p.pk);
-    fn FetchVault<'a>(Identity) -> Result<(Nonce, Reminder<'a>), FetchVaultError>
+    fn FetchVault<'a>(Identity) -> Result<(Nonce, Nonce, Reminder<'a>), FetchVaultError>
         where Topic(Identity): |&i| i;
     fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>
         where Topic(Identity): |p| crypto::hash::new_raw(&p.pk);
@@ -68,6 +68,8 @@ pub enum ReplError<T> {
     NoMajority,
     #[error("invalid response from majority")]
     InvalidResponse,
+    #[error("invalid topic")]
+    InvalidTopic,
     #[error(transparent)]
     Inner(T),
 }
@@ -76,11 +78,12 @@ impl<'a, T: Codec<'a>> Codec<'a> for ReplError<T> {
     fn encode(&self, buf: &mut impl codec::Buffer) -> Option<()> {
         match self {
             Self::NoMajority => buf.push(0),
-            Self::InvalidResponse => buf.push(1),
             Self::Inner(e) => {
-                buf.push(2)?;
+                buf.push(1)?;
                 e.encode(buf)
             }
+            Self::InvalidResponse => buf.push(2),
+            Self::InvalidTopic => buf.push(3),
         }
     }
 
@@ -88,6 +91,8 @@ impl<'a, T: Codec<'a>> Codec<'a> for ReplError<T> {
         match buf.take_first()? {
             0 => Some(Self::NoMajority),
             1 => Some(Self::Inner(T::decode(buf)?)),
+            2 => Some(Self::InvalidResponse),
+            3 => Some(Self::InvalidTopic),
             _ => None,
         }
     }
@@ -98,6 +103,15 @@ component_utils::protocol! {'a:
     untagged_enum PossibleTopic {
         Profile: Identity,
         Chat: ChatName,
+    }
+}
+
+impl Borrow<[u8]> for PossibleTopic {
+    fn borrow(&self) -> &[u8] {
+        match self {
+            Self::Profile(i) => i.0.as_slice(),
+            Self::Chat(c) => c.as_bytes(),
+        }
     }
 }
 
@@ -188,10 +202,13 @@ component_utils::protocol! {'a:
 
 impl Proof {
     const PAYLOAD_SIZE: usize = std::mem::size_of::<Nonce>() + CHAT_NAME_CAP;
-    const PROFILE_CONTEXT: ProofContext = [0xff - 1; CHAT_NAME_CAP];
 
-    pub fn for_profile(kp: &sign::KeyPair, nonce: &mut Nonce) -> Self {
-        Self::new(kp, nonce, Self::PROFILE_CONTEXT)
+    pub fn for_mail(kp: &sign::KeyPair, nonce: &mut Nonce) -> Self {
+        Self::new(kp, nonce, [0xff - 1; CHAT_NAME_CAP])
+    }
+
+    pub fn for_vault(kp: &sign::KeyPair, nonce: &mut Nonce, vault: &[u8]) -> Self {
+        Self::new(kp, nonce, crypto::hash::new_slice(vault).0)
     }
 
     pub fn for_chat(kp: &sign::KeyPair, nonce: &mut Nonce, chat_name: ChatName) -> Self {
@@ -215,8 +232,12 @@ impl Proof {
         buf
     }
 
-    pub fn verify_profile(&self) -> bool {
-        self.verify(Self::PROFILE_CONTEXT)
+    pub fn verify_mail(&self) -> bool {
+        self.verify([0xff - 1; CHAT_NAME_CAP])
+    }
+
+    pub fn verify_vault(&self, vault: &[u8]) -> bool {
+        self.verify(crypto::hash::new_slice(vault).0)
     }
 
     pub fn verify_chat(&self, chat_name: ChatName) -> bool {

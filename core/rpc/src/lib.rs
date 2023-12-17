@@ -1,4 +1,5 @@
 #![feature(extract_if)]
+#![feature(iter_collect_into)]
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(macro_metavar_expr)]
@@ -14,7 +15,7 @@ use {
         },
         InboundUpgrade, OutboundUpgrade, PeerId, StreamProtocol,
     },
-    std::{convert::Infallible, io, ops::DerefMut, task::Poll, time::Duration},
+    std::{convert::Infallible, io, ops::DerefMut, sync::Arc, task::Poll, time::Duration},
 };
 
 component_utils::decl_stream_protocol!(PROTOCOL_NAME = "rpc");
@@ -160,20 +161,18 @@ impl Behaviour {
     }
 
     fn clean_failed_requests(&mut self, failed: PeerId, error: StreamUpgradeError<Infallible>) {
+        let error = Arc::new(error);
         self.pending_repsonses.retain(|(p, ..)| *p != failed);
-        let failed = self
-            .ongoing_requests
+        self.ongoing_requests
             .extract_if(|(_, p, ..)| *p == failed)
-            .map(|(c, ..)| c)
+            .map(|(c, p, ..)| (c, p))
             .chain(
                 self.pending_requests
                     .extract_if(|(p, ..)| *p == failed)
-                    .map(|(_, c, ..)| c),
+                    .map(|(p, c, ..)| (c, p)),
             )
-            .collect::<Vec<_>>();
-        if !failed.is_empty() {
-            self.events.push(Event::Response(Err((failed, error))));
-        }
+            .map(|(c, p)| Event::Response(p, c, Err(error.clone())))
+            .collect_into(&mut self.events);
     }
 }
 
@@ -238,10 +237,11 @@ impl NetworkBehaviour for Behaviour {
                     self.pending_requests.extract_if(|(p, ..)| *p == peer_id)
                 {
                     if let Err(e) = stream.write(call, &packet, true) {
-                        self.events.push(Event::Response(Err((
-                            vec![call],
-                            StreamUpgradeError::Io(e),
-                        ))));
+                        self.events.push(Event::Response(
+                            peer,
+                            call,
+                            Err(StreamUpgradeError::Io(e).into()),
+                        ));
                     } else {
                         self.ongoing_requests.push((call, peer, rt));
                     }
@@ -274,7 +274,9 @@ impl NetworkBehaviour for Behaviour {
                         continue;
                     }
                     return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(Event::Response(
-                        Ok((pid, cid, content, time.elapsed())),
+                        pid,
+                        cid,
+                        Ok((content, time.elapsed())),
                     )));
                 }
                 Ok((cid, content, true)) => {
@@ -323,9 +325,18 @@ component_utils::gen_unique_id!(pub CallId);
 #[allow(clippy::type_complexity)]
 pub enum Event {
     Response(
-        Result<(PeerId, CallId, Vec<u8>, Duration), (Vec<CallId>, StreamUpgradeError<Infallible>)>,
+        PeerId,
+        CallId,
+        Result<(Vec<u8>, Duration), Arc<StreamUpgradeError<Infallible>>>,
     ),
     Request(PeerId, CallId, Vec<u8>),
+}
+
+pub struct Response {
+    pub peer: PeerId,
+    pub call: CallId,
+    pub payload: Vec<u8>,
+    pub roundtrip_time: Duration,
 }
 
 pub struct Handler {
@@ -547,12 +558,12 @@ mod test {
                         swarm.behaviour_mut().rpc.respond(peer, callid, stream);
                     }
                     libp2p::swarm::SwarmEvent::Behaviour(TestBehatiourEvent::Rpc(
-                        Event::Response(Ok(_)),
+                        Event::Response(.., Ok(_)),
                     )) => {
                         pending_request_count -= 1;
                     }
                     libp2p::swarm::SwarmEvent::Behaviour(TestBehatiourEvent::Rpc(
-                        Event::Response(Err(e)),
+                        Event::Response(.., Err(e)),
                     )) => {
                         log::error!("error: {:?}", e);
                     }

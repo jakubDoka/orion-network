@@ -9,14 +9,14 @@ use {
         chat::Chat,
         login::{Login, Register},
         node::{
-            ChatInvite, ChatMeta, HardenedChatInvite, HardenedChatInvitePayload, HardenedChatMeta,
+            ChatInvite, ChatMeta, HardenedChatInvite, HardenedChatInvitePayload,
             HardenedJoinRequest, JoinRequestPayload, Mail, MemberMeta, Node,
         },
         profile::Profile,
         protocol::SubsOwner,
     },
     anyhow::Context,
-    chat_logic::{ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, SendMail, SetVault},
+    chat_logic::{ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, SetVault},
     component_utils::{Codec, Reminder},
     crypto::{
         enc::{self, ChoosenCiphertext, Ciphertext},
@@ -134,9 +134,10 @@ impl UserKeys {
 #[derive(Default, Clone, Copy)]
 struct State {
     keys: RwSignal<Option<UserKeys>>,
-    requests: RwSignal<Option<RequestDispatch>>,
+    requests: StoredValue<Option<RequestDispatch>>,
     vault: RwSignal<Vault>,
-    account_nonce: RwSignal<Nonce>,
+    vault_version: StoredValue<Nonce>,
+    mail_action: StoredValue<Nonce>,
     hardened_messages: RwSignal<Option<(ChatName, db::Message)>>,
 }
 
@@ -151,7 +152,7 @@ impl State {
                 let keys = keys.as_ref()?;
                 self.vault.try_update(|vault| {
                     let chat = vault.chats.get_mut(&chat_name)?;
-                    chat.action_no = nonce.map_or(chat.action_no, |n| n + 1);
+                    chat.action_no.0 = nonce.map_or(chat.action_no.0, |n| n + 1);
                     Some(Proof::for_chat(&keys.sign, &mut chat.action_no, chat_name))
                 })
             })
@@ -159,12 +160,12 @@ impl State {
             .flatten()
     }
 
-    pub fn next_profile_proof(self) -> Option<chat_logic::Proof> {
+    pub fn next_profile_proof(self, vault: &[u8]) -> Option<chat_logic::Proof> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
-                self.account_nonce
-                    .try_update(|nonce| Some(Proof::for_profile(&keys.sign, nonce)))
+                self.vault_version
+                    .try_update_value(|nonce| Some(Proof::for_vault(&keys.sign, nonce, vault)))
             })
             .flatten()
             .flatten()
@@ -173,6 +174,17 @@ impl State {
     pub fn chat_secret(self, chat_name: ChatName) -> Option<crypto::SharedSecret> {
         self.vault
             .with_untracked(|vault| vault.chats.get(&chat_name).map(|c| c.secret))
+    }
+
+    fn next_mail_proof(&self) -> Option<chat_logic::Proof> {
+        self.keys
+            .try_with_untracked(|keys| {
+                let keys = keys.as_ref()?;
+                self.mail_action
+                    .try_update_value(|nonce| Some(Proof::for_mail(&keys.sign, nonce)))
+            })
+            .flatten()
+            .flatten()
     }
 }
 
@@ -189,8 +201,8 @@ fn App() -> impl IntoView {
     let timeout = store_value(None::<TimeoutHandle>);
     let save_vault = move |keys: UserKeys, mut ed: RequestDispatch| {
         let mut vault_bytes = serialized_vault.get_untracked();
-        let proof = state.next_profile_proof().expect("logged in");
         crypto::encrypt(&mut vault_bytes, keys.vault);
+        let proof = state.next_profile_proof(&vault_bytes).expect("logged in");
         handled_spawn_local("saving vault", async move {
             ed.dispatch::<SetVault>((proof, Reminder(&vault_bytes)))
                 .await
@@ -207,7 +219,7 @@ fn App() -> impl IntoView {
         let Some(keys) = state.keys.get_untracked() else {
             return;
         };
-        let Some(ed) = state.requests.get_untracked() else {
+        let Some(ed) = state.requests.get_value() else {
             return;
         };
 
@@ -257,7 +269,7 @@ fn App() -> impl IntoView {
         .to_bytes();
 
         dispatch
-            .dispatch::<SendMail>((identity_hashes.sign, Reminder(&invite)))
+            .dispatch_mail((identity_hashes.sign, Reminder(&invite)))
             .await
             .context("sending invite")?;
 
@@ -345,13 +357,7 @@ fn App() -> impl IntoView {
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
                     state.vault.update(|v| {
-                        if !v.hardened_chats.contains_key(&chat) {
-                            v.hardened_chats.insert(chat, HardenedChatMeta::default());
-                        }
-                        let meta = v
-                            .hardened_chats
-                            .get_mut(&chat)
-                            .expect("it be there since we just inserted if it isnt");
+                        let meta = v.hardened_chats.entry(chat);
                         members
                             .into_iter()
                             .for_each(|(name, secret)| _ = meta.members.insert(name, secret));
@@ -386,6 +392,7 @@ fn App() -> impl IntoView {
 
                     let message = db::Message {
                         sender,
+                        owner: my_name,
                         content,
                         chat,
                     };
@@ -411,14 +418,15 @@ fn App() -> impl IntoView {
         handled_spawn_local("initializing node", async move {
             navigate_to("/");
             let identity = keys.identity_hash();
-            let (node, vault, mut dispatch, nonce) = Node::new(keys, wboot_phase)
-                .await
-                .inspect_err(|_| navigate_to("/login"))?;
+            let (node, vault, mut dispatch, vault_version, mail_action) =
+                Node::new(keys, wboot_phase)
+                    .await
+                    .inspect_err(|_| navigate_to("/login"))?;
 
             let mut dispatch_clone = dispatch.clone();
             let cloned_enc = enc.clone();
             handled_spawn_local("reading mail", async move {
-                let proof = state.next_profile_proof().unwrap();
+                let proof = state.next_mail_proof().unwrap();
                 let inner_dispatch = dispatch_clone.clone();
                 let list = dispatch_clone.dispatch::<ReadMail>(proof).await?;
 
@@ -462,9 +470,10 @@ fn App() -> impl IntoView {
                 anyhow::Result::Ok(())
             };
 
-            state.requests.set_untracked(Some(dispatch));
+            state.requests.set_value(Some(dispatch));
             state.vault.set_untracked(vault);
-            state.account_nonce.set_untracked(nonce);
+            state.vault_version.set_value(vault_version);
+            state.mail_action.set_value(mail_action);
             navigate_to("/chat");
 
             libp2p::futures::select! {

@@ -14,6 +14,10 @@ pub fn new<T: TransmutationCircle>(data: &T) -> Hash<T> {
     (blake3::hash(data.as_bytes().as_ref()).into(), PhantomData)
 }
 
+pub fn new_slice(data: &[u8]) -> Hash<[u8]> {
+    (blake3::hash(data).into(), PhantomData)
+}
+
 pub fn new_raw<T: TransmutationCircle>(data: &Serialized<T>) -> Hash<T> {
     (blake3::hash(data.as_ref()).into(), PhantomData)
 }

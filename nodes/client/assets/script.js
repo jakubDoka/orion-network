@@ -10,7 +10,7 @@ let __db;
  * @async
  */
 function openDb() {
-        const dbReq = window.indexedDB.open("appCache", 1);
+        const dbReq = window.indexedDB.open("appCache", 2);
         return new Promise((resolve, reject) => {
                 if (__db) return resolve(__db);
                 dbReq.onsuccess = (event) => (__db = event.target.result, resolve(__db));
@@ -18,8 +18,9 @@ function openDb() {
                 dbReq.onupgradeneeded = (event) => {
                         /** @type {IDBDatabase} */
                         const ndb = event.target.result;
+                        ndb.deleteObjectStore("messages");
                         const messages = ndb.createObjectStore("messages", { autoIncrement: true });
-                        messages.createIndex("by_chat", "chat", { unique: false });
+                        messages.createIndex("by_chat", ["chat", "owner"], { unique: false });
                 };
         });
 }
@@ -53,9 +54,11 @@ class MessageCursor {
          */
         #position = 0;
         #chat;
+        #owner;
 
-        constructor(chat) {
+        constructor(chat, user) {
                 this.#chat = chat;
+                this.#owner = user;
         }
 
         /**
@@ -67,7 +70,7 @@ class MessageCursor {
                 const tx = db.transaction("messages", "readonly");
                 const store = tx.objectStore("messages");
                 const index = store.index("by_chat");
-                const req = index.openCursor(this.#chat, "prev");
+                const req = index.openCursor([this.#chat, this.#owner], "prev");
 
                 let advanced = this.#position === 0;
                 let messages = [];

@@ -1,8 +1,9 @@
 use {
-    super::{HandlerTypes, ProvideKadAndRpc, Sync, TryUnwrap},
+    super::{HandlerTypes, ProvideKadAndRpc, ProvidePeerId, Sync, TryUnwrap, VerifyTopic},
     crate::{Handler, REPLICATION_FACTOR},
     chat_logic::{ExtractTopic, PossibleTopic, Protocol, ReplError},
-    component_utils::{Codec, FindAndRemove},
+    component_utils::{arrayvec::ArrayVec, Codec, FindAndRemove},
+    libp2p::kad::KBucketKey,
     rpc::CallId,
 };
 
@@ -13,7 +14,7 @@ pub enum ReplBase<H, E> {
     Resolving(H, PossibleTopic, Vec<u8>),
     Replicating {
         response: Vec<u8>,
-        ongoing: Vec<CallId>,
+        ongoing: ArrayVec<CallId, { REPLICATION_FACTOR.get() }>,
         matched: usize,
         phantom: std::marker::PhantomData<fn(E)>,
     },
@@ -28,7 +29,7 @@ impl<H, E> ReplBase<H, E> {
     ) -> Self {
         let (kad, rpc) = cx.kad_and_rpc_mut();
         let ongoing = kad
-            .get_closest_local_peers(&topic.to_bytes().into())
+            .get_closest_local_peers(&KBucketKey::new(topic))
             .take(REPLICATION_FACTOR.get())
             .filter_map(|peer| rpc.request(*peer.preimage(), request.as_slice()).ok())
             .collect();
@@ -49,7 +50,7 @@ impl<H: HandlerTypes, E> HandlerTypes for ReplBase<H, E> {
 
 impl<C, H, E> Handler<C> for ReplBase<H, E>
 where
-    C: ProvideKadAndRpc,
+    C: ProvideKadAndRpc + ProvidePeerId,
     H: Handler<C>,
     H::Protocol: ExtractTopic,
     for<'a> &'a E: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
@@ -58,20 +59,20 @@ where
         mut scope: super::Scope<'a, C>,
         req: <Self::Protocol as chat_logic::Protocol>::Request<'_>,
     ) -> super::HandlerResult<'a, Self> {
+        let topic: PossibleTopic = <H::Protocol as ExtractTopic>::extract_topic(&req).into();
+
+        if !scope.is_valid_topic(topic) {
+            return Ok(Err(ReplError::InvalidTopic));
+        }
+
         let request = (<Self::Protocol as Protocol>::PREFIX, &req).to_bytes();
-        let topic = <H::Protocol as ExtractTopic>::extract_topic(&req);
         let response = match H::execute(scope.reborrow(), req) {
             Ok(Ok(r)) => Ok::<_, ()>(r).to_bytes(),
             Ok(Err(e)) => return Ok(Err(ReplError::Inner(e))),
-            Err(e) => return Err(Self::Resolving(e, topic.into(), request)),
+            Err(e) => return Err(Self::Resolving(e, topic, request)),
         };
 
-        Err(Self::new_replicating(
-            response,
-            request,
-            topic.into(),
-            scope.cx,
-        ))
+        Err(Self::new_replicating(response, request, topic, scope.cx))
     }
 
     fn resume<'a>(
@@ -103,29 +104,25 @@ where
             } => (response, ongoing, matched),
         };
 
-        crate::ensure!(let Ok(rpc::Event::Response(res)) = TryUnwrap::<&rpc::Event>::try_unwrap(event), self);
+        crate::ensure!(let Ok(rpc::Event::Response(_, call, res)) = TryUnwrap::<&rpc::Event>::try_unwrap(event), self);
+        crate::ensure!(ongoing.find_and_remove(|c| c == call).is_some(), self);
 
         log::debug!("rpc event: {:?}", res);
         match res {
-            Ok((_, call, remote_resp, _)) => 'a: {
-                if ongoing.find_and_remove(|c| c == call).is_none() {
-                    break 'a;
-                }
-
+            Ok((remote_resp, _)) => {
                 *matched += (remote_resp.as_slice() == response.as_slice()) as usize;
 
                 if *matched > REPLICATION_FACTOR.get() / 2 {
-                    let Some(resp) = Codec::decode(&mut remote_resp.as_slice()) else {
+                    let Some(resp): Option<Result<_, _>> =
+                        Codec::decode(&mut remote_resp.as_slice())
+                    else {
                         return Ok(Err(ReplError::InvalidResponse));
                     };
 
-                    return Ok(resp);
+                    return Ok(resp.map_err(ReplError::Inner));
                 }
             }
-            Err((failed, e)) => {
-                for f in failed {
-                    ongoing.find_and_remove(|c| c == f);
-                }
+            Err(e) => {
                 log::warn!("rpc failed: {}", e);
             }
         }

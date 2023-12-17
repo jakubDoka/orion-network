@@ -3,12 +3,12 @@ use {
     anyhow::Context,
     chat_logic::{
         CallId, ChatName, CreateProfile, FetchVault, Identity, Nonce, PossibleTopic, Proof,
-        Protocol, ProtocolResult, RawChatName, SearchPeers,
+        Protocol, ProtocolResult, RawChatName, Repl, SearchPeers,
     },
     component_utils::{
         futures::{self},
         kad::KadPeerSearch,
-        Codec, FindAndRemove, LinearMap, Reminder,
+        Codec, FindAndRemove, Ignored, LinearMap, Reminder,
     },
     crypto::{
         decrypt,
@@ -55,7 +55,7 @@ component_utils::protocol! { 'a:
 
     struct ChatMeta {
         secret: crypto::SharedSecret,
-        action_no: Nonce,
+        action_no: Ignored<Nonce>,
     }
 
     #[derive(Default)]
@@ -112,16 +112,13 @@ component_utils::protocol! { 'a:
 
 impl ChatMeta {
     pub fn new() -> Self {
-        Self {
-            secret: crypto::new_secret(),
-            action_no: 1,
-        }
+        Self::from_secret(crypto::new_secret())
     }
 
     pub fn from_secret(secret: SharedSecret) -> Self {
         Self {
             secret,
-            action_no: 1,
+            action_no: Default::default(),
         }
     }
 }
@@ -205,7 +202,7 @@ impl Node {
     pub async fn new(
         keys: UserKeys,
         wboot_phase: WriteSignal<Option<BootPhase>>,
-    ) -> anyhow::Result<(Self, Vault, RequestDispatch, Nonce)> {
+    ) -> anyhow::Result<(Self, Vault, RequestDispatch, Nonce, Nonce)> {
         macro_rules! set_state { ($($t:tt)*) => {wboot_phase(Some(BootPhase::$($t)*))}; }
 
         set_state!(FetchNodesAndProfile);
@@ -375,18 +372,18 @@ impl Node {
                 }
             };
         set_state!(VaultLoad);
-        let (mut account_nonce, Reminder(vault)) = match request_dispatch
+        let (mut vault_nonce, mail_action, Reminder(vault)) = match request_dispatch
             .dispatch_direct::<FetchVault>(&mut profile_stream, &profile_hash.sign)
             .await
         {
-            Ok((n, v)) => (n + 1, v),
+            Ok((vn, m, v)) => (vn + 1, m + 1, v),
             Err(_) => Default::default(),
         };
-        let vault = if vault.is_empty() && account_nonce == 0 {
+        let vault = if vault.is_empty() && vault_nonce == 0 {
             set_state!(ProfileCreate);
-            let proof = Proof::for_profile(&keys.sign, &mut account_nonce);
+            let proof = Proof::for_mail(&keys.sign, &mut vault_nonce);
             request_dispatch
-                .dispatch_direct::<CreateProfile>(
+                .dispatch_direct::<Repl<CreateProfile>>(
                     &mut profile_stream,
                     &(proof, keys.enc.public_key().into_bytes(), Reminder(&[])),
                 )
@@ -412,7 +409,6 @@ impl Node {
             stream: profile_stream,
         };
 
-        // we clone a lot, but fuck it
         let mut topology = HashMap::<PeerId, HashSet<ChatName>>::new();
         let mut discovered = 0;
         for (peers, chat) in request_dispatch
@@ -514,7 +510,8 @@ impl Node {
             },
             vault,
             request_dispatch,
-            account_nonce,
+            vault_nonce,
+            mail_action,
         ))
     }
 

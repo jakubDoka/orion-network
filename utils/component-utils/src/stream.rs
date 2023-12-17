@@ -62,6 +62,17 @@ impl<K: Eq, V> LinearMap<K, V> {
         self.values.iter().any(|(k, _)| k == key)
     }
 
+    pub fn entry(&mut self, ket: K) -> &mut V
+    where
+        V: Default,
+    {
+        if let Some(index) = self.values.iter_mut().position(|(k, _)| k == &ket) {
+            return &mut self.values[index].1;
+        }
+        self.values.push((ket, V::default()));
+        &mut self.values.last_mut().unwrap().1
+    }
+
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
         self.values
             .iter_mut()

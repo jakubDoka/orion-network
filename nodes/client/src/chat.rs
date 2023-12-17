@@ -7,7 +7,7 @@ use {
     anyhow::Context,
     chat_logic::{
         AddUser, AddUserError, ChatEvent, ChatName, CreateChat, FetchMessages, FetchProfile,
-        SendMail, SendMessage, SendMessageError,
+        SendMessage, SendMessageError,
     },
     component_utils::{Codec, DropFn, Reminder},
     crypto::{
@@ -65,7 +65,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
     let my_name = keys.name;
     let my_id = keys.identity_hash();
     let my_enc = keys.enc.into_bytes();
-    let requests = move || state.requests.get_untracked().unwrap();
+    let requests = move || state.requests.get_value().unwrap();
     let selected: Option<ChatName> = leptos_router::use_query_map()
         .with_untracked(|m| m.get("id").and_then(|v| v.as_str().try_into().ok()))
         .filter(|v| state.vault.with_untracked(|vl| vl.chats.contains_key(v)));
@@ -126,7 +126,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         }
 
         if is_hardened.get_untracked() && matches!(cursor.get_untracked(), Cursor::Normal(_)) {
-            let cursor = db::MessageCursor::new(chat)
+            let cursor = db::MessageCursor::new(chat, my_name)
                 .await
                 .context("opening message cursor")?;
             set_cursor(Cursor::Hardened(cursor));
@@ -359,7 +359,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .into_bytes();
         let invite = Mail::ChatInvite(ChatInvite { chat, cp }).to_bytes();
         requests
-            .dispatch::<SendMail>((invitee.sign, Reminder(invite.as_slice())))
+            .dispatch_mail((invitee.sign, Reminder(invite.as_slice())))
             .await
             .context("sending invite")?;
 
@@ -370,6 +370,10 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let Ok(name) = UserName::try_from(name.as_str()) else {
             anyhow::bail!("invalid user name");
         };
+
+        if name == my_name {
+            anyhow::bail!("you cannot invite yourself");
+        }
 
         let Some(chat) = current_chat.get_untracked() else {
             anyhow::bail!("no chat selected");
@@ -418,7 +422,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         .to_bytes();
 
         requests
-            .dispatch::<SendMail>((invitee.sign, Reminder(&invite)))
+            .dispatch_mail((invitee.sign, Reminder(&invite)))
             .await
             .context("sending invite")?;
 
@@ -523,7 +527,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 .to_bytes();
                 async move {
                     requests()
-                        .dispatch::<SendMail>((member.identity, Reminder(&message)))
+                        .dispatch_mail((member.identity, Reminder(&message)))
                         .await
                         .with_context(|| format!("sending message to {name}"))
                 }
@@ -535,6 +539,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             db::save_messages(vec![db::Message {
                 chat,
                 sender: my_name,
+                owner: my_name,
                 content: content.clone(),
             }])
             .await
@@ -703,7 +708,7 @@ fn popup<F: Future<Output = anyhow::Result<()>>>(
         <div class="fsc flx blr sb" hidden=hidden>
             <div class="sc flx fdc bp ma bsha">
                 <input class="pc hov bp" type="text" placeholder=style.placeholder
-                    maxlength=style.maxlength required node_ref=input on:click=move |_| on_confirm()
+                    maxlength=style.maxlength required node_ref=input
                     on:input=on_input on:keydown=on_keydown/>
                 <input class="pc hov bp tbm" type="button" value=style.confirm
                     disabled=confirm_disabled on:click=move |_| on_confirm() />

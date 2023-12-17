@@ -12,6 +12,7 @@ exclude = [
 	"forked/substrate-node-template",
 	"forked/rust-libp2p",
 	"forked/rust-yamux",
+	"forked/PQClean",
 ]
 
 [profile.native-optimized]

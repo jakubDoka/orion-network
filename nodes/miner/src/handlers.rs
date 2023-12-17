@@ -1,8 +1,11 @@
-pub use {chat::*, peer_search::*, profile::*, replicated::*};
+pub use {chat::*, profile::*, replicated::*};
 use {
-    chat_logic::{PossibleTopic, Protocol, ProtocolResult, Subscribe, Topic},
+    chat_logic::{PossibleTopic, Protocol, ProtocolResult, Subscribe, Topic, REPLICATION_FACTOR},
     component_utils::{codec, Codec},
-    libp2p::{kad::store::RecordStore, PeerId},
+    libp2p::{
+        kad::{store::RecordStore, KBucketKey},
+        PeerId,
+    },
     onion::PathId,
     rpc::CallId,
     std::{
@@ -13,6 +16,17 @@ use {
 
 #[macro_export]
 macro_rules! ensure {
+    ($cond:expr, Ok($resp:expr)) => {
+        if !$cond {
+            return Ok(Err($resp));
+        }
+    };
+
+    (let $var:pat = $expr:expr, Ok($resp:expr)) => {
+        let $var = $expr else {
+            return Ok(Err($resp));
+        };
+    };
     ($cond:expr, $resp:expr) => {
         if !$cond {
             return Err($resp);
@@ -85,12 +99,32 @@ macro_rules! compose_handlers {
 
 mod chat;
 mod peer_search;
+mod populating;
 mod profile;
 mod replicated;
+
+pub trait ProvidePeerId {
+    fn peer_id(&self) -> PeerId;
+}
 
 pub trait ProvideKad {
     fn kad_mut(&mut self) -> &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>;
 }
+
+pub trait VerifyTopic: ProvidePeerId + ProvideKad {
+    fn is_valid_topic(&mut self, topic: PossibleTopic) -> bool {
+        let us = KBucketKey::from(self.peer_id());
+        let key = KBucketKey::new(topic);
+        let r = self
+            .kad_mut()
+            .get_closest_local_peers(&key)
+            .nth(REPLICATION_FACTOR.get())
+            .is_some_and(|p| p.distance(&key) > us.distance(&key));
+        r
+    }
+}
+
+impl<T: ProvidePeerId + ProvideKad> VerifyTopic for T {}
 
 pub trait ProvideRpc {
     fn rpc_mut(&mut self) -> &mut rpc::Behaviour;
@@ -123,6 +157,10 @@ pub trait ProvideStorage {
 
 pub trait EventEmmiter<T: Topic> {
     fn push(&mut self, topic: T, event: T::Event<'_>);
+}
+
+pub trait DirectedEventEmmiter<T: Topic> {
+    fn push(&mut self, topic: T, event: T::Event<'_>, recip: PathId) -> bool;
 }
 
 pub trait ProvideSubscription {
@@ -365,9 +403,10 @@ pub struct Request<'a> {
     pub body: &'a [u8],
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum RequestOrigin {
-    Client(PathId),
-    Miner(PeerId),
-    NotImportant,
+component_utils::protocol! {'a:
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum RequestOrigin {
+        Client: PathId,
+        Miner: PeerId,
+    }
 }

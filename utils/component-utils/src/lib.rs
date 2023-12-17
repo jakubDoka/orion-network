@@ -169,7 +169,10 @@ pub trait FindAndRemove<T> {
     fn find_and_remove(&mut self, q: impl FnMut(&T) -> bool) -> Option<T>;
     fn find_and_remove_value(&mut self, value: &T) -> Option<T>
     where
-        T: PartialEq;
+        T: PartialEq,
+    {
+        self.find_and_remove(|x| x == value)
+    }
 }
 
 #[cfg(feature = "std")]
@@ -177,12 +180,11 @@ impl<T> FindAndRemove<T> for Vec<T> {
     fn find_and_remove(&mut self, q: impl FnMut(&T) -> bool) -> Option<T> {
         Some(self.swap_remove(self.iter().position(q)?))
     }
+}
 
-    fn find_and_remove_value(&mut self, value: &T) -> Option<T>
-    where
-        T: PartialEq,
-    {
-        self.find_and_remove(|x| x == value)
+impl<T, const N: usize> FindAndRemove<T> for arrayvec::ArrayVec<T, N> {
+    fn find_and_remove(&mut self, q: impl FnMut(&T) -> bool) -> Option<T> {
+        Some(self.swap_remove(self.iter().position(q)?))
     }
 }
 
