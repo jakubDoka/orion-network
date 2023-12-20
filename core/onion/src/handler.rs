@@ -350,8 +350,7 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
             let mut ss = [0; 32];
             let (buffer, peer_id) = match &incoming {
                 IncomingOrRequest::Request(r) => {
-                    ss = packet::new_initial(&r.recipient, r.path, &keypair, &mut written_packet)
-                        .map_err(OUpgradeError::PacketCreation)?;
+                    ss = packet::new_initial(&r.recipient, r.path, &keypair, &mut written_packet);
                     (&written_packet, r.path[0].1)
                 }
                 IncomingOrRequest::Incoming(i) => (&i.buffer, i.to), // the peer id is arbitrary in
@@ -420,8 +419,6 @@ pub enum OUpgradeError {
     MissingPeer,
     #[error("occupied peer")]
     OccupiedPeer,
-    #[error("failed to create packet: {0}")]
-    PacketCreation(crypto::enc::EncapsulationError),
     #[error("malformed init packet")]
     MalformedPacket,
     #[error("failed to authenticate")]

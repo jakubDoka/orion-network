@@ -69,7 +69,7 @@ impl Behaviour {
     pub fn open_path(
         &mut self,
         [mut path @ .., (mut recipient, to)]: [(PublicKey, PeerId); crate::packet::PATH_LEN + 1],
-    ) -> Result<PathId, crypto::enc::EncapsulationError> {
+    ) -> PathId {
         assert!(path.array_windows().all(|[a, b]| a.1 != b.1));
 
         path.iter_mut()
@@ -87,7 +87,7 @@ impl Behaviour {
             path_id,
         });
 
-        Ok(path_id)
+        path_id
     }
 
     fn push_stream_request(&mut self, sr: StreamRequest) {

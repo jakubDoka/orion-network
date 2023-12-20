@@ -27,12 +27,3 @@ pub fn prf(out: &mut [u8], key: &[u8; SYMBYTES], nonce: u8) {
     state.update(&[nonce]);
     state.finalize_xof().read(out);
 }
-
-pub fn rkprf(key: &[u8; SYMBYTES], nonce: &[u8; CIPHERTEXTBYTES]) -> [u8; SYMBYTES] {
-    let mut output = [0u8; SSBYTES];
-    let mut state = sha3::Shake256::default();
-    state.update(key);
-    state.update(nonce);
-    state.finalize_xof().read(&mut output);
-    output
-}

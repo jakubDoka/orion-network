@@ -331,7 +331,7 @@ impl Node {
             .try_into()
             .unwrap();
 
-        let pid = swarm.behaviour_mut().onion.open_path(route)?;
+        let pid = swarm.behaviour_mut().onion.open_path(route);
         let (mut init_stream, init_stream_id, init_stream_per) = loop {
             match swarm.select_next_some().await {
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
@@ -358,7 +358,7 @@ impl Node {
                 set_state!(ProfileOpen);
                 let pick = members.into_iter().choose(&mut rand::thread_rng()).unwrap();
                 let route = pick_route(&swarm.behaviour_mut().key_share.keys, pick);
-                let pid = swarm.behaviour_mut().onion.open_path(route)?;
+                let pid = swarm.behaviour_mut().onion.open_path(route);
                 loop {
                     match swarm.select_next_some().await {
                         SwarmEvent::Behaviour(BehaviourEvent::Onion(
@@ -453,11 +453,7 @@ impl Node {
             .into_iter()
             .map(|(pick, set)| {
                 let route = pick_route(&swarm.behaviour_mut().key_share.keys, pick);
-                let pid = swarm
-                    .behaviour_mut()
-                    .onion
-                    .open_path(route)
-                    .expect("client to never fail");
+                let pid = swarm.behaviour_mut().onion.open_path(route);
                 (pid, pick, set)
             })
             .collect::<Vec<_>>();
@@ -698,7 +694,7 @@ impl Node {
             };
 
             let path = pick_route(&self.swarm.behaviour().key_share.keys, pick);
-            let pid = self.swarm.behaviour_mut().onion.open_path(path).unwrap();
+            let pid = self.swarm.behaviour_mut().onion.open_path(path);
             self.pending_topic_search.insert(Err(pid), req);
             return;
         }

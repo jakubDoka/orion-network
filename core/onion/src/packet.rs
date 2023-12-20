@@ -44,12 +44,8 @@ pub fn verify_confirm(key: &SharedSecret, buffer: &mut [u8]) -> bool {
     peel_wih_key(key, buffer).is_some()
 }
 
-pub fn wrap(
-    client_kp: &KeyPair,
-    sender: &PublicKey,
-    buffer: &mut Vec<u8>,
-) -> Result<(), crypto::enc::EncapsulationError> {
-    let (cp, key) = client_kp.encapsulate(sender)?;
+pub fn wrap(client_kp: &KeyPair, sender: &PublicKey, buffer: &mut Vec<u8>) {
+    let (cp, key) = client_kp.encapsulate(sender);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let cipher = Aes256Gcm::new(&GenericArray::from(key));
 
@@ -60,8 +56,6 @@ pub fn wrap(
     buffer.extend_from_slice(&tag);
     buffer.extend_from_slice(&nonce);
     buffer.extend_from_slice(&cp.into_bytes());
-
-    Ok(())
 }
 
 pub fn new_initial(
@@ -69,8 +63,8 @@ pub fn new_initial(
     path: [(PublicKey, PeerId); PATH_LEN],
     client_kp: &KeyPair,
     buffer: &mut Vec<u8>,
-) -> Result<SharedSecret, crypto::enc::EncapsulationError> {
-    let (cp, key) = client_kp.encapsulate(recipient)?;
+) -> SharedSecret {
+    let (cp, key) = client_kp.encapsulate(recipient);
     buffer.extend_from_slice(&cp.into_bytes());
 
     for (pk, id) in path {
@@ -79,12 +73,12 @@ pub fn new_initial(
         mh.write(&mut *buffer).expect("write to vector cannot fail");
         buffer.push((buffer.len() - prev_len) as u8);
 
-        wrap(client_kp, &pk, buffer)?;
+        wrap(client_kp, &pk, buffer);
     }
 
     buffer.extend_from_slice(&client_kp.public_key().into_bytes());
 
-    Ok(key)
+    key
 }
 
 pub fn peel_wih_key(key: &SharedSecret, mut buffer: &mut [u8]) -> Option<usize> {

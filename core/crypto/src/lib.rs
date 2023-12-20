@@ -1,11 +1,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#[cfg(feature = "getrandom")]
+use aes_gcm::aead::OsRng;
 use aes_gcm::{
     aead::{generic_array::GenericArray, Tag},
     aes::cipher::Unsigned,
     AeadCore, AeadInPlace, Aes256Gcm, KeyInit, KeySizeUser, Nonce,
 };
-#[cfg(feature = "getrandom")]
-use {aes_gcm::aead::OsRng, pqc_kyber::RngCore};
 
 #[macro_export]
 macro_rules! impl_transmute {
@@ -62,6 +62,8 @@ pub trait TransmutationCircle: Sized {
 
 #[cfg(all(feature = "getrandom", feature = "std"))]
 pub fn new_secret() -> SharedSecret {
+    use aes_gcm::aead::rand_core::RngCore;
+
     let mut secret = [0; SHARED_SECRET_SIZE];
     OsRng.fill_bytes(&mut secret);
     secret

@@ -1,11 +1,8 @@
+use crate::{FixedAesPayload, SharedSecret, TransmutationCircle, ASOC_DATA, SHARED_SECRET_SIZE};
 #[cfg(feature = "getrandom")]
 use aes_gcm::aead::OsRng;
 #[cfg(feature = "std")]
 use thiserror::Error;
-use {
-    crate::{FixedAesPayload, SharedSecret, TransmutationCircle, ASOC_DATA, SHARED_SECRET_SIZE},
-    pqc_kyber::KyberError,
-};
 
 impl_transmute! {
     KeyPair,
@@ -15,12 +12,10 @@ impl_transmute! {
     ChoosenCiphertext,
 }
 
-pub type EncapsulationError = KyberError;
-
 type EncriptedKey = FixedAesPayload<{ SHARED_SECRET_SIZE }>;
 
 pub struct Ciphertext {
-    pl: FixedAesPayload<{ pqc_kyber::KYBER_CIPHERTEXTBYTES }>,
+    pl: FixedAesPayload<{ kyber::CIPHERTEXTBYTES }>,
     x: x25519_dalek::PublicKey,
 }
 
@@ -31,18 +26,18 @@ pub struct ChoosenCiphertext {
 
 struct ChoosenPayload {
     key: EncriptedKey,
-    kyb: [u8; pqc_kyber::KYBER_CIPHERTEXTBYTES],
+    kyb: [u8; kyber::CIPHERTEXTBYTES],
 }
 
 #[derive(Clone)]
 pub struct KeyPair {
-    pub kyb: pqc_kyber::Keypair,
+    pub kyb: kyber::Keypair,
     pub x: x25519_dalek::StaticSecret,
 }
 
 impl PartialEq for KeyPair {
     fn eq(&self, other: &Self) -> bool {
-        self.kyb.public == other.kyb.public && self.x.to_bytes() == other.x.to_bytes()
+        self.kyb.publickey() == other.kyb.publickey() && self.x.to_bytes() == other.x.to_bytes()
     }
 }
 
@@ -58,32 +53,37 @@ impl Default for KeyPair {
 impl KeyPair {
     #[cfg(feature = "getrandom")]
     pub fn new() -> Self {
-        let kyb = pqc_kyber::Keypair::generate(&mut OsRng).expect("might as well");
+        use aes_gcm::aead::rand_core::RngCore;
+
+        let mut seed = [0; kyber::KEY_SEEDBYTES];
+        OsRng.fill_bytes(&mut seed);
+        let kyb = kyber::Keypair::new(&seed);
         let x = x25519_dalek::StaticSecret::random_from_rng(OsRng);
         Self { kyb, x }
     }
 
     pub fn public_key(&self) -> PublicKey {
         PublicKey {
-            kyb: self.kyb.public,
+            kyb: self.kyb.publickey(),
             x: x25519_dalek::PublicKey::from(&self.x),
         }
     }
 
     #[cfg(feature = "getrandom")]
-    pub fn encapsulate(
-        &self,
-        public_key: &PublicKey,
-    ) -> Result<(Ciphertext, SharedSecret), EncapsulationError> {
-        let (data, secret) = pqc_kyber::encapsulate(&public_key.kyb, &mut OsRng)?;
+    pub fn encapsulate(&self, public_key: &PublicKey) -> (Ciphertext, SharedSecret) {
+        use aes_gcm::aead::rand_core::RngCore;
+
+        let mut seed = [0; kyber::ENC_SEEDBYTES];
+        OsRng.fill_bytes(&mut seed);
+        let (data, secret) = public_key.kyb.enc(&seed);
         let x_secret = self.x.diffie_hellman(&public_key.x);
-        Ok((
+        (
             Ciphertext {
                 pl: FixedAesPayload::new(data, x_secret.to_bytes(), ASOC_DATA),
                 x: x25519_dalek::PublicKey::from(&self.x),
             },
             secret,
-        ))
+        )
     }
 
     #[cfg(feature = "getrandom")]
@@ -91,15 +91,19 @@ impl KeyPair {
         &self,
         public_key: &PublicKey,
         secret: SharedSecret,
-    ) -> Result<ChoosenCiphertext, EncapsulationError> {
-        let (kyb, ksecret) = pqc_kyber::encapsulate(&public_key.kyb, &mut OsRng)?;
+    ) -> ChoosenCiphertext {
+        use aes_gcm::aead::rand_core::RngCore;
+
+        let mut seed = [0; kyber::ENC_SEEDBYTES];
+        OsRng.fill_bytes(&mut seed);
+        let (kyb, ksecret) = public_key.kyb.enc(&seed);
         let x_secret = self.x.diffie_hellman(&public_key.x);
         let key = EncriptedKey::new(secret, ksecret, ASOC_DATA);
         let data = ChoosenPayload { key, kyb };
-        Ok(ChoosenCiphertext {
+        ChoosenCiphertext {
             pl: FixedAesPayload::new(data.into_bytes(), x_secret.to_bytes(), ASOC_DATA),
             x: x25519_dalek::PublicKey::from(&self.x),
-        })
+        }
     }
 
     pub fn decapsulate(&self, ciphertext: Ciphertext) -> Result<SharedSecret, DecapsulationError> {
@@ -108,7 +112,7 @@ impl KeyPair {
             .pl
             .decrypt(x_secret.to_bytes(), ASOC_DATA)
             .map_err(DecapsulationError::Aes)?;
-        pqc_kyber::decapsulate(data.as_ref(), &self.kyb.secret).map_err(DecapsulationError::Kyber)
+        self.kyb.dec(&data).ok_or(DecapsulationError::Kyber)
     }
 
     pub fn decapsulate_choosen(
@@ -121,8 +125,10 @@ impl KeyPair {
             .decrypt(x_secret.to_bytes(), ASOC_DATA)
             .map_err(DecapsulationError::Aes)?;
         let payload = ChoosenPayload::from_bytes(data);
-        let secret = pqc_kyber::decapsulate(&payload.kyb, &self.kyb.secret)
-            .map_err(DecapsulationError::Kyber)?;
+        let secret = self
+            .kyb
+            .dec(&payload.kyb)
+            .ok_or(DecapsulationError::Kyber)?;
         payload
             .key
             .decrypt(secret, ASOC_DATA)
@@ -133,8 +139,8 @@ impl KeyPair {
 #[cfg(feature = "std")]
 #[derive(Debug, Error)]
 pub enum DecapsulationError {
-    #[error("kyber decapsulation failed: {0}")]
-    Kyber(KyberError),
+    #[error("kyber decapsulation failed")]
+    Kyber,
     #[error("aes decapsulation failed: {0}")]
     Aes(aes_gcm::Error),
 }
@@ -148,7 +154,7 @@ pub enum DecapsulationError {
 #[derive(Clone, Copy, Debug)]
 pub struct PublicKey {
     #[allow(dead_code)]
-    kyb: pqc_kyber::PublicKey,
+    kyb: kyber::PublicKey,
     x: x25519_dalek::PublicKey,
 }
 
@@ -159,7 +165,7 @@ mod tests {
         use super::*;
         let alice = KeyPair::new();
         let bob = KeyPair::new();
-        let (ciphertext, secret) = alice.encapsulate(&bob.public_key()).unwrap();
+        let (ciphertext, secret) = alice.encapsulate(&bob.public_key());
         let dec = bob.decapsulate(ciphertext).unwrap();
         assert_eq!(secret, dec);
     }
@@ -170,9 +176,7 @@ mod tests {
         let alice = KeyPair::new();
         let bob = KeyPair::new();
         let secret = [42u8; SHARED_SECRET_SIZE];
-        let ciphertext = alice
-            .encapsulate_choosen(&bob.public_key(), secret)
-            .unwrap();
+        let ciphertext = alice.encapsulate_choosen(&bob.public_key(), secret);
         let dec = bob.decapsulate_choosen(ciphertext).unwrap();
         assert_eq!(secret, dec);
     }

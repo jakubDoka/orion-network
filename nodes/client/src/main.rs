@@ -250,9 +250,7 @@ fn App() -> impl IntoView {
             .await
             .context("fetching profile")?;
 
-        let (cp, secret) = enc
-            .encapsulate(&enc::PublicKey::from_bytes(pf.enc))
-            .context("failed to encapsulate invite")?;
+        let (cp, secret) = enc.encapsulate(&enc::PublicKey::from_bytes(pf.enc));
 
         let payload = JoinRequestPayload {
             chat: component_utils::arrstr_to_array(chat),

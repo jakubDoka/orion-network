@@ -92,8 +92,7 @@ async fn open_path(
 
     swarms[0]
         .behaviour_mut()
-        .open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)))
-        .unwrap();
+        .open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)));
 
     let mut input = None;
     let mut output = None;
@@ -193,8 +192,7 @@ async fn test_missing_route() {
 
         swarms[0]
             .behaviour_mut()
-            .open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)))
-            .unwrap();
+            .open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)));
 
         loop {
             let (e, id, ..) =
@@ -443,7 +441,7 @@ async fn settle_down() {
                         .collect::<Vec<_>>()
                         .try_into()
                         .unwrap();
-                    let id = swarm.behaviour_mut().onion.open_path(to_dail).unwrap();
+                    let id = swarm.behaviour_mut().onion.open_path(to_dail);
                     pending_routes.insert(id);
                 }
 
