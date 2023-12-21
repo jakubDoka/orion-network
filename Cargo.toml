@@ -6,6 +6,7 @@ members = [
 	"tests/*",
 	"contracts/*",
 	"forked/*", "core/rpc",
+	"utils/falcon/output"
 ]
 exclude = [
 	"forked/substrate-contracts-node",
@@ -13,6 +14,7 @@ exclude = [
 	"forked/rust-libp2p",
 	"forked/rust-yamux",
 	"forked/PQClean",
+	"utils/falcon",
 ]
 
 [profile.native-optimized]
