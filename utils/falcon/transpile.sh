@@ -1,4 +1,5 @@
 RESOURCES=$(pwd)
+rm -rf falcon
 mkdir falcon
 cd falcon
 ALG_PATH=./PQClean/crypto_sign/falcon-512/clean
