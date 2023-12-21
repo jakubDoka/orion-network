@@ -118,7 +118,7 @@ impl NodeData {
         StoredNodeData {
             sign: crypto::hash::new(&self.sign),
             enc: crypto::hash::new(&self.enc),
-            id: self.sign.ed,
+            id: self.sign.pre,
         }
     }
 }

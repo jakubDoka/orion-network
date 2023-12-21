@@ -52,7 +52,7 @@ macro_rules! compose_handlers {
         impl Default for $name {
             fn default() -> Self {
                 Self($(
-                    ${ignore(handler)}
+                    ${ignore($handler)}
                     $crate::handlers::HandlerNest::default(),
                 )*)
             }
@@ -85,7 +85,7 @@ macro_rules! compose_handlers {
                 )*
             {
                 $(
-                    ${ignore(handler)}
+                    ${ignore($handler)}
                     match self.${index(0)}.try_complete(cx, event, bp) {
                         Ok(res) => return Ok(res),
                         Err(e) => event = e,
@@ -236,7 +236,9 @@ impl<C, H: SyncHandler<C>> Handler<C> for Sync<H> {
     }
 
     fn resume<'a>(self, _: Scope<'a, C>, e: &'a Self::Event) -> HandlerResult<'a, Self> {
-        match *e {}
+        match e {
+            &i => match i {},
+        }
     }
 }
 

@@ -9,8 +9,8 @@ edition = "2021"
 aes-gcm = { version = "0.10.3", features = ["aes"], default-features = false }
 blake3 = { version = "1.5.0", default-features = false }
 ed25519-dalek = { version = "2.0.0", default-features = false }
-pqc_dilithium = { path = "../../forked/dilithium", features = ["mode3"], default-features = false }
 kyber = { path = "../../utils/kyber" }
+falcon = { path = "../../utils/falcon" }
 thiserror = { version = "1.0.50" }
 x25519-dalek = { version = "2.0.0", features = ["static_secrets"], default-features = false }
 
@@ -24,6 +24,5 @@ std = [
 getrandom = [
 	"x25519-dalek/getrandom",
 	"ed25519-dalek/rand_core",
-	"pqc_dilithium/getrandom",
 	"aes-gcm/getrandom",
 ]

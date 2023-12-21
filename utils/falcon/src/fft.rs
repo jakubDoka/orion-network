@@ -6,31 +6,31 @@ extern "C" {
     static PQCLEAN_FALCON512_CLEAN_fpr_gm_tab: [fpr; 0];
     static PQCLEAN_FALCON512_CLEAN_fpr_p2_tab: [fpr; 0];
 }
-pub type __uint32_t = libc::c_uint;
-pub type __uint64_t = libc::c_ulong;
-pub type uint32_t = __uint32_t;
-pub type uint64_t = __uint64_t;
+pub type __u32 = libc::c_uint;
+pub type __u64 = libc::c_ulong;
+
+
 pub type size_t = libc::c_ulong;
-pub type fpr = uint64_t;
-static mut fpr_zero: fpr = 0 as libc::c_int as fpr;
+pub type fpr = u64;
+static mut fpr_zero: fpr = 0 as fpr;
 #[inline]
 unsafe extern "C" fn fpr_sub(mut x: fpr, mut y: fpr) -> fpr {
-    y ^= (1 as libc::c_int as uint64_t) << 63 as libc::c_int;
+    y ^= (1 as u64) << 63;
     return PQCLEAN_FALCON512_CLEAN_fpr_add(x, y);
 }
 #[inline]
 unsafe extern "C" fn fpr_neg(mut x: fpr) -> fpr {
-    x ^= (1 as libc::c_int as uint64_t) << 63 as libc::c_int;
+    x ^= (1 as u64) << 63;
     return x;
 }
 #[inline]
 unsafe extern "C" fn fpr_half(mut x: fpr) -> fpr {
-    let mut t: uint32_t = 0;
-    x = (x as uint64_t).wrapping_sub((1 as libc::c_int as uint64_t) << 52 as libc::c_int)
+    let mut t: u32 = 0;
+    x = (x as u64).wrapping_sub((1 as u64) << 52)
         as fpr as fpr;
-    t = ((x >> 52 as libc::c_int) as uint32_t & 0x7ff as libc::c_int as uint32_t)
-        .wrapping_add(1 as libc::c_int as uint32_t) >> 11 as libc::c_int;
-    x &= (t as uint64_t).wrapping_sub(1 as libc::c_int as uint64_t);
+    t = ((x >> 52) as u32 & 0x7ff as u32)
+        .wrapping_add(1 as u32) >> 11;
+    x &= (t as u64).wrapping_sub(1 as u64);
     return x;
 }
 #[inline]
@@ -39,7 +39,7 @@ unsafe extern "C" fn fpr_sqr(mut x: fpr) -> fpr {
 }
 #[inline]
 unsafe extern "C" fn fpr_inv(mut x: fpr) -> fpr {
-    return PQCLEAN_FALCON512_CLEAN_fpr_div(4607182418800017408 as libc::c_ulong, x);
+    return PQCLEAN_FALCON512_CLEAN_fpr_div(4607182418800017408, x);
 }
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_FFT(
@@ -51,20 +51,20 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_FFT(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut m: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
     t = hn;
-    u = 1 as libc::c_int as libc::c_uint;
-    m = 2 as libc::c_int as size_t;
+    u = 1 as libc::c_uint;
+    m = 2 as size_t;
     while u < logn {
         let mut ht: size_t = 0;
         let mut hm: size_t = 0;
         let mut i1: size_t = 0;
         let mut j1: size_t = 0;
-        ht = t >> 1 as libc::c_int;
-        hm = m >> 1 as libc::c_int;
-        i1 = 0 as libc::c_int as size_t;
-        j1 = 0 as libc::c_int as size_t;
+        ht = t >> 1;
+        hm = m >> 1;
+        i1 = 0 as size_t;
+        j1 = 0 as size_t;
         while i1 < hm {
             let mut j: size_t = 0;
             let mut j2: size_t = 0;
@@ -74,14 +74,14 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_FFT(
             s_re = *PQCLEAN_FALCON512_CLEAN_fpr_gm_tab
                 .as_ptr()
                 .offset(
-                    (m.wrapping_add(i1) << 1 as libc::c_int)
-                        .wrapping_add(0 as libc::c_int as size_t) as isize,
+                    (m.wrapping_add(i1) << 1)
+                        .wrapping_add(0 as size_t) as isize,
                 );
             s_im = *PQCLEAN_FALCON512_CLEAN_fpr_gm_tab
                 .as_ptr()
                 .offset(
-                    (m.wrapping_add(i1) << 1 as libc::c_int)
-                        .wrapping_add(1 as libc::c_int as size_t) as isize,
+                    (m.wrapping_add(i1) << 1)
+                        .wrapping_add(1 as size_t) as isize,
                 );
             j = j1;
             while j < j2 {
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_FFT(
         t = ht;
         u = u.wrapping_add(1);
         u;
-        m <<= 1 as libc::c_int;
+        m <<= 1;
     }
 }
 #[no_mangle]
@@ -148,20 +148,20 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_iFFT(
     let mut hn: size_t = 0;
     let mut t: size_t = 0;
     let mut m: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    t = 1 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    t = 1 as size_t;
     m = n;
-    hn = n >> 1 as libc::c_int;
+    hn = n >> 1;
     u = logn as size_t;
-    while u > 1 as libc::c_int as size_t {
+    while u > 1 as size_t {
         let mut hm: size_t = 0;
         let mut dt: size_t = 0;
         let mut i1: size_t = 0;
         let mut j1: size_t = 0;
-        hm = m >> 1 as libc::c_int;
-        dt = t << 1 as libc::c_int;
-        i1 = 0 as libc::c_int as size_t;
-        j1 = 0 as libc::c_int as size_t;
+        hm = m >> 1;
+        dt = t << 1;
+        i1 = 0 as size_t;
+        j1 = 0 as size_t;
         while j1 < hn {
             let mut j: size_t = 0;
             let mut j2: size_t = 0;
@@ -171,15 +171,15 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_iFFT(
             s_re = *PQCLEAN_FALCON512_CLEAN_fpr_gm_tab
                 .as_ptr()
                 .offset(
-                    (hm.wrapping_add(i1) << 1 as libc::c_int)
-                        .wrapping_add(0 as libc::c_int as size_t) as isize,
+                    (hm.wrapping_add(i1) << 1)
+                        .wrapping_add(0 as size_t) as isize,
                 );
             s_im = fpr_neg(
                 *PQCLEAN_FALCON512_CLEAN_fpr_gm_tab
                     .as_ptr()
                     .offset(
-                        (hm.wrapping_add(i1) << 1 as libc::c_int)
-                            .wrapping_add(1 as libc::c_int as size_t) as isize,
+                        (hm.wrapping_add(i1) << 1)
+                            .wrapping_add(1 as size_t) as isize,
                     ),
             );
             j = j1;
@@ -236,10 +236,10 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_iFFT(
         u = u.wrapping_sub(1);
         u;
     }
-    if logn > 0 as libc::c_int as libc::c_uint {
+    if logn > 0 as libc::c_uint {
         let mut ni: fpr = 0;
         ni = *PQCLEAN_FALCON512_CLEAN_fpr_p2_tab.as_ptr().offset(logn as isize);
-        u = 0 as libc::c_int as size_t;
+        u = 0 as size_t;
         while u < n {
             *f
                 .offset(
@@ -258,8 +258,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_add(
 ) {
     let mut n: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    u = 0 as size_t;
     while u < n {
         *a
             .offset(
@@ -280,8 +280,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_sub(
 ) {
     let mut n: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    u = 0 as size_t;
     while u < n {
         *a.offset(u as isize) = fpr_sub(*a.offset(u as isize), *b.offset(u as isize));
         u = u.wrapping_add(1);
@@ -295,8 +295,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_neg(
 ) {
     let mut n: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    u = 0 as size_t;
     while u < n {
         *a.offset(u as isize) = fpr_neg(*a.offset(u as isize));
         u = u.wrapping_add(1);
@@ -310,8 +310,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_adj_fft(
 ) {
     let mut n: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    u = n >> 1 as libc::c_int;
+    n = (1 as size_t) << logn;
+    u = n >> 1;
     while u < n {
         *a.offset(u as isize) = fpr_neg(*a.offset(u as isize));
         u = u.wrapping_add(1);
@@ -327,9 +327,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_mul_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut a_re: fpr = 0;
         let mut a_im: fpr = 0;
@@ -372,9 +372,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_muladj_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut a_re: fpr = 0;
         let mut a_im: fpr = 0;
@@ -416,9 +416,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_mulselfadj_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut a_re: fpr = 0;
         let mut a_im: fpr = 0;
@@ -441,8 +441,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_mulconst(
 ) {
     let mut n: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    u = 0 as size_t;
     while u < n {
         *a
             .offset(
@@ -461,9 +461,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_div_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut a_re: fpr = 0;
         let mut a_im: fpr = 0;
@@ -512,9 +512,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_invnorm2_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut a_re: fpr = 0;
         let mut a_im: fpr = 0;
@@ -549,9 +549,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_add_muladj_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut F_re: fpr = 0;
         let mut F_im: fpr = 0;
@@ -631,9 +631,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_mul_autoadj_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         *a
             .offset(
@@ -662,9 +662,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_div_autoadj_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut ib: fpr = 0;
         ib = fpr_inv(*b.offset(u as isize));
@@ -693,9 +693,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_LDL_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut g00_re: fpr = 0;
         let mut g00_im: fpr = 0;
@@ -780,9 +780,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_LDLmv_fft(
     let mut n: size_t = 0;
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    u = 0 as size_t;
     while u < hn {
         let mut g00_re: fpr = 0;
         let mut g00_im: fpr = 0;
@@ -866,12 +866,12 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_split_fft(
     let mut hn: size_t = 0;
     let mut qn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    qn = hn >> 1 as libc::c_int;
-    *f0.offset(0 as libc::c_int as isize) = *f.offset(0 as libc::c_int as isize);
-    *f1.offset(0 as libc::c_int as isize) = *f.offset(hn as isize);
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    qn = hn >> 1;
+    *f0.offset(0 as isize) = *f.offset(0 as isize);
+    *f1.offset(0 as isize) = *f.offset(hn as isize);
+    u = 0 as size_t;
     while u < qn {
         let mut a_re: fpr = 0;
         let mut a_im: fpr = 0;
@@ -881,22 +881,22 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_split_fft(
         let mut t_im: fpr = 0;
         a_re = *f
             .offset(
-                (u << 1 as libc::c_int).wrapping_add(0 as libc::c_int as size_t) as isize,
+                (u << 1).wrapping_add(0 as size_t) as isize,
             );
         a_im = *f
             .offset(
-                (u << 1 as libc::c_int)
-                    .wrapping_add(0 as libc::c_int as size_t)
+                (u << 1)
+                    .wrapping_add(0 as size_t)
                     .wrapping_add(hn) as isize,
             );
         b_re = *f
             .offset(
-                (u << 1 as libc::c_int).wrapping_add(1 as libc::c_int as size_t) as isize,
+                (u << 1).wrapping_add(1 as size_t) as isize,
             );
         b_im = *f
             .offset(
-                (u << 1 as libc::c_int)
-                    .wrapping_add(1 as libc::c_int as size_t)
+                (u << 1)
+                    .wrapping_add(1 as size_t)
                     .wrapping_add(hn) as isize,
             );
         let mut fpct_re: fpr = 0;
@@ -924,15 +924,15 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_split_fft(
         fpct_b_re = *PQCLEAN_FALCON512_CLEAN_fpr_gm_tab
             .as_ptr()
             .offset(
-                (u.wrapping_add(hn) << 1 as libc::c_int)
-                    .wrapping_add(0 as libc::c_int as size_t) as isize,
+                (u.wrapping_add(hn) << 1)
+                    .wrapping_add(0 as size_t) as isize,
             );
         fpct_b_im = fpr_neg(
             *PQCLEAN_FALCON512_CLEAN_fpr_gm_tab
                 .as_ptr()
                 .offset(
-                    (u.wrapping_add(hn) << 1 as libc::c_int)
-                        .wrapping_add(1 as libc::c_int as size_t) as isize,
+                    (u.wrapping_add(hn) << 1)
+                        .wrapping_add(1 as size_t) as isize,
                 ),
         );
         fpct_d_re = fpr_sub(
@@ -962,12 +962,12 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_merge_fft(
     let mut hn: size_t = 0;
     let mut qn: size_t = 0;
     let mut u: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    hn = n >> 1 as libc::c_int;
-    qn = hn >> 1 as libc::c_int;
-    *f.offset(0 as libc::c_int as isize) = *f0.offset(0 as libc::c_int as isize);
-    *f.offset(hn as isize) = *f1.offset(0 as libc::c_int as isize);
-    u = 0 as libc::c_int as size_t;
+    n = (1 as size_t) << logn;
+    hn = n >> 1;
+    qn = hn >> 1;
+    *f.offset(0 as isize) = *f0.offset(0 as isize);
+    *f.offset(hn as isize) = *f1.offset(0 as isize);
+    u = 0 as size_t;
     while u < qn {
         let mut a_re: fpr = 0;
         let mut a_im: fpr = 0;
@@ -988,14 +988,14 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_merge_fft(
         fpct_b_re = *PQCLEAN_FALCON512_CLEAN_fpr_gm_tab
             .as_ptr()
             .offset(
-                (u.wrapping_add(hn) << 1 as libc::c_int)
-                    .wrapping_add(0 as libc::c_int as size_t) as isize,
+                (u.wrapping_add(hn) << 1)
+                    .wrapping_add(0 as size_t) as isize,
             );
         fpct_b_im = *PQCLEAN_FALCON512_CLEAN_fpr_gm_tab
             .as_ptr()
             .offset(
-                (u.wrapping_add(hn) << 1 as libc::c_int)
-                    .wrapping_add(1 as libc::c_int as size_t) as isize,
+                (u.wrapping_add(hn) << 1)
+                    .wrapping_add(1 as size_t) as isize,
             );
         fpct_d_re = fpr_sub(
             PQCLEAN_FALCON512_CLEAN_fpr_mul(fpct_a_re, fpct_b_re),
@@ -1015,12 +1015,12 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_merge_fft(
         t_im = fpct_im;
         *f
             .offset(
-                (u << 1 as libc::c_int).wrapping_add(0 as libc::c_int as size_t) as isize,
+                (u << 1).wrapping_add(0 as size_t) as isize,
             ) = t_re;
         *f
             .offset(
-                (u << 1 as libc::c_int)
-                    .wrapping_add(0 as libc::c_int as size_t)
+                (u << 1)
+                    .wrapping_add(0 as size_t)
                     .wrapping_add(hn) as isize,
             ) = t_im;
         let mut fpct_re_0: fpr = 0;
@@ -1031,12 +1031,12 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_poly_merge_fft(
         t_im = fpct_im_0;
         *f
             .offset(
-                (u << 1 as libc::c_int).wrapping_add(1 as libc::c_int as size_t) as isize,
+                (u << 1).wrapping_add(1 as size_t) as isize,
             ) = t_re;
         *f
             .offset(
-                (u << 1 as libc::c_int)
-                    .wrapping_add(1 as libc::c_int as size_t)
+                (u << 1)
+                    .wrapping_add(1 as size_t)
                     .wrapping_add(hn) as isize,
             ) = t_im;
         u = u.wrapping_add(1);

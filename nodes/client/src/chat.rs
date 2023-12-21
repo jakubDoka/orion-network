@@ -354,7 +354,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             anyhow::bail!("we are not part of this chat");
         };
 
-        let cp = enc::KeyPair::from_bytes(my_enc)
+        let cp = enc::Keypair::from_bytes(my_enc)
             .encapsulate_choosen(enc::PublicKey::from_ref(&user_data.enc), secret)
             .into_bytes();
         let invite = Mail::ChatInvite(ChatInvite { chat, cp }).to_bytes();
@@ -404,7 +404,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .context("fetching user profile")?;
 
         let (cp, secret) =
-            enc::KeyPair::from_bytes(my_enc).encapsulate(enc::PublicKey::from_ref(&user_data.enc));
+            enc::Keypair::from_bytes(my_enc).encapsulate(enc::PublicKey::from_ref(&user_data.enc));
 
         let mut payload = HardenedChatInvitePayload {
             chat,

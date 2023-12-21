@@ -1,5 +1,4 @@
-#![allow(clippy::all)]
-#![allow(warnings)]#![allow(dead_code)]
+#![allow(clippy::all)]#![allow(warnings)]#![no_std]#![allow(dead_code)]
 #![allow(mutable_transmutes)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -20,25 +19,59 @@ pub mod rng;
 pub mod sign;
 pub mod vrfy;
 } // mod src
-pub mod libc {
-    pub type c_schar = i8;
-    pub type c_uchar = u8;
-    pub type c_short = i16;
-    pub type c_ushort = u16;
-    pub type c_int = i32;
-    pub type c_uint = u32;
-    pub type c_long = i64;
-    pub type c_ulong = u64;
-    pub type c_longlong = i64;
-    pub type c_ulonglong = u64;
-    pub type size_t = usize;
-    pub type c_void = core::ffi::c_void;
+mod mem {
+    use crate::libc;
+
+    #[no_mangle]
+    pub unsafe extern "C" fn rust_memmove(
+        dst: *mut libc::c_void,
+        src: *const libc::c_void,
+        n: libc::c_ulong,
+    ) -> *mut libc::c_void {
+        core::ptr::copy(src as *const u8, dst as *mut u8, n as usize);
+        core::ptr::null_mut()
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn rust_memcpy(
+        dst: *mut libc::c_void,
+        src: *const libc::c_void,
+        n: libc::c_ulong,
+    ) -> *mut libc::c_void {
+        core::ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, n as usize);
+        core::ptr::null_mut()
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn rust_memset(
+        dst: *mut libc::c_void,
+        c: libc::c_int,
+        n: libc::c_ulong,
+    ) -> *mut libc::c_void {
+        core::ptr::write_bytes(dst as *mut u8, c as u8, n as usize);
+        core::ptr::null_mut()
+    }
 }
+pub use core::ffi as libc;
+//pub mod libc {
+//    pub type c_schar = i8;
+//    pub type c_uchar = u8;
+//    pub type c_short = i16;
+//    pub type c_ushort = u16;
+//    pub type c_int = i32;
+//    pub type c_uint = u32;
+//    pub type c_long = i64;
+//    pub type c_ulong = u64;
+//    pub type c_longlong = i64;
+//    pub type c_ulonglong = u64;
+//    pub type size_t = usize;
+//    pub type c_void = core::ffi::c_void;
+//}
 mod shake {
     use {
         crate::src::codec::{size_t, uint8_t},
+        core::{mem::ManuallyDrop, ops::DerefMut},
         sha3::digest::{ExtendableOutput, Update, XofReader},
-        std::{mem::ManuallyDrop, ops::DerefMut},
     };
 
     #[repr(C)]
@@ -55,7 +88,7 @@ mod shake {
         state: *mut Ctx,
     ) {
         let state = &mut (*state).rel;
-        let slice = std::slice::from_raw_parts_mut(output, outlen as usize);
+        let slice = core::slice::from_raw_parts_mut(output, outlen as usize);
         state.deref_mut().read(slice);
     }
 
@@ -66,7 +99,7 @@ mod shake {
         inlen: size_t,
     ) {
         let state = &mut (*state).acc;
-        let slice = std::slice::from_raw_parts(input, inlen as usize);
+        let slice = core::slice::from_raw_parts(input, inlen as usize);
         state.deref_mut().update(slice);
     }
 
@@ -78,16 +111,16 @@ mod shake {
 
     #[no_mangle]
     pub unsafe extern "C" fn shake256_inc_finalize(state: *mut Ctx) {
-        let old_state = std::ptr::read(&(*state).acc);
+        let old_state = core::ptr::read(&(*state).acc);
         let new_state = ManuallyDrop::into_inner(old_state).finalize_xof();
         let state = core::ptr::addr_of_mut!((*state).rel);
-        std::ptr::write(state, ManuallyDrop::new(new_state));
+        core::ptr::write(state, ManuallyDrop::new(new_state));
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn shake256_inc_ctx_release(state: *mut Ctx) {
         let state = core::ptr::addr_of_mut!((*state).rel);
-        std::ptr::drop_in_place(state);
+        core::ptr::drop_in_place(state);
     }
 }
 use rand_core::CryptoRngCore;
@@ -97,13 +130,13 @@ pub const PUBLICKEYBYTES: usize = 897;
 pub const BYTES: usize = 668;
 pub const SEED_BYTES: usize = 48;
 
-#[derive(Clone, Copy)]
-pub struct KeyPair {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Keypair {
     pk: PublicKey,
     sk: [u8; SECRETKEYBYTES],
 }
 
-impl KeyPair {
+impl Keypair {
     pub fn new(seed: &[u8; SEED_BYTES]) -> Option<Self> {
         let mut pk = [0u8; PUBLICKEYBYTES];
         let mut sk = [0u8; SECRETKEYBYTES];
@@ -134,7 +167,7 @@ impl KeyPair {
         unsafe {
             let res = src::pqclean::PQCLEAN_FALCON512_CLEAN_crypto_sign_signature(
                 |addr, len| {
-                    let slice = std::slice::from_raw_parts_mut(addr, len as usize);
+                    let slice = core::slice::from_raw_parts_mut(addr, len as usize);
                     rng.fill_bytes(slice);
                     0
                 },
@@ -162,11 +195,11 @@ pub struct PublicKey([u8; PUBLICKEYBYTES]);
 
 impl PublicKey {
     pub fn verify(&self, message: &[u8], sig: &[u8; BYTES]) -> bool {
-        let len = u16::from_le_bytes([sig[BYTES - 2], sig[BYTES - 1]]) as u64;
+        let len = u16::from_le_bytes([sig[BYTES - 2], sig[BYTES - 1]]);
         unsafe {
             src::pqclean::PQCLEAN_FALCON512_CLEAN_crypto_sign_verify(
                 sig.as_ptr(),
-                len,
+                len as _,
                 message.as_ptr(),
                 message.len() as _,
                 self.0.as_ptr(),
@@ -204,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_sign_verify() {
-        let keypair = KeyPair::new(&[0u8; SEED_BYTES]).unwrap();
+        let keypair = Keypair::new(&[0u8; SEED_BYTES]).unwrap();
         let message = b"Hello, world!";
         let sig = keypair.sign(message, TotallyRandom).unwrap();
         assert!(keypair.public_key().verify(message, &sig));

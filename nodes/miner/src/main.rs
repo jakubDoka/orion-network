@@ -62,7 +62,7 @@ compose_handlers! {
 
 #[derive(Default, Clone)]
 struct NodeKeys {
-    enc: enc::KeyPair,
+    enc: enc::Keypair,
     sign: sign::KeyPair,
 }
 
@@ -131,7 +131,7 @@ impl Miner {
 
         let (enc_keys, sign_keys, is_new) =
             Self::load_keys(KEY_PATH).context("key file loading")?;
-        let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sign_keys.ed)
+        let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sign_keys.pre_quantum())
             .context("deriving ed signature")?;
         let peer_id = local_key.public().to_peer_id();
 
@@ -289,7 +289,7 @@ impl Miner {
         })
     }
 
-    fn load_keys(path: String) -> io::Result<(enc::KeyPair, sign::KeyPair, bool)> {
+    fn load_keys(path: String) -> io::Result<(enc::Keypair, sign::KeyPair, bool)> {
         let file = match fs::read(&path) {
             Ok(file) => file,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {

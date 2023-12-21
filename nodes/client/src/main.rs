@@ -62,7 +62,7 @@ pub fn main() {
 struct RawUserKeys {
     name: RawUserName,
     sign: sign::KeyPair,
-    enc: enc::KeyPair,
+    enc: enc::Keypair,
     vault: crypto::SharedSecret,
 }
 
@@ -72,14 +72,14 @@ crypto::impl_transmute!(RawUserKeys,);
 struct UserKeys {
     name: UserName,
     sign: sign::KeyPair,
-    enc: enc::KeyPair,
+    enc: enc::Keypair,
     vault: crypto::SharedSecret,
 }
 
 impl UserKeys {
     pub fn new(name: UserName) -> Self {
         let sign = sign::KeyPair::new();
-        let enc = enc::KeyPair::new();
+        let enc = enc::Keypair::new();
         let vault = crypto::new_secret();
         Self {
             name,
@@ -235,7 +235,7 @@ fn App() -> impl IntoView {
         name: UserName,
         chat: ChatName,
         my_name: UserName,
-        enc: enc::KeyPair,
+        enc: enc::Keypair,
         identity: Identity,
         mut dispatch: RequestDispatch,
     ) -> anyhow::Result<(UserName, MemberMeta)> {
@@ -279,7 +279,7 @@ fn App() -> impl IntoView {
 
     let handle_mail = move |mut raw_mail: &[u8],
                             dispatch: &RequestDispatch,
-                            enc: enc::KeyPair,
+                            enc: enc::Keypair,
                             my_id: Identity,
                             my_name: UserName,
                             new_messages: &mut Vec<db::Message>| {

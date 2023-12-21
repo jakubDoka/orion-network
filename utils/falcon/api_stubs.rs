@@ -5,13 +5,13 @@ pub const PUBLICKEYBYTES: usize = 897;
 pub const BYTES: usize = 668;
 pub const SEED_BYTES: usize = 48;
 
-#[derive(Clone, Copy)]
-pub struct KeyPair {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Keypair {
     pk: PublicKey,
     sk: [u8; SECRETKEYBYTES],
 }
 
-impl KeyPair {
+impl Keypair {
     pub fn new(seed: &[u8; SEED_BYTES]) -> Option<Self> {
         let mut pk = [0u8; PUBLICKEYBYTES];
         let mut sk = [0u8; SECRETKEYBYTES];
@@ -42,7 +42,7 @@ impl KeyPair {
         unsafe {
             let res = src::pqclean::PQCLEAN_FALCON512_CLEAN_crypto_sign_signature(
                 |addr, len| {
-                    let slice = std::slice::from_raw_parts_mut(addr, len as usize);
+                    let slice = core::slice::from_raw_parts_mut(addr, len as usize);
                     rng.fill_bytes(slice);
                     0
                 },
@@ -70,11 +70,11 @@ pub struct PublicKey([u8; PUBLICKEYBYTES]);
 
 impl PublicKey {
     pub fn verify(&self, message: &[u8], sig: &[u8; BYTES]) -> bool {
-        let len = u16::from_le_bytes([sig[BYTES - 2], sig[BYTES - 1]]) as u64;
+        let len = u16::from_le_bytes([sig[BYTES - 2], sig[BYTES - 1]]);
         unsafe {
             src::pqclean::PQCLEAN_FALCON512_CLEAN_crypto_sign_verify(
                 sig.as_ptr(),
-                len,
+                len as _,
                 message.as_ptr(),
                 message.len() as _,
                 self.0.as_ptr(),
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_sign_verify() {
-        let keypair = KeyPair::new(&[0u8; SEED_BYTES]).unwrap();
+        let keypair = Keypair::new(&[0u8; SEED_BYTES]).unwrap();
         let message = b"Hello, world!";
         let sig = keypair.sign(message, TotallyRandom).unwrap();
         assert!(keypair.public_key().verify(message, &sig));

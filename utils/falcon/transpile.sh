@@ -10,9 +10,10 @@ test -d PQClean || git clone https://github.com/PQClean/PQClean.git
 	&& make --dry-run | compiledb -o $CDB \
 	&& c2rust transpile -e --emit-no-std -o $PROOT $CDB -- -I/usr/lib/clang/16/include \
 	|| rm $CDB && exit 1)
-rm rust-toolchain.toml $CDB
+rm rust-toolchain.toml $CDB build.rs
 
-echo -e "#![allow(clippy::all)]\n#![allow(warnings)]$(cat lib.rs)" > lib.rs
+echo -e "#![allow(clippy::all)]#![allow(warnings)]#![no_std]$(cat lib.rs)" > lib.rs
+cat mem_stubs.rs >> lib.rs
 cat libc_stubs.rs >> lib.rs
 cat shake_stubs.rs >> lib.rs
 cat api_stubs.rs >> lib.rs
@@ -36,8 +37,20 @@ sed -i "s/extern crate libc;//" lib.rs
 sed -i "s/\[workspace\]//" Cargo.toml
 sed -i "s/members = \[//" Cargo.toml
 sed -i "s/^\]$//" Cargo.toml
+sed -i 's/crate-type = \["staticlib", "rlib"]//' Cargo.toml
+sed -i 's/\(memset\|memmove\|memcpy\)/rust_\1/g' src/*.rs
+
+sed -i 's/pub type uint64_t =.*//g' src/*.rs
+sed -i 's/uint64_t/u64/g' src/*.rs
+sed -i 's/pub type int64_t =.*//g' src/*.rs
+sed -i 's/int64_t/i64/g' src/*.rs
+sed -i 's/pub type uint32_t =.*//g' src/*.rs
+sed -i 's/uint32_t/u32/g' src/*.rs
+
+sed -i -E 's/([[:digit:]]+|0x[0-9a-f]+) as libc::(c_ulong|c_long|c_int|fpr)/\1/g' src/*.rs
+sed -i 's/-(1) as u32/u32::MAX/g' src/*.rs
 
 cargo add sha3 --no-default-features
 cargo add rand_core --no-default-features
 cargo remove libc
-cargo test --release
+cargo build --target wasm32-unknown-unknown

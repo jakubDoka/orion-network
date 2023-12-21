@@ -14,38 +14,46 @@ pub type Ed = [u8; 32];
 
 #[derive(Clone, Copy)]
 pub struct Signature {
-    dili: [u8; pqc_dilithium::SIGNBYTES],
-    ed: ed25519_dalek::Signature,
+    post: [u8; falcon::BYTES],
+    pre: ed25519_dalek::Signature,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct KeyPair {
-    pub dili: pqc_dilithium::Keypair,
-    pub ed: ed25519_dalek::SecretKey,
+    post: falcon::Keypair,
+    pre: ed25519_dalek::SecretKey,
 }
 
 impl KeyPair {
     #[cfg(feature = "getrandom")]
     pub fn new() -> Self {
-        let dili = pqc_dilithium::Keypair::generate();
-        let ed = SigningKey::generate(&mut OsRng).to_bytes();
-        Self { dili, ed }
+        use aes_gcm::aead::rand_core::RngCore;
+
+        let mut seed = [0u8; falcon::SEED_BYTES];
+        OsRng.fill_bytes(&mut seed);
+        let post = falcon::Keypair::new(&seed).expect("yea, whatever");
+        let pre = SigningKey::generate(&mut OsRng).to_bytes();
+        Self { post, pre }
     }
 
     pub fn public_key(&self) -> PublicKey {
         PublicKey {
-            dili: self.dili.public,
-            ed: SigningKey::from_bytes(&self.ed).verifying_key().to_bytes(),
+            post: *self.post.public_key(),
+            pre: SigningKey::from_bytes(&self.pre).verifying_key().to_bytes(),
         }
     }
 
     #[cfg(feature = "getrandom")]
     pub fn sign(&self, data: &[u8]) -> Signature {
-        let dili = self.dili.sign(data);
-        let ed = SigningKey::from(&self.ed)
+        let post = self.post.sign(data, OsRng).expect("really now?");
+        let pre = SigningKey::from(&self.pre)
             .try_sign(data)
             .expect("cannot fail from the implementation");
-        Signature { dili, ed }
+        Signature { post, pre }
+    }
+
+    pub fn pre_quantum(&self) -> Ed {
+        self.pre
     }
 }
 
@@ -58,18 +66,19 @@ impl Default for KeyPair {
 
 #[derive(Clone, Copy, Debug)]
 pub struct PublicKey {
-    pub dili: [u8; pqc_dilithium::PUBLICKEYBYTES],
-    pub ed: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
+    pub post: falcon::PublicKey,
+    pub pre: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
 }
 
 impl PublicKey {
     pub fn verify(&self, data: &[u8], signature: &Signature) -> Result<(), SignatureError> {
-        VerifyingKey::from_bytes(&self.ed)
-            .and_then(|vk| vk.verify_strict(data, &signature.ed))
-            .map_err(SignatureError::Ed)?;
-        pqc_dilithium::verify(&signature.dili, data, &self.dili)
-            .map_err(DiliSignError::from)
-            .map_err(SignatureError::Dili)?;
+        VerifyingKey::from_bytes(&self.pre)
+            .and_then(|vk| vk.verify_strict(data, &signature.pre))
+            .map_err(SignatureError::PreQuantum)?;
+        self.post
+            .verify(data, &signature.post)
+            .then_some(())
+            .ok_or(SignatureError::PostQuantum)?;
         Ok(())
     }
 }
@@ -77,40 +86,16 @@ impl PublicKey {
 #[cfg(feature = "std")]
 #[derive(Debug, Error)]
 pub enum SignatureError {
-    #[error("dilithium signature failsed: {0}")]
-    Dili(DiliSignError),
+    #[error("dilithium signature failsed")]
+    PostQuantum,
     #[error("ed25519 signature failed: {0}")]
-    Ed(ed25519_dalek::SignatureError),
+    PreQuantum(ed25519_dalek::SignatureError),
 }
 
 #[cfg(not(feature = "std"))]
 pub enum SignatureError {
-    Dili(DiliSignError),
-    Ed(ed25519_dalek::SignatureError),
-}
-
-#[cfg(feature = "std")]
-#[derive(Debug, Error)]
-pub enum DiliSignError {
-    #[error("dilithium public key is invalid")]
-    Input,
-    #[error("yep")]
-    Verify,
-}
-
-#[cfg(not(feature = "std"))]
-pub enum DiliSignError {
-    Input,
-    Verify,
-}
-
-impl From<pqc_dilithium::SignError> for DiliSignError {
-    fn from(e: pqc_dilithium::SignError) -> Self {
-        match e {
-            pqc_dilithium::SignError::Input => Self::Input,
-            pqc_dilithium::SignError::Verify => Self::Verify,
-        }
-    }
+    PostQuantum,
+    PreQuantum(ed25519_dalek::SignatureError),
 }
 
 #[cfg(test)]

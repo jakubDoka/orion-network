@@ -1,6 +1,6 @@
 use crate::libc;
 extern "C" {
-    fn memmove(
+    fn rust_memmove(
         _: *mut libc::c_void,
         _: *const libc::c_void,
         _: libc::c_ulong,
@@ -103,12 +103,12 @@ pub type __int8_t = libc::c_schar;
 pub type __uint8_t = libc::c_uchar;
 pub type __int16_t = libc::c_short;
 pub type __uint16_t = libc::c_ushort;
-pub type __uint64_t = libc::c_ulong;
+pub type __u64 = libc::c_ulong;
 pub type int8_t = __int8_t;
 pub type int16_t = __int16_t;
 pub type uint8_t = __uint8_t;
 pub type uint16_t = __uint16_t;
-pub type uint64_t = __uint64_t;
+
 #[derive()]
 #[repr(C)]
 pub struct shake256incctx {
@@ -118,10 +118,10 @@ pub struct shake256incctx {
 #[repr(C)]
 pub union C2RustUnnamed {
     pub b: [uint8_t; 14336],
-    pub dummy_u64: uint64_t,
+    pub dummy_u64: u64,
     pub dummy_fpr: fpr,
 }
-pub type fpr = uint64_t;
+pub type fpr = u64;
 #[derive()]
 #[repr(C)]
 pub struct C2RustUnnamed_0 {
@@ -132,14 +132,14 @@ pub struct C2RustUnnamed_0 {
 #[repr(C)]
 pub union C2RustUnnamed_1 {
     pub b: [uint8_t; 36864],
-    pub dummy_u64: uint64_t,
+    pub dummy_u64: u64,
     pub dummy_fpr: fpr,
 }
 #[derive()]
 #[repr(C)]
 pub union C2RustUnnamed_2 {
     pub b: [uint8_t; 1024],
-    pub dummy_u64: uint64_t,
+    pub dummy_u64: u64,
     pub dummy_fpr: fpr,
 }
 
@@ -176,68 +176,68 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(mut randombytes: impl 
         F.as_mut_ptr(),
         0 as *mut int8_t,
         h.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
+        9 as libc::c_uint,
         (tmp.b).as_mut_ptr(),
     );
     shake256_inc_ctx_release(&mut rng);
     *sk
         .offset(
-            0 as libc::c_int as isize,
-        ) = (0x50 as libc::c_int + 9 as libc::c_int) as uint8_t;
-    u = 1 as libc::c_int as size_t;
+            0 as isize,
+        ) = (0x50 + 9) as uint8_t;
+    u = 1 as size_t;
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_encode(
         sk.offset(u as isize) as *mut libc::c_void,
-        (1281 as libc::c_int as size_t).wrapping_sub(u),
+        (1281 as size_t).wrapping_sub(u),
         f.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as libc::c_int as isize)
+        9 as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as isize)
             as libc::c_uint,
     );
-    if v == 0 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if v == 0 as size_t {
+        return -(1);
     }
     u = u.wrapping_add(v);
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_encode(
         sk.offset(u as isize) as *mut libc::c_void,
-        (1281 as libc::c_int as size_t).wrapping_sub(u),
+        (1281 as size_t).wrapping_sub(u),
         g.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as libc::c_int as isize)
+        9 as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as isize)
             as libc::c_uint,
     );
-    if v == 0 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if v == 0 as size_t {
+        return -(1);
     }
     u = u.wrapping_add(v);
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_encode(
         sk.offset(u as isize) as *mut libc::c_void,
-        (1281 as libc::c_int as size_t).wrapping_sub(u),
+        (1281 as size_t).wrapping_sub(u),
         F.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_FG_bits.as_ptr().offset(9 as libc::c_int as isize)
+        9 as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_FG_bits.as_ptr().offset(9 as isize)
             as libc::c_uint,
     );
-    if v == 0 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if v == 0 as size_t {
+        return -(1);
     }
     u = u.wrapping_add(v);
-    if u != 1281 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if u != 1281 as size_t {
+        return -(1);
     }
     *pk
         .offset(
-            0 as libc::c_int as isize,
-        ) = (0 as libc::c_int + 9 as libc::c_int) as uint8_t;
+            0 as isize,
+        ) = (0 + 9) as uint8_t;
     v = PQCLEAN_FALCON512_CLEAN_modq_encode(
-        pk.offset(1 as libc::c_int as isize) as *mut libc::c_void,
-        (897 as libc::c_int - 1 as libc::c_int) as size_t,
+        pk.offset(1 as isize) as *mut libc::c_void,
+        (897 - 1) as size_t,
         h.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
+        9 as libc::c_uint,
     );
-    if v != (897 as libc::c_int - 1 as libc::c_int) as size_t {
-        return -(1 as libc::c_int);
+    if v != (897 - 1) as size_t {
+        return -(1);
     }
-    return 0 as libc::c_int;
+    return 0;
 }
 unsafe extern "C" fn do_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
     mut nonce: *mut uint8_t,
@@ -262,71 +262,71 @@ unsafe extern "C" fn do_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -
     };
     let mut u: size_t = 0;
     let mut v: size_t = 0;
-    if *sk.offset(0 as libc::c_int as isize) as libc::c_int
-        != 0x50 as libc::c_int + 9 as libc::c_int
+    if *sk.offset(0 as isize) as libc::c_int
+        != 0x50 + 9
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
-    u = 1 as libc::c_int as size_t;
+    u = 1 as size_t;
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
         f.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as libc::c_int as isize)
+        9 as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as isize)
             as libc::c_uint,
         sk.offset(u as isize) as *const libc::c_void,
-        (1281 as libc::c_int as size_t).wrapping_sub(u),
+        (1281 as size_t).wrapping_sub(u),
     );
-    if v == 0 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if v == 0 as size_t {
+        return -(1);
     }
     u = u.wrapping_add(v);
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
         g.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as libc::c_int as isize)
+        9 as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as isize)
             as libc::c_uint,
         sk.offset(u as isize) as *const libc::c_void,
-        (1281 as libc::c_int as size_t).wrapping_sub(u),
+        (1281 as size_t).wrapping_sub(u),
     );
-    if v == 0 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if v == 0 as size_t {
+        return -(1);
     }
     u = u.wrapping_add(v);
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
         F.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_FG_bits.as_ptr().offset(9 as libc::c_int as isize)
+        9 as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_FG_bits.as_ptr().offset(9 as isize)
             as libc::c_uint,
         sk.offset(u as isize) as *const libc::c_void,
-        (1281 as libc::c_int as size_t).wrapping_sub(u),
+        (1281 as size_t).wrapping_sub(u),
     );
-    if v == 0 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if v == 0 as size_t {
+        return -(1);
     }
     u = u.wrapping_add(v);
-    if u != 1281 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if u != 1281 as size_t {
+        return -(1);
     }
     if PQCLEAN_FALCON512_CLEAN_complete_private(
         G.as_mut_ptr(),
         f.as_mut_ptr(),
         g.as_mut_ptr(),
         F.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
+        9 as libc::c_uint,
         (tmp.b).as_mut_ptr(),
     ) == 0
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
-    randombytes(nonce, 40 as libc::c_int as size_t);
+    randombytes(nonce, 40 as size_t);
     shake256_inc_init(&mut sc);
-    shake256_inc_absorb(&mut sc, nonce, 40 as libc::c_int as size_t);
+    shake256_inc_absorb(&mut sc, nonce, 40 as size_t);
     shake256_inc_absorb(&mut sc, m, mlen);
     shake256_inc_finalize(&mut sc);
     PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
         &mut sc,
         (r.hm).as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
+        9 as libc::c_uint,
         (tmp.b).as_mut_ptr(),
     );
     shake256_inc_ctx_release(&mut sc);
@@ -350,19 +350,19 @@ unsafe extern "C" fn do_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -
             F.as_mut_ptr(),
             G.as_mut_ptr(),
             (r.hm).as_mut_ptr(),
-            9 as libc::c_int as libc::c_uint,
+            9 as libc::c_uint,
             (tmp.b).as_mut_ptr(),
         );
         v = PQCLEAN_FALCON512_CLEAN_comp_encode(
             sigbuf as *mut libc::c_void,
             *sigbuflen,
             (r.sig).as_mut_ptr(),
-            9 as libc::c_int as libc::c_uint,
+            9 as libc::c_uint,
         );
-        if v != 0 as libc::c_int as size_t {
+        if v != 0 as size_t {
             shake256_inc_ctx_release(&mut sc);
             *sigbuflen = v;
-            return 0 as libc::c_int;
+            return 0;
         }
     };
 }
@@ -381,44 +381,44 @@ unsafe extern "C" fn do_verify(
     let mut sc: shake256incctx = shake256incctx {
         ctx: crate::shake::Ctx { uninit: (), },
     };
-    if *pk.offset(0 as libc::c_int as isize) as libc::c_int
-        != 0 as libc::c_int + 9 as libc::c_int
+    if *pk.offset(0 as isize) as libc::c_int
+        != 0 + 9
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
     if PQCLEAN_FALCON512_CLEAN_modq_decode(
         h.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
-        pk.offset(1 as libc::c_int as isize) as *const libc::c_void,
-        (897 as libc::c_int - 1 as libc::c_int) as size_t,
-    ) != (897 as libc::c_int - 1 as libc::c_int) as size_t
+        9 as libc::c_uint,
+        pk.offset(1 as isize) as *const libc::c_void,
+        (897 - 1) as size_t,
+    ) != (897 - 1) as size_t
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
     PQCLEAN_FALCON512_CLEAN_to_ntt_monty(
         h.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
+        9 as libc::c_uint,
     );
-    if sigbuflen == 0 as libc::c_int as size_t {
-        return -(1 as libc::c_int);
+    if sigbuflen == 0 as size_t {
+        return -(1);
     }
     if PQCLEAN_FALCON512_CLEAN_comp_decode(
         sig.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
+        9 as libc::c_uint,
         sigbuf as *const libc::c_void,
         sigbuflen,
     ) != sigbuflen
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
     shake256_inc_init(&mut sc);
-    shake256_inc_absorb(&mut sc, nonce, 40 as libc::c_int as size_t);
+    shake256_inc_absorb(&mut sc, nonce, 40 as size_t);
     shake256_inc_absorb(&mut sc, m, mlen);
     shake256_inc_finalize(&mut sc);
     PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
         &mut sc,
         hm.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
+        9 as libc::c_uint,
         (tmp.b).as_mut_ptr(),
     );
     shake256_inc_ctx_release(&mut sc);
@@ -426,13 +426,13 @@ unsafe extern "C" fn do_verify(
         hm.as_mut_ptr(),
         sig.as_mut_ptr(),
         h.as_mut_ptr(),
-        9 as libc::c_int as libc::c_uint,
+        9 as libc::c_uint,
         (tmp.b).as_mut_ptr(),
     ) == 0
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
-    return 0 as libc::c_int;
+    return 0;
 }
 
 pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_signature(mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
@@ -443,24 +443,24 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_signature(mut randombytes: imp
     mut sk: *const uint8_t,
 ) -> libc::c_int {
     let mut vlen: size_t = 0;
-    vlen = (666 as libc::c_int - 40 as libc::c_int - 3 as libc::c_int) as size_t;
+    vlen = (666 - 40 - 3) as size_t;
     if do_sign(randombytes,
-        sig.offset(1 as libc::c_int as isize),
-        sig.offset(1 as libc::c_int as isize).offset(40 as libc::c_int as isize),
+        sig.offset(1 as isize),
+        sig.offset(1 as isize).offset(40 as isize),
         &mut vlen,
         m,
         mlen,
         sk,
-    ) < 0 as libc::c_int
+    ) < 0
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
     *sig
         .offset(
-            0 as libc::c_int as isize,
-        ) = (0x30 as libc::c_int + 9 as libc::c_int) as uint8_t;
-    *siglen = ((1 as libc::c_int + 40 as libc::c_int) as size_t).wrapping_add(vlen);
-    return 0 as libc::c_int;
+            0 as isize,
+        ) = (0x30 + 9) as uint8_t;
+    *siglen = ((1 + 40) as size_t).wrapping_add(vlen);
+    return 0;
 }
 
 pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_verify(
@@ -470,20 +470,20 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_verify(
     mut mlen: size_t,
     mut pk: *const uint8_t,
 ) -> libc::c_int {
-    if siglen < (1 as libc::c_int + 40 as libc::c_int) as size_t {
-        return -(1 as libc::c_int);
+    if siglen < (1 + 40) as size_t {
+        return -(1);
     }
-    if *sig.offset(0 as libc::c_int as isize) as libc::c_int
-        != 0x30 as libc::c_int + 9 as libc::c_int
+    if *sig.offset(0 as isize) as libc::c_int
+        != 0x30 + 9
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
     return do_verify(
-        sig.offset(1 as libc::c_int as isize),
-        sig.offset(1 as libc::c_int as isize).offset(40 as libc::c_int as isize),
+        sig.offset(1 as isize),
+        sig.offset(1 as isize).offset(40 as isize),
         siglen
-            .wrapping_sub(1 as libc::c_int as size_t)
-            .wrapping_sub(40 as libc::c_int as size_t),
+            .wrapping_sub(1 as size_t)
+            .wrapping_sub(40 as size_t),
         m,
         mlen,
         pk,
@@ -500,36 +500,36 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign(mut randombytes: impl FnMut(*m
     let mut pm: *mut uint8_t = 0 as *mut uint8_t;
     let mut sigbuf: *mut uint8_t = 0 as *mut uint8_t;
     let mut sigbuflen: size_t = 0;
-    memmove(
-        sm.offset(2 as libc::c_int as isize).offset(40 as libc::c_int as isize)
+    rust_memmove(
+        sm.offset(2 as isize).offset(40 as isize)
             as *mut libc::c_void,
         m as *const libc::c_void,
         mlen,
     );
-    pm = sm.offset(2 as libc::c_int as isize).offset(40 as libc::c_int as isize);
-    sigbuf = pm.offset(1 as libc::c_int as isize).offset(mlen as isize);
-    sigbuflen = (666 as libc::c_int - 40 as libc::c_int - 3 as libc::c_int) as size_t;
+    pm = sm.offset(2 as isize).offset(40 as isize);
+    sigbuf = pm.offset(1 as isize).offset(mlen as isize);
+    sigbuflen = (666 - 40 - 3) as size_t;
     if do_sign(randombytes,
-        sm.offset(2 as libc::c_int as isize),
+        sm.offset(2 as isize),
         sigbuf,
         &mut sigbuflen,
         pm,
         mlen,
         sk,
-    ) < 0 as libc::c_int
+    ) < 0
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
-    *pm.offset(mlen as isize) = (0x20 as libc::c_int + 9 as libc::c_int) as uint8_t;
+    *pm.offset(mlen as isize) = (0x20 + 9) as uint8_t;
     sigbuflen = sigbuflen.wrapping_add(1);
     sigbuflen;
-    *sm.offset(0 as libc::c_int as isize) = (sigbuflen >> 8 as libc::c_int) as uint8_t;
-    *sm.offset(1 as libc::c_int as isize) = sigbuflen as uint8_t;
+    *sm.offset(0 as isize) = (sigbuflen >> 8) as uint8_t;
+    *sm.offset(1 as isize) = sigbuflen as uint8_t;
     *smlen = mlen
-        .wrapping_add(2 as libc::c_int as size_t)
-        .wrapping_add(40 as libc::c_int as size_t)
+        .wrapping_add(2 as size_t)
+        .wrapping_add(40 as size_t)
         .wrapping_add(sigbuflen);
-    return 0 as libc::c_int;
+    return 0;
 }
 
 pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_open(
@@ -542,55 +542,55 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_open(
     let mut sigbuf: *const uint8_t = 0 as *const uint8_t;
     let mut pmlen: size_t = 0;
     let mut sigbuflen: size_t = 0;
-    if smlen < (3 as libc::c_int + 40 as libc::c_int) as size_t {
-        return -(1 as libc::c_int);
+    if smlen < (3 + 40) as size_t {
+        return -(1);
     }
-    sigbuflen = (*sm.offset(0 as libc::c_int as isize) as size_t) << 8 as libc::c_int
-        | *sm.offset(1 as libc::c_int as isize) as size_t;
-    if sigbuflen < 2 as libc::c_int as size_t
+    sigbuflen = (*sm.offset(0 as isize) as size_t) << 8
+        | *sm.offset(1 as isize) as size_t;
+    if sigbuflen < 2 as size_t
         || sigbuflen
             > smlen
-                .wrapping_sub(40 as libc::c_int as size_t)
-                .wrapping_sub(2 as libc::c_int as size_t)
+                .wrapping_sub(40 as size_t)
+                .wrapping_sub(2 as size_t)
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
     sigbuflen = sigbuflen.wrapping_sub(1);
     sigbuflen;
     pmlen = smlen
-        .wrapping_sub(40 as libc::c_int as size_t)
-        .wrapping_sub(3 as libc::c_int as size_t)
+        .wrapping_sub(40 as size_t)
+        .wrapping_sub(3 as size_t)
         .wrapping_sub(sigbuflen);
     if *sm
         .offset(
-            ((2 as libc::c_int + 40 as libc::c_int) as size_t).wrapping_add(pmlen)
+            ((2 + 40) as size_t).wrapping_add(pmlen)
                 as isize,
-        ) as libc::c_int != 0x20 as libc::c_int + 9 as libc::c_int
+        ) as libc::c_int != 0x20 + 9
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
     sigbuf = sm
-        .offset(2 as libc::c_int as isize)
-        .offset(40 as libc::c_int as isize)
+        .offset(2 as isize)
+        .offset(40 as isize)
         .offset(pmlen as isize)
-        .offset(1 as libc::c_int as isize);
+        .offset(1 as isize);
     if do_verify(
-        sm.offset(2 as libc::c_int as isize),
+        sm.offset(2 as isize),
         sigbuf,
         sigbuflen,
-        sm.offset(2 as libc::c_int as isize).offset(40 as libc::c_int as isize),
+        sm.offset(2 as isize).offset(40 as isize),
         pmlen,
         pk,
-    ) < 0 as libc::c_int
+    ) < 0
     {
-        return -(1 as libc::c_int);
+        return -(1);
     }
-    memmove(
+    rust_memmove(
         m as *mut libc::c_void,
-        sm.offset(2 as libc::c_int as isize).offset(40 as libc::c_int as isize)
+        sm.offset(2 as isize).offset(40 as isize)
             as *const libc::c_void,
         pmlen,
     );
     *mlen = pmlen;
-    return 0 as libc::c_int;
+    return 0;
 }

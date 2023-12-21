@@ -1,6 +1,6 @@
 use crate::libc;
 extern "C" {
-    fn memcpy(
+    fn rust_memcpy(
         _: *mut libc::c_void,
         _: *const libc::c_void,
         _: libc::c_ulong,
@@ -12,11 +12,11 @@ extern "C" {
     );
 }
 pub type __uint8_t = libc::c_uchar;
-pub type __uint32_t = libc::c_uint;
-pub type __uint64_t = libc::c_ulong;
+pub type __u32 = libc::c_uint;
+pub type __u64 = libc::c_ulong;
 pub type uint8_t = __uint8_t;
-pub type uint32_t = __uint32_t;
-pub type uint64_t = __uint64_t;
+
+
 pub type size_t = libc::c_ulong;
 #[derive()]
 #[repr(C)]
@@ -35,13 +35,13 @@ pub struct prng {
 #[repr(C)]
 pub union C2RustUnnamed {
     pub d: [uint8_t; 256],
-    pub dummy_u64: uint64_t,
+    pub dummy_u64: u64,
 }
 #[derive()]
 #[repr(C)]
 pub union C2RustUnnamed_0 {
     pub d: [uint8_t; 512],
-    pub dummy_u64: uint64_t,
+    pub dummy_u64: u64,
 }
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_prng_init(
@@ -49,373 +49,373 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_prng_init(
     mut src: *mut shake256incctx,
 ) {
     let mut tmp: [uint8_t; 56] = [0; 56];
-    let mut th: uint64_t = 0;
-    let mut tl: uint64_t = 0;
+    let mut th: u64 = 0;
+    let mut tl: u64 = 0;
     let mut i: libc::c_int = 0;
-    let mut d32: *mut uint32_t = ((*p).state.d).as_mut_ptr() as *mut uint32_t;
-    let mut d64: *mut uint64_t = ((*p).state.d).as_mut_ptr() as *mut uint64_t;
-    shake256_inc_squeeze(tmp.as_mut_ptr(), 56 as libc::c_int as size_t, src);
-    i = 0 as libc::c_int;
-    while i < 14 as libc::c_int {
-        let mut w: uint32_t = 0;
-        w = tmp[((i << 2 as libc::c_int) + 0 as libc::c_int) as usize] as uint32_t
-            | (tmp[((i << 2 as libc::c_int) + 1 as libc::c_int) as usize] as uint32_t)
-                << 8 as libc::c_int
-            | (tmp[((i << 2 as libc::c_int) + 2 as libc::c_int) as usize] as uint32_t)
-                << 16 as libc::c_int
-            | (tmp[((i << 2 as libc::c_int) + 3 as libc::c_int) as usize] as uint32_t)
-                << 24 as libc::c_int;
+    let mut d32: *mut u32 = ((*p).state.d).as_mut_ptr() as *mut u32;
+    let mut d64: *mut u64 = ((*p).state.d).as_mut_ptr() as *mut u64;
+    shake256_inc_squeeze(tmp.as_mut_ptr(), 56 as size_t, src);
+    i = 0;
+    while i < 14 {
+        let mut w: u32 = 0;
+        w = tmp[((i << 2) + 0) as usize] as u32
+            | (tmp[((i << 2) + 1) as usize] as u32)
+                << 8
+            | (tmp[((i << 2) + 2) as usize] as u32)
+                << 16
+            | (tmp[((i << 2) + 3) as usize] as u32)
+                << 24;
         *d32.offset(i as isize) = w;
         i += 1;
         i;
     }
     tl = *d32
         .offset(
-            (48 as libc::c_int as libc::c_ulong)
-                .wrapping_div(::core::mem::size_of::<uint32_t>() as libc::c_ulong)
+            (48 as libc::c_ulong)
+                .wrapping_div(::core::mem::size_of::<u32>() as libc::c_ulong)
                 as isize,
-        ) as uint64_t;
+        ) as u64;
     th = *d32
         .offset(
-            (52 as libc::c_int as libc::c_ulong)
-                .wrapping_div(::core::mem::size_of::<uint32_t>() as libc::c_ulong)
+            (52 as libc::c_ulong)
+                .wrapping_div(::core::mem::size_of::<u32>() as libc::c_ulong)
                 as isize,
-        ) as uint64_t;
+        ) as u64;
     *d64
         .offset(
-            (48 as libc::c_int as libc::c_ulong)
-                .wrapping_div(::core::mem::size_of::<uint64_t>() as libc::c_ulong)
+            (48 as libc::c_ulong)
+                .wrapping_div(::core::mem::size_of::<u64>() as libc::c_ulong)
                 as isize,
-        ) = tl.wrapping_add(th << 32 as libc::c_int);
+        ) = tl.wrapping_add(th << 32);
     PQCLEAN_FALCON512_CLEAN_prng_refill(p);
 }
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_prng_refill(mut p: *mut prng) {
-    static mut CW: [uint32_t; 4] = [
-        0x61707865 as libc::c_int as uint32_t,
-        0x3320646e as libc::c_int as uint32_t,
-        0x79622d32 as libc::c_int as uint32_t,
-        0x6b206574 as libc::c_int as uint32_t,
+    static mut CW: [u32; 4] = [
+        0x61707865 as u32,
+        0x3320646e as u32,
+        0x79622d32 as u32,
+        0x6b206574 as u32,
     ];
-    let mut cc: uint64_t = 0;
+    let mut cc: u64 = 0;
     let mut u: size_t = 0;
-    cc = *(((*p).state.d).as_mut_ptr().offset(48 as libc::c_int as isize)
-        as *mut uint64_t);
-    u = 0 as libc::c_int as size_t;
-    while u < 8 as libc::c_int as size_t {
-        let mut state: [uint32_t; 16] = [0; 16];
+    cc = *(((*p).state.d).as_mut_ptr().offset(48 as isize)
+        as *mut u64);
+    u = 0 as size_t;
+    while u < 8 as size_t {
+        let mut state: [u32; 16] = [0; 16];
         let mut v: size_t = 0;
         let mut i: libc::c_int = 0;
-        memcpy(
-            &mut *state.as_mut_ptr().offset(0 as libc::c_int as isize) as *mut uint32_t
+        rust_memcpy(
+            &mut *state.as_mut_ptr().offset(0 as isize) as *mut u32
                 as *mut libc::c_void,
             CW.as_ptr() as *const libc::c_void,
-            ::core::mem::size_of::<[uint32_t; 4]>() as libc::c_ulong,
+            ::core::mem::size_of::<[u32; 4]>() as libc::c_ulong,
         );
-        memcpy(
-            &mut *state.as_mut_ptr().offset(4 as libc::c_int as isize) as *mut uint32_t
+        rust_memcpy(
+            &mut *state.as_mut_ptr().offset(4 as isize) as *mut u32
                 as *mut libc::c_void,
             ((*p).state.d).as_mut_ptr() as *const libc::c_void,
-            48 as libc::c_int as libc::c_ulong,
+            48 as libc::c_ulong,
         );
-        state[14 as libc::c_int as usize] ^= cc as uint32_t;
-        state[15 as libc::c_int as usize] ^= (cc >> 32 as libc::c_int) as uint32_t;
-        i = 0 as libc::c_int;
-        while i < 10 as libc::c_int {
-            state[0 as libc::c_int
-                as usize] = (state[0 as libc::c_int as usize])
-                .wrapping_add(state[4 as libc::c_int as usize]);
-            state[12 as libc::c_int as usize] ^= state[0 as libc::c_int as usize];
-            state[12 as libc::c_int
-                as usize] = state[12 as libc::c_int as usize] << 16 as libc::c_int
-                | state[12 as libc::c_int as usize] >> 16 as libc::c_int;
-            state[8 as libc::c_int
-                as usize] = (state[8 as libc::c_int as usize])
-                .wrapping_add(state[12 as libc::c_int as usize]);
-            state[4 as libc::c_int as usize] ^= state[8 as libc::c_int as usize];
-            state[4 as libc::c_int
-                as usize] = state[4 as libc::c_int as usize] << 12 as libc::c_int
-                | state[4 as libc::c_int as usize] >> 20 as libc::c_int;
-            state[0 as libc::c_int
-                as usize] = (state[0 as libc::c_int as usize])
-                .wrapping_add(state[4 as libc::c_int as usize]);
-            state[12 as libc::c_int as usize] ^= state[0 as libc::c_int as usize];
-            state[12 as libc::c_int
-                as usize] = state[12 as libc::c_int as usize] << 8 as libc::c_int
-                | state[12 as libc::c_int as usize] >> 24 as libc::c_int;
-            state[8 as libc::c_int
-                as usize] = (state[8 as libc::c_int as usize])
-                .wrapping_add(state[12 as libc::c_int as usize]);
-            state[4 as libc::c_int as usize] ^= state[8 as libc::c_int as usize];
-            state[4 as libc::c_int
-                as usize] = state[4 as libc::c_int as usize] << 7 as libc::c_int
-                | state[4 as libc::c_int as usize] >> 25 as libc::c_int;
-            state[1 as libc::c_int
-                as usize] = (state[1 as libc::c_int as usize])
-                .wrapping_add(state[5 as libc::c_int as usize]);
-            state[13 as libc::c_int as usize] ^= state[1 as libc::c_int as usize];
-            state[13 as libc::c_int
-                as usize] = state[13 as libc::c_int as usize] << 16 as libc::c_int
-                | state[13 as libc::c_int as usize] >> 16 as libc::c_int;
-            state[9 as libc::c_int
-                as usize] = (state[9 as libc::c_int as usize])
-                .wrapping_add(state[13 as libc::c_int as usize]);
-            state[5 as libc::c_int as usize] ^= state[9 as libc::c_int as usize];
-            state[5 as libc::c_int
-                as usize] = state[5 as libc::c_int as usize] << 12 as libc::c_int
-                | state[5 as libc::c_int as usize] >> 20 as libc::c_int;
-            state[1 as libc::c_int
-                as usize] = (state[1 as libc::c_int as usize])
-                .wrapping_add(state[5 as libc::c_int as usize]);
-            state[13 as libc::c_int as usize] ^= state[1 as libc::c_int as usize];
-            state[13 as libc::c_int
-                as usize] = state[13 as libc::c_int as usize] << 8 as libc::c_int
-                | state[13 as libc::c_int as usize] >> 24 as libc::c_int;
-            state[9 as libc::c_int
-                as usize] = (state[9 as libc::c_int as usize])
-                .wrapping_add(state[13 as libc::c_int as usize]);
-            state[5 as libc::c_int as usize] ^= state[9 as libc::c_int as usize];
-            state[5 as libc::c_int
-                as usize] = state[5 as libc::c_int as usize] << 7 as libc::c_int
-                | state[5 as libc::c_int as usize] >> 25 as libc::c_int;
-            state[2 as libc::c_int
-                as usize] = (state[2 as libc::c_int as usize])
-                .wrapping_add(state[6 as libc::c_int as usize]);
-            state[14 as libc::c_int as usize] ^= state[2 as libc::c_int as usize];
-            state[14 as libc::c_int
-                as usize] = state[14 as libc::c_int as usize] << 16 as libc::c_int
-                | state[14 as libc::c_int as usize] >> 16 as libc::c_int;
-            state[10 as libc::c_int
-                as usize] = (state[10 as libc::c_int as usize])
-                .wrapping_add(state[14 as libc::c_int as usize]);
-            state[6 as libc::c_int as usize] ^= state[10 as libc::c_int as usize];
-            state[6 as libc::c_int
-                as usize] = state[6 as libc::c_int as usize] << 12 as libc::c_int
-                | state[6 as libc::c_int as usize] >> 20 as libc::c_int;
-            state[2 as libc::c_int
-                as usize] = (state[2 as libc::c_int as usize])
-                .wrapping_add(state[6 as libc::c_int as usize]);
-            state[14 as libc::c_int as usize] ^= state[2 as libc::c_int as usize];
-            state[14 as libc::c_int
-                as usize] = state[14 as libc::c_int as usize] << 8 as libc::c_int
-                | state[14 as libc::c_int as usize] >> 24 as libc::c_int;
-            state[10 as libc::c_int
-                as usize] = (state[10 as libc::c_int as usize])
-                .wrapping_add(state[14 as libc::c_int as usize]);
-            state[6 as libc::c_int as usize] ^= state[10 as libc::c_int as usize];
-            state[6 as libc::c_int
-                as usize] = state[6 as libc::c_int as usize] << 7 as libc::c_int
-                | state[6 as libc::c_int as usize] >> 25 as libc::c_int;
-            state[3 as libc::c_int
-                as usize] = (state[3 as libc::c_int as usize])
-                .wrapping_add(state[7 as libc::c_int as usize]);
-            state[15 as libc::c_int as usize] ^= state[3 as libc::c_int as usize];
-            state[15 as libc::c_int
-                as usize] = state[15 as libc::c_int as usize] << 16 as libc::c_int
-                | state[15 as libc::c_int as usize] >> 16 as libc::c_int;
-            state[11 as libc::c_int
-                as usize] = (state[11 as libc::c_int as usize])
-                .wrapping_add(state[15 as libc::c_int as usize]);
-            state[7 as libc::c_int as usize] ^= state[11 as libc::c_int as usize];
-            state[7 as libc::c_int
-                as usize] = state[7 as libc::c_int as usize] << 12 as libc::c_int
-                | state[7 as libc::c_int as usize] >> 20 as libc::c_int;
-            state[3 as libc::c_int
-                as usize] = (state[3 as libc::c_int as usize])
-                .wrapping_add(state[7 as libc::c_int as usize]);
-            state[15 as libc::c_int as usize] ^= state[3 as libc::c_int as usize];
-            state[15 as libc::c_int
-                as usize] = state[15 as libc::c_int as usize] << 8 as libc::c_int
-                | state[15 as libc::c_int as usize] >> 24 as libc::c_int;
-            state[11 as libc::c_int
-                as usize] = (state[11 as libc::c_int as usize])
-                .wrapping_add(state[15 as libc::c_int as usize]);
-            state[7 as libc::c_int as usize] ^= state[11 as libc::c_int as usize];
-            state[7 as libc::c_int
-                as usize] = state[7 as libc::c_int as usize] << 7 as libc::c_int
-                | state[7 as libc::c_int as usize] >> 25 as libc::c_int;
-            state[0 as libc::c_int
-                as usize] = (state[0 as libc::c_int as usize])
-                .wrapping_add(state[5 as libc::c_int as usize]);
-            state[15 as libc::c_int as usize] ^= state[0 as libc::c_int as usize];
-            state[15 as libc::c_int
-                as usize] = state[15 as libc::c_int as usize] << 16 as libc::c_int
-                | state[15 as libc::c_int as usize] >> 16 as libc::c_int;
-            state[10 as libc::c_int
-                as usize] = (state[10 as libc::c_int as usize])
-                .wrapping_add(state[15 as libc::c_int as usize]);
-            state[5 as libc::c_int as usize] ^= state[10 as libc::c_int as usize];
-            state[5 as libc::c_int
-                as usize] = state[5 as libc::c_int as usize] << 12 as libc::c_int
-                | state[5 as libc::c_int as usize] >> 20 as libc::c_int;
-            state[0 as libc::c_int
-                as usize] = (state[0 as libc::c_int as usize])
-                .wrapping_add(state[5 as libc::c_int as usize]);
-            state[15 as libc::c_int as usize] ^= state[0 as libc::c_int as usize];
-            state[15 as libc::c_int
-                as usize] = state[15 as libc::c_int as usize] << 8 as libc::c_int
-                | state[15 as libc::c_int as usize] >> 24 as libc::c_int;
-            state[10 as libc::c_int
-                as usize] = (state[10 as libc::c_int as usize])
-                .wrapping_add(state[15 as libc::c_int as usize]);
-            state[5 as libc::c_int as usize] ^= state[10 as libc::c_int as usize];
-            state[5 as libc::c_int
-                as usize] = state[5 as libc::c_int as usize] << 7 as libc::c_int
-                | state[5 as libc::c_int as usize] >> 25 as libc::c_int;
-            state[1 as libc::c_int
-                as usize] = (state[1 as libc::c_int as usize])
-                .wrapping_add(state[6 as libc::c_int as usize]);
-            state[12 as libc::c_int as usize] ^= state[1 as libc::c_int as usize];
-            state[12 as libc::c_int
-                as usize] = state[12 as libc::c_int as usize] << 16 as libc::c_int
-                | state[12 as libc::c_int as usize] >> 16 as libc::c_int;
-            state[11 as libc::c_int
-                as usize] = (state[11 as libc::c_int as usize])
-                .wrapping_add(state[12 as libc::c_int as usize]);
-            state[6 as libc::c_int as usize] ^= state[11 as libc::c_int as usize];
-            state[6 as libc::c_int
-                as usize] = state[6 as libc::c_int as usize] << 12 as libc::c_int
-                | state[6 as libc::c_int as usize] >> 20 as libc::c_int;
-            state[1 as libc::c_int
-                as usize] = (state[1 as libc::c_int as usize])
-                .wrapping_add(state[6 as libc::c_int as usize]);
-            state[12 as libc::c_int as usize] ^= state[1 as libc::c_int as usize];
-            state[12 as libc::c_int
-                as usize] = state[12 as libc::c_int as usize] << 8 as libc::c_int
-                | state[12 as libc::c_int as usize] >> 24 as libc::c_int;
-            state[11 as libc::c_int
-                as usize] = (state[11 as libc::c_int as usize])
-                .wrapping_add(state[12 as libc::c_int as usize]);
-            state[6 as libc::c_int as usize] ^= state[11 as libc::c_int as usize];
-            state[6 as libc::c_int
-                as usize] = state[6 as libc::c_int as usize] << 7 as libc::c_int
-                | state[6 as libc::c_int as usize] >> 25 as libc::c_int;
-            state[2 as libc::c_int
-                as usize] = (state[2 as libc::c_int as usize])
-                .wrapping_add(state[7 as libc::c_int as usize]);
-            state[13 as libc::c_int as usize] ^= state[2 as libc::c_int as usize];
-            state[13 as libc::c_int
-                as usize] = state[13 as libc::c_int as usize] << 16 as libc::c_int
-                | state[13 as libc::c_int as usize] >> 16 as libc::c_int;
-            state[8 as libc::c_int
-                as usize] = (state[8 as libc::c_int as usize])
-                .wrapping_add(state[13 as libc::c_int as usize]);
-            state[7 as libc::c_int as usize] ^= state[8 as libc::c_int as usize];
-            state[7 as libc::c_int
-                as usize] = state[7 as libc::c_int as usize] << 12 as libc::c_int
-                | state[7 as libc::c_int as usize] >> 20 as libc::c_int;
-            state[2 as libc::c_int
-                as usize] = (state[2 as libc::c_int as usize])
-                .wrapping_add(state[7 as libc::c_int as usize]);
-            state[13 as libc::c_int as usize] ^= state[2 as libc::c_int as usize];
-            state[13 as libc::c_int
-                as usize] = state[13 as libc::c_int as usize] << 8 as libc::c_int
-                | state[13 as libc::c_int as usize] >> 24 as libc::c_int;
-            state[8 as libc::c_int
-                as usize] = (state[8 as libc::c_int as usize])
-                .wrapping_add(state[13 as libc::c_int as usize]);
-            state[7 as libc::c_int as usize] ^= state[8 as libc::c_int as usize];
-            state[7 as libc::c_int
-                as usize] = state[7 as libc::c_int as usize] << 7 as libc::c_int
-                | state[7 as libc::c_int as usize] >> 25 as libc::c_int;
-            state[3 as libc::c_int
-                as usize] = (state[3 as libc::c_int as usize])
-                .wrapping_add(state[4 as libc::c_int as usize]);
-            state[14 as libc::c_int as usize] ^= state[3 as libc::c_int as usize];
-            state[14 as libc::c_int
-                as usize] = state[14 as libc::c_int as usize] << 16 as libc::c_int
-                | state[14 as libc::c_int as usize] >> 16 as libc::c_int;
-            state[9 as libc::c_int
-                as usize] = (state[9 as libc::c_int as usize])
-                .wrapping_add(state[14 as libc::c_int as usize]);
-            state[4 as libc::c_int as usize] ^= state[9 as libc::c_int as usize];
-            state[4 as libc::c_int
-                as usize] = state[4 as libc::c_int as usize] << 12 as libc::c_int
-                | state[4 as libc::c_int as usize] >> 20 as libc::c_int;
-            state[3 as libc::c_int
-                as usize] = (state[3 as libc::c_int as usize])
-                .wrapping_add(state[4 as libc::c_int as usize]);
-            state[14 as libc::c_int as usize] ^= state[3 as libc::c_int as usize];
-            state[14 as libc::c_int
-                as usize] = state[14 as libc::c_int as usize] << 8 as libc::c_int
-                | state[14 as libc::c_int as usize] >> 24 as libc::c_int;
-            state[9 as libc::c_int
-                as usize] = (state[9 as libc::c_int as usize])
-                .wrapping_add(state[14 as libc::c_int as usize]);
-            state[4 as libc::c_int as usize] ^= state[9 as libc::c_int as usize];
-            state[4 as libc::c_int
-                as usize] = state[4 as libc::c_int as usize] << 7 as libc::c_int
-                | state[4 as libc::c_int as usize] >> 25 as libc::c_int;
+        state[14 as usize] ^= cc as u32;
+        state[15 as usize] ^= (cc >> 32) as u32;
+        i = 0;
+        while i < 10 {
+            state[0
+                as usize] = (state[0 as usize])
+                .wrapping_add(state[4 as usize]);
+            state[12 as usize] ^= state[0 as usize];
+            state[12
+                as usize] = state[12 as usize] << 16
+                | state[12 as usize] >> 16;
+            state[8
+                as usize] = (state[8 as usize])
+                .wrapping_add(state[12 as usize]);
+            state[4 as usize] ^= state[8 as usize];
+            state[4
+                as usize] = state[4 as usize] << 12
+                | state[4 as usize] >> 20;
+            state[0
+                as usize] = (state[0 as usize])
+                .wrapping_add(state[4 as usize]);
+            state[12 as usize] ^= state[0 as usize];
+            state[12
+                as usize] = state[12 as usize] << 8
+                | state[12 as usize] >> 24;
+            state[8
+                as usize] = (state[8 as usize])
+                .wrapping_add(state[12 as usize]);
+            state[4 as usize] ^= state[8 as usize];
+            state[4
+                as usize] = state[4 as usize] << 7
+                | state[4 as usize] >> 25;
+            state[1
+                as usize] = (state[1 as usize])
+                .wrapping_add(state[5 as usize]);
+            state[13 as usize] ^= state[1 as usize];
+            state[13
+                as usize] = state[13 as usize] << 16
+                | state[13 as usize] >> 16;
+            state[9
+                as usize] = (state[9 as usize])
+                .wrapping_add(state[13 as usize]);
+            state[5 as usize] ^= state[9 as usize];
+            state[5
+                as usize] = state[5 as usize] << 12
+                | state[5 as usize] >> 20;
+            state[1
+                as usize] = (state[1 as usize])
+                .wrapping_add(state[5 as usize]);
+            state[13 as usize] ^= state[1 as usize];
+            state[13
+                as usize] = state[13 as usize] << 8
+                | state[13 as usize] >> 24;
+            state[9
+                as usize] = (state[9 as usize])
+                .wrapping_add(state[13 as usize]);
+            state[5 as usize] ^= state[9 as usize];
+            state[5
+                as usize] = state[5 as usize] << 7
+                | state[5 as usize] >> 25;
+            state[2
+                as usize] = (state[2 as usize])
+                .wrapping_add(state[6 as usize]);
+            state[14 as usize] ^= state[2 as usize];
+            state[14
+                as usize] = state[14 as usize] << 16
+                | state[14 as usize] >> 16;
+            state[10
+                as usize] = (state[10 as usize])
+                .wrapping_add(state[14 as usize]);
+            state[6 as usize] ^= state[10 as usize];
+            state[6
+                as usize] = state[6 as usize] << 12
+                | state[6 as usize] >> 20;
+            state[2
+                as usize] = (state[2 as usize])
+                .wrapping_add(state[6 as usize]);
+            state[14 as usize] ^= state[2 as usize];
+            state[14
+                as usize] = state[14 as usize] << 8
+                | state[14 as usize] >> 24;
+            state[10
+                as usize] = (state[10 as usize])
+                .wrapping_add(state[14 as usize]);
+            state[6 as usize] ^= state[10 as usize];
+            state[6
+                as usize] = state[6 as usize] << 7
+                | state[6 as usize] >> 25;
+            state[3
+                as usize] = (state[3 as usize])
+                .wrapping_add(state[7 as usize]);
+            state[15 as usize] ^= state[3 as usize];
+            state[15
+                as usize] = state[15 as usize] << 16
+                | state[15 as usize] >> 16;
+            state[11
+                as usize] = (state[11 as usize])
+                .wrapping_add(state[15 as usize]);
+            state[7 as usize] ^= state[11 as usize];
+            state[7
+                as usize] = state[7 as usize] << 12
+                | state[7 as usize] >> 20;
+            state[3
+                as usize] = (state[3 as usize])
+                .wrapping_add(state[7 as usize]);
+            state[15 as usize] ^= state[3 as usize];
+            state[15
+                as usize] = state[15 as usize] << 8
+                | state[15 as usize] >> 24;
+            state[11
+                as usize] = (state[11 as usize])
+                .wrapping_add(state[15 as usize]);
+            state[7 as usize] ^= state[11 as usize];
+            state[7
+                as usize] = state[7 as usize] << 7
+                | state[7 as usize] >> 25;
+            state[0
+                as usize] = (state[0 as usize])
+                .wrapping_add(state[5 as usize]);
+            state[15 as usize] ^= state[0 as usize];
+            state[15
+                as usize] = state[15 as usize] << 16
+                | state[15 as usize] >> 16;
+            state[10
+                as usize] = (state[10 as usize])
+                .wrapping_add(state[15 as usize]);
+            state[5 as usize] ^= state[10 as usize];
+            state[5
+                as usize] = state[5 as usize] << 12
+                | state[5 as usize] >> 20;
+            state[0
+                as usize] = (state[0 as usize])
+                .wrapping_add(state[5 as usize]);
+            state[15 as usize] ^= state[0 as usize];
+            state[15
+                as usize] = state[15 as usize] << 8
+                | state[15 as usize] >> 24;
+            state[10
+                as usize] = (state[10 as usize])
+                .wrapping_add(state[15 as usize]);
+            state[5 as usize] ^= state[10 as usize];
+            state[5
+                as usize] = state[5 as usize] << 7
+                | state[5 as usize] >> 25;
+            state[1
+                as usize] = (state[1 as usize])
+                .wrapping_add(state[6 as usize]);
+            state[12 as usize] ^= state[1 as usize];
+            state[12
+                as usize] = state[12 as usize] << 16
+                | state[12 as usize] >> 16;
+            state[11
+                as usize] = (state[11 as usize])
+                .wrapping_add(state[12 as usize]);
+            state[6 as usize] ^= state[11 as usize];
+            state[6
+                as usize] = state[6 as usize] << 12
+                | state[6 as usize] >> 20;
+            state[1
+                as usize] = (state[1 as usize])
+                .wrapping_add(state[6 as usize]);
+            state[12 as usize] ^= state[1 as usize];
+            state[12
+                as usize] = state[12 as usize] << 8
+                | state[12 as usize] >> 24;
+            state[11
+                as usize] = (state[11 as usize])
+                .wrapping_add(state[12 as usize]);
+            state[6 as usize] ^= state[11 as usize];
+            state[6
+                as usize] = state[6 as usize] << 7
+                | state[6 as usize] >> 25;
+            state[2
+                as usize] = (state[2 as usize])
+                .wrapping_add(state[7 as usize]);
+            state[13 as usize] ^= state[2 as usize];
+            state[13
+                as usize] = state[13 as usize] << 16
+                | state[13 as usize] >> 16;
+            state[8
+                as usize] = (state[8 as usize])
+                .wrapping_add(state[13 as usize]);
+            state[7 as usize] ^= state[8 as usize];
+            state[7
+                as usize] = state[7 as usize] << 12
+                | state[7 as usize] >> 20;
+            state[2
+                as usize] = (state[2 as usize])
+                .wrapping_add(state[7 as usize]);
+            state[13 as usize] ^= state[2 as usize];
+            state[13
+                as usize] = state[13 as usize] << 8
+                | state[13 as usize] >> 24;
+            state[8
+                as usize] = (state[8 as usize])
+                .wrapping_add(state[13 as usize]);
+            state[7 as usize] ^= state[8 as usize];
+            state[7
+                as usize] = state[7 as usize] << 7
+                | state[7 as usize] >> 25;
+            state[3
+                as usize] = (state[3 as usize])
+                .wrapping_add(state[4 as usize]);
+            state[14 as usize] ^= state[3 as usize];
+            state[14
+                as usize] = state[14 as usize] << 16
+                | state[14 as usize] >> 16;
+            state[9
+                as usize] = (state[9 as usize])
+                .wrapping_add(state[14 as usize]);
+            state[4 as usize] ^= state[9 as usize];
+            state[4
+                as usize] = state[4 as usize] << 12
+                | state[4 as usize] >> 20;
+            state[3
+                as usize] = (state[3 as usize])
+                .wrapping_add(state[4 as usize]);
+            state[14 as usize] ^= state[3 as usize];
+            state[14
+                as usize] = state[14 as usize] << 8
+                | state[14 as usize] >> 24;
+            state[9
+                as usize] = (state[9 as usize])
+                .wrapping_add(state[14 as usize]);
+            state[4 as usize] ^= state[9 as usize];
+            state[4
+                as usize] = state[4 as usize] << 7
+                | state[4 as usize] >> 25;
             i += 1;
             i;
         }
-        v = 0 as libc::c_int as size_t;
-        while v < 4 as libc::c_int as size_t {
+        v = 0 as size_t;
+        while v < 4 as size_t {
             state[v as usize] = (state[v as usize]).wrapping_add(CW[v as usize]);
             v = v.wrapping_add(1);
             v;
         }
-        v = 4 as libc::c_int as size_t;
-        while v < 14 as libc::c_int as size_t {
+        v = 4 as size_t;
+        while v < 14 as size_t {
             state[v
                 as usize] = (state[v as usize])
                 .wrapping_add(
-                    *(((*p).state.d).as_mut_ptr() as *mut uint32_t)
-                        .offset(v.wrapping_sub(4 as libc::c_int as size_t) as isize),
+                    *(((*p).state.d).as_mut_ptr() as *mut u32)
+                        .offset(v.wrapping_sub(4 as size_t) as isize),
                 );
             v = v.wrapping_add(1);
             v;
         }
-        state[14 as libc::c_int
-            as usize] = (state[14 as libc::c_int as usize])
+        state[14
+            as usize] = (state[14 as usize])
             .wrapping_add(
-                *(((*p).state.d).as_mut_ptr() as *mut uint32_t)
-                    .offset(10 as libc::c_int as isize) ^ cc as uint32_t,
+                *(((*p).state.d).as_mut_ptr() as *mut u32)
+                    .offset(10 as isize) ^ cc as u32,
             );
-        state[15 as libc::c_int
-            as usize] = (state[15 as libc::c_int as usize])
+        state[15
+            as usize] = (state[15 as usize])
             .wrapping_add(
-                *(((*p).state.d).as_mut_ptr() as *mut uint32_t)
-                    .offset(11 as libc::c_int as isize)
-                    ^ (cc >> 32 as libc::c_int) as uint32_t,
+                *(((*p).state.d).as_mut_ptr() as *mut u32)
+                    .offset(11 as isize)
+                    ^ (cc >> 32) as u32,
             );
         cc = cc.wrapping_add(1);
         cc;
-        v = 0 as libc::c_int as size_t;
-        while v < 16 as libc::c_int as size_t {
+        v = 0 as size_t;
+        while v < 16 as size_t {
             (*p)
                 .buf
-                .d[(u << 2 as libc::c_int)
-                .wrapping_add(v << 5 as libc::c_int)
-                .wrapping_add(0 as libc::c_int as size_t)
+                .d[(u << 2)
+                .wrapping_add(v << 5)
+                .wrapping_add(0 as size_t)
                 as usize] = state[v as usize] as uint8_t;
             (*p)
                 .buf
-                .d[(u << 2 as libc::c_int)
-                .wrapping_add(v << 5 as libc::c_int)
-                .wrapping_add(1 as libc::c_int as size_t)
-                as usize] = (state[v as usize] >> 8 as libc::c_int) as uint8_t;
+                .d[(u << 2)
+                .wrapping_add(v << 5)
+                .wrapping_add(1 as size_t)
+                as usize] = (state[v as usize] >> 8) as uint8_t;
             (*p)
                 .buf
-                .d[(u << 2 as libc::c_int)
-                .wrapping_add(v << 5 as libc::c_int)
-                .wrapping_add(2 as libc::c_int as size_t)
-                as usize] = (state[v as usize] >> 16 as libc::c_int) as uint8_t;
+                .d[(u << 2)
+                .wrapping_add(v << 5)
+                .wrapping_add(2 as size_t)
+                as usize] = (state[v as usize] >> 16) as uint8_t;
             (*p)
                 .buf
-                .d[(u << 2 as libc::c_int)
-                .wrapping_add(v << 5 as libc::c_int)
-                .wrapping_add(3 as libc::c_int as size_t)
-                as usize] = (state[v as usize] >> 24 as libc::c_int) as uint8_t;
+                .d[(u << 2)
+                .wrapping_add(v << 5)
+                .wrapping_add(3 as size_t)
+                as usize] = (state[v as usize] >> 24) as uint8_t;
             v = v.wrapping_add(1);
             v;
         }
         u = u.wrapping_add(1);
         u;
     }
-    *(((*p).state.d).as_mut_ptr().offset(48 as libc::c_int as isize)
-        as *mut uint64_t) = cc;
-    (*p).ptr = 0 as libc::c_int as size_t;
+    *(((*p).state.d).as_mut_ptr().offset(48 as isize)
+        as *mut u64) = cc;
+    (*p).ptr = 0 as size_t;
 }
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_prng_get_bytes(
@@ -425,14 +425,14 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_prng_get_bytes(
 ) {
     let mut buf: *mut uint8_t = 0 as *mut uint8_t;
     buf = dst as *mut uint8_t;
-    while len > 0 as libc::c_int as size_t {
+    while len > 0 as size_t {
         let mut clen: size_t = 0;
         clen = (::core::mem::size_of::<[uint8_t; 512]>() as libc::c_ulong)
             .wrapping_sub((*p).ptr);
         if clen > len {
             clen = len;
         }
-        memcpy(
+        rust_memcpy(
             buf as *mut libc::c_void,
             ((*p).buf.d).as_mut_ptr() as *const libc::c_void,
             clen,

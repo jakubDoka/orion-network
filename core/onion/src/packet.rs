@@ -24,7 +24,7 @@ pub const NONCE_SIZE: usize = <Aes256Gcm as AeadCore>::NonceSize::USIZE;
 pub const CONFIRM_PACKET_SIZE: usize = TAG_SIZE + NONCE_SIZE;
 pub const PATH_LEN: usize = 2;
 
-pub type KeyPair = crypto::enc::KeyPair;
+pub type KeyPair = crypto::enc::Keypair;
 pub type PublicKey = crypto::enc::PublicKey;
 pub type SharedSecret = crypto::SharedSecret;
 

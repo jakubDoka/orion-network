@@ -10,14 +10,14 @@ pub type __uint8_t = libc::c_uchar;
 pub type __int16_t = libc::c_short;
 pub type __uint16_t = libc::c_ushort;
 pub type __int32_t = libc::c_int;
-pub type __uint32_t = libc::c_uint;
-pub type __uint64_t = libc::c_ulong;
+pub type __u32 = libc::c_uint;
+pub type __u64 = libc::c_ulong;
 pub type int16_t = __int16_t;
 pub type int32_t = __int32_t;
 pub type uint8_t = __uint8_t;
 pub type uint16_t = __uint16_t;
-pub type uint32_t = __uint32_t;
-pub type uint64_t = __uint64_t;
+
+
 pub type size_t = libc::c_ulong;
 #[derive()]
 #[repr(C)]
@@ -31,20 +31,20 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_vartime(
     mut logn: libc::c_uint,
 ) {
     let mut n: size_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    while n > 0 as libc::c_int as size_t {
+    n = (1 as size_t) << logn;
+    while n > 0 as size_t {
         let mut buf: [uint8_t; 2] = [0; 2];
-        let mut w: uint32_t = 0;
+        let mut w: u32 = 0;
         shake256_inc_squeeze(
             buf.as_mut_ptr() as *mut libc::c_void as *mut uint8_t,
             ::core::mem::size_of::<[uint8_t; 2]>() as libc::c_ulong,
             sc,
         );
-        w = (buf[0 as libc::c_int as usize] as libc::c_uint) << 8 as libc::c_int
-            | buf[1 as libc::c_int as usize] as libc::c_uint;
-        if w < 61445 as libc::c_int as uint32_t {
-            while w >= 12289 as libc::c_int as uint32_t {
-                w = w.wrapping_sub(12289 as libc::c_int as uint32_t);
+        w = (buf[0 as usize] as libc::c_uint) << 8
+            | buf[1 as usize] as libc::c_uint;
+        if w < 61445 as u32 {
+            while w >= 12289 as u32 {
+                w = w.wrapping_sub(12289 as u32);
             }
             let fresh0 = x;
             x = x.offset(1);
@@ -62,17 +62,17 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
     mut tmp: *mut uint8_t,
 ) {
     static mut overtab: [uint16_t; 11] = [
-        0 as libc::c_int as uint16_t,
-        65 as libc::c_int as uint16_t,
-        67 as libc::c_int as uint16_t,
-        71 as libc::c_int as uint16_t,
-        77 as libc::c_int as uint16_t,
-        86 as libc::c_int as uint16_t,
-        100 as libc::c_int as uint16_t,
-        122 as libc::c_int as uint16_t,
-        154 as libc::c_int as uint16_t,
-        205 as libc::c_int as uint16_t,
-        287 as libc::c_int as uint16_t,
+        0 as uint16_t,
+        65 as uint16_t,
+        67 as uint16_t,
+        71 as uint16_t,
+        77 as uint16_t,
+        86 as uint16_t,
+        100 as uint16_t,
+        122 as uint16_t,
+        154 as uint16_t,
+        205 as uint16_t,
+        287 as uint16_t,
     ];
     let mut n: libc::c_uint = 0;
     let mut n2: libc::c_uint = 0;
@@ -83,46 +83,46 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
     let mut tt1: *mut uint16_t = 0 as *mut uint16_t;
     let mut tt2: [uint16_t; 63] = [0; 63];
     n = (1 as libc::c_uint) << logn;
-    n2 = n << 1 as libc::c_int;
+    n2 = n << 1;
     over = overtab[logn as usize] as libc::c_uint;
     m = n.wrapping_add(over);
     tt1 = tmp as *mut uint16_t;
-    u = 0 as libc::c_int as libc::c_uint;
+    u = 0 as libc::c_uint;
     while u < m {
         let mut buf: [uint8_t; 2] = [0; 2];
-        let mut w: uint32_t = 0;
-        let mut wr: uint32_t = 0;
+        let mut w: u32 = 0;
+        let mut wr: u32 = 0;
         shake256_inc_squeeze(
             buf.as_mut_ptr(),
             ::core::mem::size_of::<[uint8_t; 2]>() as libc::c_ulong,
             sc,
         );
-        w = (buf[0 as libc::c_int as usize] as uint32_t) << 8 as libc::c_int
-            | buf[1 as libc::c_int as usize] as uint32_t;
+        w = (buf[0 as usize] as u32) << 8
+            | buf[1 as usize] as u32;
         wr = w
             .wrapping_sub(
-                24578 as libc::c_int as uint32_t
-                    & (w.wrapping_sub(24578 as libc::c_int as uint32_t)
-                        >> 31 as libc::c_int)
-                        .wrapping_sub(1 as libc::c_int as uint32_t),
+                24578 as u32
+                    & (w.wrapping_sub(24578 as u32)
+                        >> 31)
+                        .wrapping_sub(1 as u32),
             );
         wr = wr
             .wrapping_sub(
-                24578 as libc::c_int as uint32_t
-                    & (wr.wrapping_sub(24578 as libc::c_int as uint32_t)
-                        >> 31 as libc::c_int)
-                        .wrapping_sub(1 as libc::c_int as uint32_t),
+                24578 as u32
+                    & (wr.wrapping_sub(24578 as u32)
+                        >> 31)
+                        .wrapping_sub(1 as u32),
             );
         wr = wr
             .wrapping_sub(
-                12289 as libc::c_int as uint32_t
-                    & (wr.wrapping_sub(12289 as libc::c_int as uint32_t)
-                        >> 31 as libc::c_int)
-                        .wrapping_sub(1 as libc::c_int as uint32_t),
+                12289 as u32
+                    & (wr.wrapping_sub(12289 as u32)
+                        >> 31)
+                        .wrapping_sub(1 as u32),
             );
         wr
-            |= (w.wrapping_sub(61445 as libc::c_int as uint32_t) >> 31 as libc::c_int)
-                .wrapping_sub(1 as libc::c_int as uint32_t);
+            |= (w.wrapping_sub(61445 as u32) >> 31)
+                .wrapping_sub(1 as u32);
         if u < n {
             *x.offset(u as isize) = wr as uint16_t;
         } else if u < n2 {
@@ -133,11 +133,11 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
         u = u.wrapping_add(1);
         u;
     }
-    p = 1 as libc::c_int as libc::c_uint;
+    p = 1 as libc::c_uint;
     while p <= over {
         let mut v: libc::c_uint = 0;
-        v = 0 as libc::c_int as libc::c_uint;
-        u = 0 as libc::c_int as libc::c_uint;
+        v = 0 as libc::c_uint;
+        u = 0 as libc::c_uint;
         while u < m {
             let mut s: *mut uint16_t = 0 as *mut uint16_t;
             let mut d: *mut uint16_t = 0 as *mut uint16_t;
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
             }
             sv = *s as libc::c_uint;
             j = u.wrapping_sub(v);
-            mk = (sv >> 15 as libc::c_int).wrapping_sub(1 as libc::c_uint);
+            mk = (sv >> 15).wrapping_sub(1 as libc::c_uint);
             v = v.wrapping_sub(mk);
             if !(u < p) {
                 if u.wrapping_sub(p) < n {
@@ -171,8 +171,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
                 }
                 dv = *d as libc::c_uint;
                 mk
-                    &= ((j & p).wrapping_add(0x1ff as libc::c_int as libc::c_uint)
-                        >> 9 as libc::c_int)
+                    &= ((j & p).wrapping_add(0x1ff as libc::c_uint)
+                        >> 9)
                         .wrapping_neg();
                 *s = (sv ^ mk & (sv ^ dv)) as uint16_t;
                 *d = (dv ^ mk & (sv ^ dv)) as uint16_t;
@@ -180,21 +180,21 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
             u = u.wrapping_add(1);
             u;
         }
-        p <<= 1 as libc::c_int;
+        p <<= 1;
     }
 }
-static mut l2bound: [uint32_t; 11] = [
-    0 as libc::c_int as uint32_t,
-    101498 as libc::c_int as uint32_t,
-    208714 as libc::c_int as uint32_t,
-    428865 as libc::c_int as uint32_t,
-    892039 as libc::c_int as uint32_t,
-    1852696 as libc::c_int as uint32_t,
-    3842630 as libc::c_int as uint32_t,
-    7959734 as libc::c_int as uint32_t,
-    16468416 as libc::c_int as uint32_t,
-    34034726 as libc::c_int as uint32_t,
-    70265242 as libc::c_int as uint32_t,
+static mut l2bound: [u32; 11] = [
+    0 as u32,
+    101498 as u32,
+    208714 as u32,
+    428865 as u32,
+    892039 as u32,
+    1852696 as u32,
+    3842630 as u32,
+    7959734 as u32,
+    16468416 as u32,
+    34034726 as u32,
+    70265242 as u32,
 ];
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_is_short(
@@ -204,46 +204,46 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_is_short(
 ) -> libc::c_int {
     let mut n: size_t = 0;
     let mut u: size_t = 0;
-    let mut s: uint32_t = 0;
-    let mut ng: uint32_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    s = 0 as libc::c_int as uint32_t;
-    ng = 0 as libc::c_int as uint32_t;
-    u = 0 as libc::c_int as size_t;
+    let mut s: u32 = 0;
+    let mut ng: u32 = 0;
+    n = (1 as size_t) << logn;
+    s = 0 as u32;
+    ng = 0 as u32;
+    u = 0 as size_t;
     while u < n {
         let mut z: int32_t = 0;
         z = *s1.offset(u as isize) as int32_t;
-        s = s.wrapping_add((z * z) as uint32_t);
+        s = s.wrapping_add((z * z) as u32);
         ng |= s;
         z = *s2.offset(u as isize) as int32_t;
-        s = s.wrapping_add((z * z) as uint32_t);
+        s = s.wrapping_add((z * z) as u32);
         ng |= s;
         u = u.wrapping_add(1);
         u;
     }
-    s |= (ng >> 31 as libc::c_int).wrapping_neg();
+    s |= (ng >> 31).wrapping_neg();
     return (s <= l2bound[logn as usize]) as libc::c_int;
 }
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_is_short_half(
-    mut sqn: uint32_t,
+    mut sqn: u32,
     mut s2: *const int16_t,
     mut logn: libc::c_uint,
 ) -> libc::c_int {
     let mut n: size_t = 0;
     let mut u: size_t = 0;
-    let mut ng: uint32_t = 0;
-    n = (1 as libc::c_int as size_t) << logn;
-    ng = (sqn >> 31 as libc::c_int).wrapping_neg();
-    u = 0 as libc::c_int as size_t;
+    let mut ng: u32 = 0;
+    n = (1 as size_t) << logn;
+    ng = (sqn >> 31).wrapping_neg();
+    u = 0 as size_t;
     while u < n {
         let mut z: int32_t = 0;
         z = *s2.offset(u as isize) as int32_t;
-        sqn = sqn.wrapping_add((z * z) as uint32_t);
+        sqn = sqn.wrapping_add((z * z) as u32);
         ng |= sqn;
         u = u.wrapping_add(1);
         u;
     }
-    sqn |= (ng >> 31 as libc::c_int).wrapping_neg();
+    sqn |= (ng >> 31).wrapping_neg();
     return (sqn <= l2bound[logn as usize]) as libc::c_int;
 }

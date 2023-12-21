@@ -104,7 +104,7 @@ macro_rules! gen_simple_error {
         impl<'a> $crate::Codec<'a> for $name {
             fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
                 match self {$(
-                    Self::$variant$((val) ${ignore(ty)})? => {
+                    Self::$variant$((val) ${ignore($ty)})? => {
                         buffer.push(${index()})
                         $(?;<$ty as $crate::Codec>::encode(val, buffer))?
                     }
@@ -118,7 +118,7 @@ macro_rules! gen_simple_error {
                 match index {$(
                     ${index()} => {
                         $(let val = <$ty as $crate::Codec>::decode(buffer)?;)?
-                        Some(Self::$variant$( (val) ${ignore(ty)} )?)
+                        Some(Self::$variant$( (val) ${ignore($ty)} )?)
                     }
                 )* _ => None, }
             }

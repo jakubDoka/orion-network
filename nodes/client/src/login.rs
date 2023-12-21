@@ -62,6 +62,7 @@ pub fn Register(state: State) -> impl IntoView {
         let username_content = UserName::try_from(username.value().as_str())
             .ok()
             .context("invalid username")?;
+
         let key = UserKeys::new(username_content);
 
         let client = crate::chain::node(username_content)

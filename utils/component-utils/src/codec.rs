@@ -225,7 +225,9 @@ impl<'a, 'b, T: Codec<'a>> Codec<'a> for &'b T {
 
 impl Codec<'_> for Infallible {
     fn encode(&self, _: &mut impl Buffer) -> Option<()> {
-        match *self {}
+        match self {
+            &s => match s {},
+        }
     }
 
     fn decode(_: &mut &[u8]) -> Option<Self> {
