@@ -7,7 +7,7 @@
 use {
     self::handlers::RequestOrigin,
     anyhow::Context as _,
-    chain_api::ContractId,
+    chain_api::{ContractId, NodeAddress},
     chat_logic::*,
     component_utils::{kad::KadPeerSearch, libp2p::kad::StoreInserts, Codec, LinearMap, Reminder},
     crypto::{enc, sign, TransmutationCircle},
@@ -20,7 +20,7 @@ use {
         Multiaddr, PeerId, Transport,
     },
     onion::{EncryptedStream, PathId},
-    primitives::contracts::NodeData,
+    primitives::contracts::{NodeData, StoredNodeData},
     std::{
         borrow::Cow,
         collections::HashMap,
@@ -41,6 +41,8 @@ macro_rules! extract_ctx {
 }
 
 mod handlers;
+#[cfg(test)]
+mod tests;
 mod white_list;
 
 compose_handlers! {
@@ -74,10 +76,41 @@ crypto::impl_transmute! {
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    Miner::new().await?.run().await;
+    let node_config = NodeConfig::from_env();
+    let chain_config = ChainConfig::from_env();
+    let (keys, is_new) = Miner::load_keys(&node_config.key_path)?;
+    let (node_list, stake_events) = deal_with_chain(chain_config, &keys, is_new).await?;
+
+    Miner::new(node_config, keys, node_list, stake_events)
+        .await?
+        .run()
+        .await;
 
     Ok(())
 }
+
+config::env_config! {
+    struct NodeConfig {
+        port: u16,
+        ws_port: u16,
+        key_path: String,
+        boot_nodes: config::List<Multiaddr>,
+        idle_timeout: u64,
+    }
+}
+
+config::env_config! {
+    struct ChainConfig {
+        exposed_address: IpAddr,
+        port: u16,
+        nonce: u64,
+        chain_node: String,
+        node_account: String,
+        node_contract: ContractId,
+    }
+}
+
+type StakeEvents = futures::channel::mpsc::Receiver<chain_api::Result<chain_api::StakeEvent>>;
 
 struct Miner {
     swarm: libp2p::swarm::Swarm<Behaviour>,
@@ -87,7 +120,7 @@ struct Miner {
     bootstrapped: Option<QueryId>,
     internal: InternalServer,
     external: ExternalServer,
-    stake_events: futures::channel::mpsc::Receiver<Result<chain_api::StakeEvent, chain_api::Error>>,
+    stake_events: StakeEvents,
 }
 
 fn unpack_node_id(id: sign::Ed) -> anyhow::Result<PeerId> {
@@ -109,80 +142,94 @@ fn unpack_node_addr(addr: chain_api::NodeAddress) -> Multiaddr {
         .with(multiaddr::Protocol::Tcp(port))
 }
 
-impl Miner {
-    async fn new() -> anyhow::Result<Self> {
-        config::env_config! {
-            EXPOSED_ADDRESS: IpAddr,
-            PORT: u16,
-            WS_PORT: u16,
-            CHAIN_NODE: String,
-            NODE_ACCOUNT: String,
-            NODE_CONTRACT: ContractId,
-            KEY_PATH: String,
-            BOOT_NODES: config::List<Multiaddr>,
-            IDLE_TIMEOUT: u64,
+async fn deal_with_chain(
+    config: ChainConfig,
+    keys: &NodeKeys,
+    is_new: bool,
+) -> anyhow::Result<(Vec<(StoredNodeData, NodeAddress)>, StakeEvents)> {
+    let ChainConfig {
+        chain_node,
+        node_account,
+        node_contract,
+        port,
+        exposed_address,
+        nonce,
+    } = config;
+    let (mut chain_events_tx, stake_events) = futures::channel::mpsc::channel(0);
+    let account = if node_account.starts_with("//") {
+        chain_api::dev_keypair(&node_account)
+    } else {
+        chain_api::mnemonic_keypair(&node_account)
+    };
+
+    let client = chain_api::Client::with_signer(&chain_node, account)
+        .await
+        .context("connecting to chain")?;
+
+    let node_list = client
+        .list(node_contract.clone())
+        .await
+        .context("fetching node list")?;
+
+    let stream = client
+        .node_contract_event_stream(node_contract.clone())
+        .await?;
+    tokio::spawn(async move {
+        let mut stream = std::pin::pin!(stream);
+        // TODO: properly recover fro errors, add node pool to try
+        while let Some(event) = stream.next().await {
+            _ = chain_events_tx.send(event).await;
         }
+    });
 
-        let account = if NODE_ACCOUNT.starts_with("//") {
-            chain_api::dev_keypair(&NODE_ACCOUNT)
-        } else {
-            chain_api::mnemonic_keypair(&NODE_ACCOUNT)
-        };
+    if is_new {
+        client
+            .join(
+                node_contract.clone(),
+                NodeData {
+                    sign: keys.sign.public_key(),
+                    enc: keys.enc.public_key(),
+                }
+                .to_stored(),
+                (exposed_address, port).into(),
+                nonce,
+            )
+            .await
+            .context("registeing to chain")?;
+        log::info!("registered on chain");
+    }
 
-        let (enc_keys, sign_keys, is_new) =
-            Self::load_keys(KEY_PATH).context("key file loading")?;
-        let local_key = libp2p::identity::Keypair::ed25519_from_bytes(sign_keys.pre_quantum())
+    log::info!("entered the network with {} nodes", node_list.len());
+
+    Ok((node_list, stake_events))
+}
+
+impl Miner {
+    async fn new(
+        config: NodeConfig,
+        keys: NodeKeys,
+        node_list: Vec<(StoredNodeData, NodeAddress)>,
+        stake_events: StakeEvents,
+    ) -> anyhow::Result<Self> {
+        let NodeConfig {
+            port,
+            ws_port,
+            boot_nodes,
+            idle_timeout,
+            ..
+        } = config;
+
+        let local_key = libp2p::identity::Keypair::ed25519_from_bytes(keys.sign.pre_quantum())
             .context("deriving ed signature")?;
         let peer_id = local_key.public().to_peer_id();
-
         log::info!("peer id: {}", peer_id);
-
-        let client = chain_api::Client::with_signer(&CHAIN_NODE, account)
-            .await
-            .context("connecting to chain")?;
-
-        let node_list = client
-            .list(NODE_CONTRACT.clone())
-            .await
-            .context("fetching node list")?;
-
-        if is_new {
-            client
-                .join(
-                    NODE_CONTRACT.clone(),
-                    NodeData {
-                        sign: sign_keys.public_key(),
-                        enc: enc_keys.public_key(),
-                    }
-                    .to_stored(),
-                    (EXPOSED_ADDRESS, PORT).into(),
-                )
-                .await
-                .context("registeing to chain")?;
-            log::info!("registered on chain");
-        }
-
-        log::info!("entered the network with {} nodes", node_list.len());
-
-        let (mut chain_events_tx, stake_events) = futures::channel::mpsc::channel(0);
-        tokio::spawn(async move {
-            // TODO: properly recover fro errors, add node pool to try
-            let mut stream = client
-                .node_contract_event_stream(NODE_CONTRACT)
-                .await
-                .map(Box::pin)
-                .unwrap();
-            while let Some(event) = stream.next().await {
-                _ = chain_events_tx.send(event).await;
-            }
-        });
 
         let (sender, receiver) = topology_wrapper::channel();
         let behaviour = Behaviour {
-            white_list: white_list::Behaviour::new(PORT + 100),
+            white_list: white_list::Behaviour::new(port + 100),
             onion: topology_wrapper::new(
                 onion::Behaviour::new(
-                    onion::Config::new(enc_keys.clone().into(), peer_id)
+                    onion::Config::new(keys.enc.clone().into(), peer_id)
                         .max_streams(10)
                         .keep_alive_interval(Duration::from_secs(100)),
                 ),
@@ -240,7 +287,7 @@ impl Miner {
             behaviour,
             peer_id,
             libp2p::swarm::Config::with_tokio_executor()
-                .with_idle_connection_timeout(Duration::from_millis(IDLE_TIMEOUT)),
+                .with_idle_connection_timeout(Duration::from_millis(idle_timeout)),
         );
 
         swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
@@ -249,7 +296,7 @@ impl Miner {
             .listen_on(
                 Multiaddr::empty()
                     .with(multiaddr::Protocol::Ip4(Ipv4Addr::UNSPECIFIED))
-                    .with(multiaddr::Protocol::Tcp(PORT)),
+                    .with(multiaddr::Protocol::Tcp(port)),
             )
             .context("starting to listen for peers")?;
 
@@ -257,7 +304,7 @@ impl Miner {
             .listen_on(
                 Multiaddr::empty()
                     .with(multiaddr::Protocol::Ip4(Ipv4Addr::UNSPECIFIED))
-                    .with(multiaddr::Protocol::Tcp(WS_PORT))
+                    .with(multiaddr::Protocol::Tcp(ws_port))
                     .with(multiaddr::Protocol::Ws("/".into())),
             )
             .context("starting to isten for clients")?;
@@ -273,7 +320,7 @@ impl Miner {
             swarm.behaviour_mut().white_list.allow_peer(peer_id);
         }
 
-        for boot_node in BOOT_NODES.0 {
+        for boot_node in boot_nodes.0 {
             swarm.dial(boot_node).context("dialing a boot peer")?;
         }
 
@@ -289,13 +336,13 @@ impl Miner {
         })
     }
 
-    fn load_keys(path: String) -> io::Result<(enc::Keypair, sign::KeyPair, bool)> {
-        let file = match fs::read(&path) {
+    fn load_keys(path: &str) -> io::Result<(NodeKeys, bool)> {
+        let file = match fs::read(path) {
             Ok(file) => file,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 let nk = NodeKeys::default();
-                fs::write(&path, nk.as_bytes())?;
-                return Ok((nk.enc, nk.sign, true));
+                fs::write(path, nk.as_bytes())?;
+                return Ok((nk, true));
             }
             Err(e) => return Err(e),
         };
@@ -304,7 +351,7 @@ impl Miner {
             return Err(io::Error::other("invalid key file"));
         };
 
-        Ok((nk.enc, nk.sign, false))
+        Ok((nk, false))
     }
 
     fn handle_event(&mut self, event: SE) {

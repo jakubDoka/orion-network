@@ -71,9 +71,16 @@ fn generate_contract_mod(contract_name: String, metadata: InkProject) -> proc_ma
     let messages = generate_messages(&metadata, &type_generator);
     let events = generate_events(&metadata, &type_generator);
     let root_event = generate_root_event(&metadata);
+    let glob = types_mod
+        .children()
+        .any(|child| *child.0 == contract_name)
+        .then(|| {
+            quote::quote! { pub use #types_mod_ident::#contract_name::#contract_name::*; }
+        });
 
     quote::quote!(
         pub mod #contract_name {
+            #glob
             #types_mod
 
             pub mod constructors {

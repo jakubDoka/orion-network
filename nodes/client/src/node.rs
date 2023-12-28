@@ -19,7 +19,7 @@ use {
     libp2p::{
         core::{upgrade::Version, ConnectedPoint},
         futures::{SinkExt, StreamExt},
-        kad::{store::MemoryStore, ProgressStep, QueryResult},
+        kad::store::MemoryStore,
         swarm::{NetworkBehaviour, SwarmEvent},
         PeerId, Swarm, *,
     },
@@ -29,6 +29,7 @@ use {
     std::{
         collections::{HashMap, HashSet},
         io, mem,
+        net::IpAddr,
         task::Poll,
         time::Duration,
     },
@@ -273,42 +274,47 @@ impl Node {
             }
         }
 
-        let tolerance = 3;
-        set_state!(CollecringKeys(
-            node_data.len() - swarm.behaviour_mut().key_share.keys.len() - tolerance
-        ));
+        fn unpack_node_id(id: sign::Ed) -> anyhow::Result<PeerId> {
+            let peer_id = {
+                let ed_kp = libp2p::identity::ed25519::PublicKey::try_from_bytes(&id)
+                    .context("deriving ed signature")?;
+                libp2p::identity::PublicKey::from(ed_kp).to_peer_id()
+            };
+            Ok(peer_id)
+        }
 
-        let mut qid = swarm
-            .behaviour_mut()
-            .kad
-            .bootstrap()
-            .expect("to have enough peers");
-        for (node, _) in node_data.iter() {
-            let key = node.id;
-            let key = libp2p::identity::ed25519::PublicKey::try_from_bytes(&key).unwrap();
-            let peer_id = libp2p::identity::PublicKey::from(key).to_peer_id();
-            peer_search.discover_peer(peer_id, &mut swarm.behaviour_mut().kad);
+        fn unpack_node_addr(addr: chain_api::NodeAddress) -> Multiaddr {
+            let (addr, port) = addr.into();
+            Multiaddr::empty()
+                .with(match addr {
+                    IpAddr::V4(ip) => multiaddr::Protocol::Ip4(ip),
+                    IpAddr::V6(ip) => multiaddr::Protocol::Ip6(ip),
+                })
+                .with(multiaddr::Protocol::Tcp(port + 100))
+                .with(multiaddr::Protocol::Ws("/".into()))
+        }
+
+        let node_count = node_data.len();
+        let tolerance = 0;
+        set_state!(CollecringKeys(
+            node_count - swarm.behaviour_mut().key_share.keys.len() - tolerance
+        ));
+        for (node, ip) in node_data {
+            let peer_id = unpack_node_id(node.id)?;
+            let addr = unpack_node_addr(ip);
+            swarm.behaviour_mut().kad.add_address(&peer_id, addr);
+            _ = swarm.dial(peer_id);
         }
         loop {
             match swarm.select_next_some().await {
                 e if Self::try_handle_common_event(&e, &mut swarm, &mut peer_search) => {}
                 SwarmEvent::Behaviour(BehaviourEvent::KeyShare(..)) => {
                     let remining =
-                        node_data.len() - swarm.behaviour_mut().key_share.keys.len() - tolerance;
+                        node_count - swarm.behaviour_mut().key_share.keys.len() - tolerance;
                     set_state!(CollecringKeys(remining));
                     if remining == 0 {
                         break;
                     }
-                }
-                SwarmEvent::Behaviour(BehaviourEvent::Kad(
-                    kad::Event::OutboundQueryProgressed {
-                        id,
-                        result: QueryResult::Bootstrap(_),
-                        step: ProgressStep { last: true, .. },
-                        ..
-                    },
-                )) if id == qid => {
-                    qid = swarm.behaviour_mut().kad.bootstrap().unwrap();
                 }
                 e => log::debug!("{:?}", e),
             }
@@ -507,7 +513,7 @@ impl Node {
             vault,
             request_dispatch,
             vault_nonce,
-            mail_action,
+            mail_action.max(1),
         ))
     }
 

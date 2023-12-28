@@ -104,6 +104,7 @@ pub fn Register(state: State) -> impl IntoView {
                 crate::chain::user_contract(),
                 username_content,
                 data.to_identity().to_stored(),
+                0,
             )
             .await
             .context("failed to create user")?;

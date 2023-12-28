@@ -1,25 +1,28 @@
 #![feature(lazy_cell)]
 
 use {
+    chain_types::{
+        polkadot::{
+            contracts::calls::types::Call,
+            runtime_types::{
+                pallet_contracts_primitives::{ContractResult, ExecReturnValue},
+                sp_runtime::DispatchError,
+                sp_weights::weight_v2::Weight,
+            },
+        },
+        *,
+    },
     crypto::{sign, Serialized, TransmutationCircle},
     futures::{StreamExt, TryFutureExt, TryStreamExt},
     parity_scale_codec::{Decode, Encode as _},
-    polkadot::{
-        contracts::calls::types::Call,
-        runtime_types::{
-            pallet_contracts_primitives::{ContractResult, ExecReturnValue},
-            sp_runtime::DispatchError,
-            sp_weights::weight_v2::Weight,
-        },
-    },
     primitives::{
         contracts::{StoredNodeData, StoredNodeIdentity, StoredUserIdentity},
         RawUserName, UserName,
     },
-    std::{net::IpAddr, str::FromStr},
+    std::str::FromStr,
     subxt::{
         backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
-        tx::{Payload, Signer},
+        tx::{Payload, TxProgress},
         OnlineClient, PolkadotConfig,
     },
     subxt_signer::bip39::Mnemonic,
@@ -34,9 +37,10 @@ pub type Error = subxt::Error;
 pub type Keypair = subxt_signer::sr25519::Keypair;
 pub type Signature = subxt_signer::sr25519::Signature;
 pub type CallPayload = Payload<Call>;
-pub type NodeAddress =
-    contracts::node_staker::contract_types::node_staker::node_staker::NodeAddress;
-pub type StakeEvent = contracts::node_staker::Event;
+pub type NodeAddress = node_staker::NodeAddress;
+pub type StakeEvent = node_staker::Event;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Nonce = u64;
 
 pub fn immortal_era() -> String {
     encode_then_hex(&subxt::utils::Era::Immortal)
@@ -70,85 +74,69 @@ pub fn new_signature(sig: [u8; 64]) -> Signature {
     subxt_signer::sr25519::Signature(sig)
 }
 
-/// Trait implemented by [`smart_bench_macro::contract`] for all contract constructors.
-pub trait InkConstructor: parity_scale_codec::Encode {
-    const SELECTOR: [u8; 4];
-
-    fn to_bytes(&self) -> Vec<u8> {
-        let mut call_data = Self::SELECTOR.to_vec();
-        <Self as parity_scale_codec::Encode>::encode_to(self, &mut call_data);
-        call_data
-    }
-}
-
-/// Trait implemented by [`smart_bench_macro::contract`] for all contract messages.
-pub trait InkMessage: parity_scale_codec::Encode {
-    const SELECTOR: [u8; 4];
-
-    fn to_bytes(&self) -> Vec<u8> {
-        let mut call_data = Self::SELECTOR.to_vec();
-        <Self as parity_scale_codec::Encode>::encode_to(self, &mut call_data);
-        call_data
-    }
-}
-
-#[subxt::subxt(runtime_metadata_path = "metadata.scale")]
-mod polkadot {}
-mod contracts {
-    contract_macro::contract!("../../target/ink/node_staker/node_staker.contract");
-    contract_macro::contract!("../../target/ink/user_manager/user_manager.contract");
-}
-
-//struct MySigner(pub subxt_signer::sr25519::Keypair);
-//
-//impl Signer<Config> for MySigner {
-//    fn account_id(&self) -> AccountId {
-//        self.0.public_key().into()
-//    }
-//
-//    fn address(&self) -> MultiAddress<AccountId, ()> {
-//        self.0.public_key().into()
-//    }
-//
-//    fn sign(&self, signer_payload: &[u8]) -> subxt::utils::MultiSignature {
-//        self.0.sign(signer_payload).into()
-//    }
-//}
-
 #[allow(async_fn_in_trait)]
 pub trait TransactionHandler {
-    async fn account_id_async(&self) -> Result<AccountId, Error>;
-    async fn handle(&self, client: &InnerClient, call: impl TxPayload) -> Result<(), Error>;
+    async fn account_id_async(&self) -> Result<AccountId>;
+    async fn handle(&self, client: &InnerClient, call: impl TxPayload, nonce: Nonce) -> Result<()>;
 }
 
 impl TransactionHandler for Keypair {
-    async fn account_id_async(&self) -> Result<AccountId, Error> {
+    async fn account_id_async(&self) -> Result<AccountId> {
         Ok(self.public_key().into())
     }
 
-    async fn handle(&self, inner: &InnerClient, call: impl TxPayload) -> Result<(), Error> {
-        let nonce = inner.get_nonce(&Signer::<Config>::account_id(self)).await?;
-        inner
+    async fn handle(&self, inner: &InnerClient, call: impl TxPayload, nonce: Nonce) -> Result<()> {
+        let progress = inner
             .client
             .tx()
             .create_signed_with_nonce(&call, self, nonce, Default::default())?
             .submit_and_watch()
-            .await?
-            .wait_for_in_block()
-            .await?
-            .wait_for_success()
-            .await
-            .map(drop)
+            .await?;
+
+        wait_for_in_block(progress).await.map(drop)
     }
 }
 
+pub async fn wait_for_in_block(
+    mut progress: TxProgress<PolkadotConfig, OnlineClient<PolkadotConfig>>,
+) -> Result<Hash> {
+    while let Some(event) = progress.next().await {
+        match event? {
+            subxt::tx::TxStatus::InBestBlock(b) => {
+                return b.wait_for_success().await.map(|r| r.extrinsic_hash());
+            }
+            subxt::tx::TxStatus::InFinalizedBlock(b) => {
+                return b.wait_for_success().await.map(|r| r.extrinsic_hash());
+            }
+            subxt::tx::TxStatus::Error { message } => {
+                return Err(subxt::Error::Other(format!(
+                    "tx error (try again): {message}",
+                )));
+            }
+            subxt::tx::TxStatus::Invalid { message } => {
+                return Err(subxt::Error::Other(format!("tx invalid: {message}",)));
+            }
+            subxt::tx::TxStatus::Dropped { message } => {
+                return Err(subxt::Error::Other(format!(
+                    "tx dropped, maybe try again: {message}",
+                )));
+            }
+            _ => continue,
+        }
+    }
+
+    log::error!("tx stream ended without result");
+    Err(subxt::Error::Unknown(vec![]))
+}
+
+#[derive(Clone)]
 pub struct InnerClient {
     pub client: OnlineClient<Config>,
     pub legacy: LegacyRpcMethods<Config>,
 }
 
 impl InnerClient {
-    pub async fn get_nonce(&self, account: &AccountId) -> Result<u64, Error> {
+    pub async fn get_nonce(&self, account: &AccountId) -> Result<u64> {
         let best_block = self
             .legacy
             .chain_get_block_hash(None)
@@ -165,6 +153,7 @@ impl InnerClient {
     }
 }
 
+#[derive(Clone)]
 pub struct Client<S: TransactionHandler> {
     signer: S,
     inner: InnerClient,
@@ -174,7 +163,7 @@ impl<S: TransactionHandler> Client<S> {
     pub async fn node_contract_event_stream(
         &self,
         contract: ContractId,
-    ) -> Result<impl futures::Stream<Item = Result<StakeEvent, Error>>, Error> {
+    ) -> Result<impl futures::Stream<Item = Result<StakeEvent>>, Error> {
         Ok(self
             .inner
             .client
@@ -204,7 +193,7 @@ impl<S: TransactionHandler> Client<S> {
             .try_flatten())
     }
 
-    pub async fn with_signer(url: &str, account: S) -> Result<Self, Error> {
+    pub async fn with_signer(url: &str, account: S) -> Result<Self> {
         let rpc = RpcClient::from_url(url).await?;
         let client = OnlineClient::<Config>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::new(rpc);
@@ -216,9 +205,9 @@ impl<S: TransactionHandler> Client<S> {
         })
     }
 
-    pub async fn transfere(&self, dest: AccountId, amount: Balance) -> Result<(), Error> {
+    pub async fn transfere(&self, dest: AccountId, amount: Balance, nonce: Nonce) -> Result<()> {
         let transaction = polkadot::tx().balances().transfer(dest.into(), amount);
-        self.signer.handle(&self.inner, transaction).await
+        self.signer.handle(&self.inner, transaction, nonce).await
     }
 
     pub async fn join(
@@ -226,23 +215,22 @@ impl<S: TransactionHandler> Client<S> {
         dest: ContractId,
         data: StoredNodeData,
         addr: NodeAddress,
-    ) -> Result<(), Error> {
+        nonce: Nonce,
+    ) -> Result<()> {
         self.call_auto_weight(
             1000000,
             dest,
-            contracts::node_staker::messages::join(data.into_bytes(), addr),
+            node_staker::messages::join(data.into_bytes(), addr),
+            nonce,
         )
         .await
     }
 
-    pub async fn list(
-        &self,
-        addr: ContractId,
-    ) -> Result<Vec<(StoredNodeData, NodeAddress)>, Error> {
+    pub async fn list(&self, addr: ContractId) -> Result<Vec<(StoredNodeData, NodeAddress)>> {
         self.call_dry::<Vec<(Serialized<StoredNodeData>, NodeAddress)>>(
             0,
             addr,
-            contracts::node_staker::messages::list(),
+            node_staker::messages::list(),
         )
         .await
         .map(|v| unsafe { std::mem::transmute(v) })
@@ -254,17 +242,23 @@ impl<S: TransactionHandler> Client<S> {
         me: StoredNodeIdentity,
         target: StoredNodeIdentity,
         weight: i32,
-    ) -> Result<(), Error> {
-        let call =
-            contracts::node_staker::messages::vote(me.into_bytes(), target.into_bytes(), weight);
-        self.call_auto_weight(0, dest, call).await
+        nonce: Nonce,
+    ) -> Result<()> {
+        let call = node_staker::messages::vote(me.into_bytes(), target.into_bytes(), weight);
+        self.call_auto_weight(0, dest, call, nonce).await
     }
 
-    pub async fn reclaim(&self, dest: ContractId, me: StoredNodeIdentity) -> Result<(), Error> {
+    pub async fn reclaim(
+        &self,
+        dest: ContractId,
+        me: StoredNodeIdentity,
+        nonce: Nonce,
+    ) -> Result<()> {
         self.call_auto_weight(
             0,
             dest,
-            contracts::node_staker::messages::reclaim(me.into_bytes()),
+            node_staker::messages::reclaim(me.into_bytes()),
+            nonce,
         )
         .await
     }
@@ -274,14 +268,16 @@ impl<S: TransactionHandler> Client<S> {
         dest: ContractId,
         name: UserName,
         data: primitives::contracts::StoredUserIdentity,
-    ) -> Result<(), Error> {
+        nonce: Nonce,
+    ) -> Result<()> {
         self.call_auto_weight(
             0,
             dest,
-            contracts::user_manager::messages::register_with_name(
+            user_manager::messages::register_with_name(
                 primitives::username_to_raw(name),
                 data.into_bytes(),
             ),
+            nonce,
         )
         .await
     }
@@ -290,14 +286,12 @@ impl<S: TransactionHandler> Client<S> {
         &self,
         dest: ContractId,
         name: UserName,
-    ) -> Result<Option<Serialized<StoredUserIdentity>>, Error> {
-        let call = contracts::user_manager::messages::get_profile_by_name(
-            primitives::username_to_raw(name),
-        );
+    ) -> Result<Option<Serialized<StoredUserIdentity>>> {
+        let call = user_manager::messages::get_profile_by_name(primitives::username_to_raw(name));
         self.call_dry(0, dest, call).await
     }
 
-    pub async fn user_exists(&self, dest: ContractId, name: UserName) -> Result<bool, Error> {
+    pub async fn user_exists(&self, dest: ContractId, name: UserName) -> Result<bool> {
         self.get_profile_by_name(dest, name)
             .await
             .map(|p| p.is_some())
@@ -307,8 +301,8 @@ impl<S: TransactionHandler> Client<S> {
         &self,
         dest: ContractId,
         id: crypto::Hash<sign::PublicKey>,
-    ) -> Result<RawUserName, Error> {
-        let call = contracts::user_manager::messages::get_username(id.0);
+    ) -> Result<RawUserName> {
+        let call = user_manager::messages::get_username(id.0);
         self.call_dry(0, dest, call).await
     }
 
@@ -317,7 +311,8 @@ impl<S: TransactionHandler> Client<S> {
         value: Balance,
         dest: ContractId,
         call_data: impl InkMessage,
-    ) -> Result<T, Error> {
+        nonce: Nonce,
+    ) -> Result<T> {
         let (res, mut weight) = self
             .call_dry_low(value, dest.clone(), call_data.to_bytes())
             .await?;
@@ -335,6 +330,7 @@ impl<S: TransactionHandler> Client<S> {
                     None,
                     call_data.to_bytes(),
                 ),
+                nonce,
             )
             .await?;
 
@@ -346,7 +342,7 @@ impl<S: TransactionHandler> Client<S> {
         value: Balance,
         dest: ContractId,
         call_data: impl InkMessage,
-    ) -> Result<T, Error> {
+    ) -> Result<T> {
         self.call_dry_low(value, dest, call_data.to_bytes())
             .await
             .map(|(t, ..)| t)
@@ -357,7 +353,7 @@ impl<S: TransactionHandler> Client<S> {
         value: Balance,
         dest: ContractId,
         call_data: Vec<u8>,
-    ) -> Result<(T, Weight), Error> {
+    ) -> Result<(T, Weight)> {
         let (e, w) = self
             .make_dry_call::<Result<T, ()>>(CallRequest {
                 origin: self.signer.account_id_async().await?,
@@ -375,7 +371,7 @@ impl<S: TransactionHandler> Client<S> {
     async fn make_dry_call<T: parity_scale_codec::Decode>(
         &self,
         call: CallRequest,
-    ) -> Result<(T, Weight), Error> {
+    ) -> Result<(T, Weight)> {
         let bytes = call.encode();
         let r = self
             .inner
@@ -420,42 +416,4 @@ struct CallRequest {
     gas_limit: Option<Weight>,
     storage_deposit_limit: Option<Balance>,
     input_data: Vec<u8>,
-}
-
-impl From<(IpAddr, u16)> for NodeAddress {
-    fn from((addr, port): (IpAddr, u16)) -> Self {
-        match addr {
-            IpAddr::V4(ip) => {
-                let mut bytes = [0; 4 + 2];
-                bytes[..4].copy_from_slice(&ip.octets());
-                bytes[4..].copy_from_slice(&port.to_be_bytes());
-                NodeAddress::Ip4(bytes)
-            }
-            IpAddr::V6(ip) => {
-                let mut bytes = [0; 16 + 2];
-                bytes[..16].copy_from_slice(&ip.octets());
-                bytes[16..].copy_from_slice(&port.to_be_bytes());
-                NodeAddress::Ip6(bytes)
-            }
-        }
-    }
-}
-
-impl From<NodeAddress> for (IpAddr, u16) {
-    fn from(value: NodeAddress) -> Self {
-        match value {
-            NodeAddress::Ip4(bytes) => {
-                let mut ip = [0; 4];
-                ip.copy_from_slice(&bytes[..4]);
-                let port = u16::from_be_bytes([bytes[4], bytes[5]]);
-                (IpAddr::V4(ip.into()), port)
-            }
-            NodeAddress::Ip6(bytes) => {
-                let mut ip = [0; 16];
-                ip.copy_from_slice(&bytes[..16]);
-                let port = u16::from_be_bytes([bytes[16], bytes[17]]);
-                (IpAddr::V6(ip.into()), port)
-            }
-        }
-    }
 }

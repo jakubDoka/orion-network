@@ -5,8 +5,8 @@ members = [
 	"utils/*",
 	"tests/*",
 	"contracts/*",
-	"forked/*", "core/rpc",
-	"utils/falcon/output"
+	"forked/*", "core/*",
+	"utils/falcon/falcon"
 ]
 exclude = [
 	"forked/substrate-contracts-node",

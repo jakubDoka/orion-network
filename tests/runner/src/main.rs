@@ -18,13 +18,9 @@ struct Command {
 fn main() {
     let cmd = Command::parse();
 
-    let accounts = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"];
     let _children = (0..cmd.node_count)
         .map(|i| {
             println!("Starting node {i} ({})", cmd.miner);
-            if i % accounts.len() == 0 && i != 0 && cmd.first_run {
-                sleep(std::time::Duration::from_secs(7));
-            }
             let mut command = process::Command::new(&cmd.miner);
             let mut boot_nodes = String::new();
             for _ in 1..cmd.node_count {
@@ -41,11 +37,9 @@ fn main() {
                 .env("PORT", (cmd.first_port + i as u16).to_string())
                 .env("WS_PORT", (cmd.first_port + i as u16 + 100).to_string())
                 .env("BOOT_NODES", boot_nodes)
-                .env(
-                    "NODE_ACCOUNT",
-                    format!("//{}", accounts[i % accounts.len()]),
-                )
+                .env("NODE_ACCOUNT", "//Alice")
                 .env("KEY_PATH", format!("node_keys/node{i}.keys"))
+                .env("NONCE", (i + 2).to_string())
                 .stdout(process::Stdio::piped())
                 .stderr(process::Stdio::piped())
                 .spawn()

@@ -103,7 +103,7 @@ impl<C: ProvideStorage> SyncHandler<C> for ReadMail {
             .get_mut(&crypto::hash::new_raw(&request.pk));
         crate::ensure!(let Some(profile) = profile, ReadMailError::NotFound);
         crate::ensure!(
-            advance_nonce(&mut profile.vault_version, request.nonce),
+            advance_nonce(&mut profile.mail_action, request.nonce),
             ReadMailError::InvalidAction
         );
         profile.online_in = Some(sc.origin);

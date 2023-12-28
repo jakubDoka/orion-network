@@ -1,52 +1,45 @@
 #![feature(array_chunks)]
+#![feature(let_chains)]
 use std::str::FromStr;
 
 #[macro_export]
 macro_rules! env_config {
-    ($(
-        $key:ident: $ty:ty $(= $default:expr)?,
-    )*) => {
-        $(
+    (
+       struct $name:ident {$(
+            $field:ident: $ty:ty $(= $default:expr)?,
+       )*}
+    ) => {
+        pub struct $name {$(
+            pub $field: $ty,
+        )*}
 
-            #[allow(non_snake_case)]
-            let $key = std::env::var(stringify!($key))
-            $(.or(Ok::<_, std::env::VarError>({
-                let default: $ty = $default;
-                default
-                }.to_string())))?
-            ;
-        )*
-
-        if false $(|| $key.is_err())* {
-            eprintln!("Missing environment variables:");
-            $(
-                if let Err(_) = $key {
-                    eprintln!("\t{}", stringify!($key));
-                }
-            )*
-            std::process::exit(1);
+        impl $name {
+            pub fn from_env() -> Self {
+                $name {$(
+                    $field: $crate::get_env(stringify!($field), $crate::env_config!(@default $($default)?)),
+                )*}
+            }
         }
-
-        $(
-            #[allow(non_snake_case)]
-            let $key = $key.unwrap().parse::<$ty>();
-        )*
-
-        if false $(|| $key.is_err())* {
-            eprintln!("Invalid environment variables:");
-            $(
-                if let Err(e) = $key {
-                    eprintln!("\t{}: {e}", stringify!($key));
-                }
-            )*
-            std::process::exit(1);
-        }
-
-        $(
-            #[allow(non_snake_case)]
-            let $key = $key.unwrap();
-        )*
     };
+
+    (@default $value:expr) => { Some($value) };
+    (@default ) => { None };
+}
+
+pub fn get_env<T: std::str::FromStr>(key: &str, default: Option<&str>) -> T
+where
+    T::Err: std::fmt::Display,
+{
+    let key = key.to_uppercase().to_string();
+    if cfg!(debug_assertions)
+        && let Some(default) = default
+    {
+        std::env::var(&key).unwrap_or(default.to_string())
+    } else {
+        std::env::var(&key).unwrap_or_else(|_| panic!("{key} is not set"))
+    }
+    .parse()
+    .unwrap_or_else(|e| panic!("{key} is not valid {}: {e:#}", std::any::type_name::<T>()))
 }
 
 pub struct List<T>(pub Vec<T>);

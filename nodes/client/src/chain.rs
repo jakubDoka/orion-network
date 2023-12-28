@@ -81,9 +81,9 @@ impl TransactionHandler for WebSigner {
         &self,
         inner: &chain_api::InnerClient,
         call: impl chain_api::TxPayload,
+        nonce: chain_api::Nonce,
     ) -> Result<(), chain_api::Error> {
         let account_id = self.account_id_async().await?;
-        let nonce = inner.get_nonce(&account_id).await?;
         let genesis_hash = chain_api::encode_then_hex(&inner.client.genesis_hash());
         // These numbers aren't SCALE encoded; their bytes are just converted to hex:
         let spec_version =
@@ -138,14 +138,11 @@ impl TransactionHandler for WebSigner {
         let unsigned_payload =
             tx.create_partial_signed_with_nonce(&call, nonce, Default::default())?;
 
-        unsigned_payload
+        let progress = unsigned_payload
             .sign_with_address_and_signature(&account_id.into(), &signature.into())
             .submit_and_watch()
-            .await?
-            .wait_for_in_block()
-            .await?
-            .wait_for_success()
-            .await
-            .map(drop)
+            .await?;
+
+        chain_api::wait_for_in_block(progress).await.map(drop)
     }
 }
