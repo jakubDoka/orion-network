@@ -337,6 +337,11 @@ impl<S: TransactionHandler> Client<S> {
         Ok(res)
     }
 
+    pub async fn get_nonce(&self) -> Result<u64> {
+        let id = self.signer.account_id_async().await?;
+        self.inner.get_nonce(&id).await
+    }
+
     async fn call_dry<T: parity_scale_codec::Decode>(
         &self,
         value: Balance,

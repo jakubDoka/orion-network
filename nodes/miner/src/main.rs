@@ -10,6 +10,7 @@ use {
     chain_api::{ContractId, NodeAddress},
     chat_logic::*,
     component_utils::{kad::KadPeerSearch, libp2p::kad::StoreInserts, Codec, LinearMap, Reminder},
+    core::panic,
     crypto::{enc, sign, TransmutationCircle},
     handlers::{Repl, SendMail, SyncRepl, *},
     libp2p::{
@@ -183,6 +184,7 @@ async fn deal_with_chain(
     });
 
     if is_new {
+        let nonce = client.get_nonce().await.context("fetching nonce")? + nonce;
         client
             .join(
                 node_contract.clone(),
@@ -536,6 +538,7 @@ impl Miner {
                     log::info!("invalid node id");
                     return;
                 };
+                log::info!("node joined the network: {peer_id}");
                 self.swarm
                     .behaviour_mut()
                     .kad
@@ -547,6 +550,7 @@ impl Miner {
                     log::info!("invalid node id");
                     return;
                 };
+                log::info!("node left the network: {peer_id}");
                 self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
                 self.swarm.behaviour_mut().white_list.disallow_peer(peer_id);
             }
@@ -555,6 +559,7 @@ impl Miner {
                     log::info!("invalid node id");
                     return;
                 };
+                log::info!("node changed address: {peer_id}");
                 self.swarm
                     .behaviour_mut()
                     .kad

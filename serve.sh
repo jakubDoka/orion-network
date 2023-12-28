@@ -45,7 +45,7 @@ rebuild_workspace() {
 		--exclude node_staker \
 		--exclude user_manager \
 		--exclude topology-vis \
-		--exclude indexed_db || exit 1
+		|| exit 1
 }
 
 (cd nodes/client/wallet-integration && npm i || exit 1)

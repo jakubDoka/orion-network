@@ -39,7 +39,7 @@ fn main() {
                 .env("BOOT_NODES", boot_nodes)
                 .env("NODE_ACCOUNT", "//Alice")
                 .env("KEY_PATH", format!("node_keys/node{i}.keys"))
-                .env("NONCE", (i + 2).to_string())
+                .env("NONCE", i.to_string())
                 .stdout(process::Stdio::piped())
                 .stderr(process::Stdio::piped())
                 .spawn()
