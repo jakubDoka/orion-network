@@ -128,8 +128,6 @@ macro_rules! gen_simple_error {
 
 #[cfg(feature = "std")]
 pub mod codec;
-#[cfg(feature = "std")]
-pub mod kad;
 pub mod proximity;
 #[cfg(feature = "std")]
 pub mod stream;
