@@ -5,6 +5,7 @@ creq() { [ -x "$(command -v $1)" ] || cargo install $1; }
 creq trunk
 creq cargo-contract
 creq live-server
+creq subxt
 
 sod() { export "$1"="${!1:-$2}"; }
 
@@ -48,6 +49,10 @@ rebuild_workspace() {
 		|| exit 1
 }
 
+forked/substrate-node-template/target/release/node-template --dev > /dev/null 2>&1 &
+sleep 1
+subxt metadata > core/chain-types/metadata.scale
+
 (cd nodes/client/wallet-integration && npm i || exit 1)
 (cd forked/substrate-node-template && cargo build --release || exit 1)
 (cd contracts/node_staker && cargo contract build $WASM_FLAGS || exit 1)
@@ -55,8 +60,6 @@ rebuild_workspace() {
 rebuild_workspace
 
 # setup chain
-forked/substrate-node-template/target/release/node-template --dev > /dev/null 2>&1 &
-sleep 1
 export NODE_CONTRACT=$(cd contracts/node_staker &&\
   cargo contract instantiate --suri //Alice -x --skip-confirm --output-json | jq -r '.contract')
 export USER_CONTRACT=$(cd contracts/user_manager &&\
@@ -66,7 +69,7 @@ echo "user contract: $USER_CONTRACT"
 $TARGET_DIR/init-transfer || exit 1
 
 # run
-run_miners() { $TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START --miner $TARGET_DIR/miner $1 & }
+run_miners() { $TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START --miner $TARGET_DIR/server $1 & }
 
 
 (cd nodes/topology-vis && ./build.sh "$1" || exit 1)
