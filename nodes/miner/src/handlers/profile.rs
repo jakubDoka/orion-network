@@ -22,7 +22,7 @@ impl<C: ProvideStorage> SyncHandler<C> for FetchProfile {
 impl<C: ProvideStorage> SyncHandler<C> for CreateProfile {
     fn execute<'a>(
         mut cx: Scope<'a, C>,
-        (proof, enc, vault): Self::Request<'_>,
+        (proof, enc, Reminder(vault)): Self::Request<'_>,
     ) -> ProtocolResult<'a, Self> {
         crate::ensure!(proof.verify_mail(), CreateAccountError::InvalidProof);
 
@@ -37,7 +37,7 @@ impl<C: ProvideStorage> SyncHandler<C> for CreateProfile {
                     last_sig: proof.signature,
                     vault_version: proof.nonce,
                     mail_action: proof.nonce,
-                    vault: vault.0.to_vec(),
+                    vault: vault.to_vec(),
                     mail: Vec::new(),
                     online_in: None,
                 });
@@ -48,7 +48,7 @@ impl<C: ProvideStorage> SyncHandler<C> for CreateProfile {
                 account.vault_version = proof.nonce;
                 account.last_sig = proof.signature;
                 account.vault.clear();
-                account.vault.extend(vault.0);
+                account.vault.extend(vault);
                 Ok(())
             }
             _ => Err(CreateAccountError::AlreadyExists),

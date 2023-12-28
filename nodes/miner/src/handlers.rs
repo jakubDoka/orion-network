@@ -2,13 +2,11 @@ pub use {chat::*, profile::*, replicated::*};
 use {
     chat_logic::{PossibleTopic, Protocol, ProtocolResult, Subscribe, Topic, REPLICATION_FACTOR},
     component_utils::{codec, Codec},
-    libp2p::{
-        kad::{store::RecordStore, KBucketKey},
-        PeerId,
-    },
+    libp2p::PeerId,
     onion::PathId,
     rpc::CallId,
     std::{
+        borrow::Borrow,
         convert::Infallible,
         ops::{Deref, DerefMut},
     },
@@ -102,52 +100,94 @@ mod peer_search;
 mod populating;
 mod profile;
 mod replicated;
+mod retry;
 
 pub trait ProvidePeerId {
     fn peer_id(&self) -> PeerId;
 }
 
-pub trait ProvideKad {
-    fn kad_mut(&mut self) -> &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>;
+pub trait ProvideDht {
+    fn dht_mut(&mut self) -> &mut mini_dht::Behaviour;
 }
 
-pub trait VerifyTopic: ProvidePeerId + ProvideKad {
+pub trait VerifyTopic: ProvidePeerId + ProvideDht {
     fn is_valid_topic(&mut self, topic: PossibleTopic) -> bool {
-        let us = KBucketKey::from(self.peer_id());
-        let key = KBucketKey::new(topic);
-        let r = self
-            .kad_mut()
-            .get_closest_local_peers(&key)
-            .nth(REPLICATION_FACTOR.get())
-            .is_some_and(|p| p.distance(&key) > us.distance(&key));
-        r
+        let peer_id = self.peer_id();
+        let mut r = self
+            .dht_mut()
+            .table
+            .closest(topic.borrow())
+            .take(REPLICATION_FACTOR.get() + 1);
+        r.any(|p| p.peer_id() == peer_id)
     }
 }
 
-impl<T: ProvidePeerId + ProvideKad> VerifyTopic for T {}
+impl<T: ProvidePeerId + ProvideDht> VerifyTopic for T {}
 
 pub trait ProvideRpc {
     fn rpc_mut(&mut self) -> &mut rpc::Behaviour;
 }
 
-pub trait ProvideKadAndRpc {
-    fn kad_and_rpc_mut(
-        &mut self,
-    ) -> (
-        &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static>,
-        &mut rpc::Behaviour,
-    );
+//pub struct PendingRpc<P> {
+//    pub call_id: CallId,
+//    phantom: std::marker::PhantomData<P>,
+//}
+//
+//impl<P: Protocol> PendingRpc<P> {
+//    fn new(
+//        rpc: &mut rpc::Behaviour,
+//        peer: PeerId,
+//        req: &P::Request<'_>,
+//    ) -> io::Result<PendingRpc<P>> {
+//        Ok(PendingRpc {
+//            call_id: rpc.request(peer, (P::PREFIX, req).to_bytes())?,
+//            phantom: std::marker::PhantomData,
+//        })
+//    }
+//
+//    pub fn poll<'a>(
+//        &self,
+//        event: &'a rpc::Event,
+//    ) -> Option<Result<ProtocolResult<'a, P>, Arc<StreamUpgradeError<Infallible>>>> {
+//        let rpc::Event::Response(_, id, res) = event else {
+//            return None;
+//        };
+//
+//        if *id != self.call_id {
+//            return None;
+//        }
+//
+//        let (res, _) = match res {
+//            Ok(res) => res,
+//            Err(e) => return Some(Err(e.clone())),
+//        };
+//
+//        let res = match ProtocolResult::<P>::decode(&mut res.as_slice()) {
+//            Some(res) => res,
+//            None => {
+//                return Some(Err(Arc::new(StreamUpgradeError::Io(
+//                    io::ErrorKind::InvalidData.into(),
+//                ))))
+//            }
+//        };
+//
+//        Some(Ok(res))
+//    }
+//}
+
+pub trait ProvideDhtAndRpc {
+    fn dht_and_rpc_mut(&mut self) -> (&mut mini_dht::Behaviour, &mut rpc::Behaviour);
 }
 
-impl<T: ProvideKadAndRpc> ProvideKad for T {
-    fn kad_mut(&mut self) -> &mut libp2p::kad::Behaviour<impl RecordStore + Send + 'static> {
-        self.kad_and_rpc_mut().0
+impl<T: ProvideDhtAndRpc> ProvideDht for T {
+    fn dht_mut(&mut self) -> &mut mini_dht::Behaviour {
+        self.dht_and_rpc_mut().0
     }
 }
 
-impl<T: ProvideKadAndRpc> ProvideRpc for T {
+impl<T: ProvideDhtAndRpc> ProvideRpc for T {
     fn rpc_mut(&mut self) -> &mut rpc::Behaviour {
-        self.kad_and_rpc_mut().1
+        self.dht_and_rpc_mut().1
     }
 }
 

@@ -2,12 +2,10 @@ use {
     crate::{ExtractTopic, Protocol},
     component_utils::{codec, Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
-    libp2p::PeerId,
     std::{borrow::Borrow, convert::Infallible, fmt::Debug, iter, num::NonZeroUsize},
 };
 pub use {chat::*, profile::*};
 
-pub const QUORUM: libp2p::kad::Quorum = libp2p::kad::Quorum::Majority;
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(4) };
 
 pub type Nonce = u64;
@@ -18,7 +16,6 @@ mod chat;
 mod profile;
 
 crate::compose_protocols! {
-    fn SearchPeers<'a>(PossibleTopic) -> Result<Vec<PeerId>, Infallible>;
     fn Subscribe<'a>(PossibleTopic) -> Result<(), Infallible>;
 
     fn CreateChat<'a>(Identity, ChatName) -> Result<(), CreateChatError>

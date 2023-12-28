@@ -53,8 +53,6 @@ rebuild_workspace() {
 (cd contracts/node_staker && cargo contract build $WASM_FLAGS || exit 1)
 (cd contracts/user_manager && cargo contract build $WASM_FLAGS || exit 1)
 rebuild_workspace
-(cd nodes/client && trunk build $WASM_FLAGS --features building || exit 1)
-(cd nodes/topology-vis && ./build.sh "$1" || exit 1)
 
 # setup chain
 forked/substrate-node-template/target/release/node-template --dev > /dev/null 2>&1 &
@@ -70,6 +68,8 @@ $TARGET_DIR/init-transfer || exit 1
 # run
 run_miners() { $TARGET_DIR/runner --node-count $NODE_COUNT --first-port $NODE_START --miner $TARGET_DIR/miner $1 & }
 
+
+(cd nodes/topology-vis && ./build.sh "$1" || exit 1)
 (cd nodes/topology-vis/dist && live-server --host localhost --port $TOPOLOGY_PORT &)
 (cd nodes/client && trunk serve $WASM_FLAGS --port $FRONTEND_PORT --features building &)
 run_miners --first-run
@@ -80,6 +80,9 @@ while read -r line; do
 			killall runner miner
 			rebuild_workspace
 			run_miners
+			;;
+		"topology")
+			(cd nodes/topology-vis && ./build.sh "$1" || exit 1)
 			;;
 		"exit")
 			exit 0

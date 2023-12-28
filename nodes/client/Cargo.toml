@@ -15,8 +15,9 @@ crypto = { version = "0.1.0", path = "../../core/crypto" }
 hex = "0.4.3"
 leptos = { version = "0.5.1", default-features = false, features = ["nightly", "csr"] }
 leptos_router = { version = "0.5.2", features = ["nightly", "csr"] }
-libp2p = { version = "0.53.0", features = ["noise", "kad", "macros", "yamux", "wasm-bindgen", "identify"] }
+libp2p = { version = "0.53.0", features = ["noise", "macros", "yamux", "wasm-bindgen"] }
 log = "0.4.20"
+mini-dht = { version = "0.1.0", path = "../../core/mini-dht" }
 onion = { version = "0.1.0", path = "../../core/onion", features = ["wasm"] }
 primitives = { version = "0.1.0", path = "../../core/primitives", features = ["std"] }
 rand = "0.8.5"

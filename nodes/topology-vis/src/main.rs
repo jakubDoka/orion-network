@@ -1,13 +1,17 @@
 use {
+    chain_api::ContractId,
     libp2p::{
-        core::{upgrade::Version, ConnectedPoint},
-        futures::StreamExt,
-        kad::ProgressStep,
-        swarm::NetworkBehaviour,
-        Multiaddr, PeerId, Transport,
+        core::upgrade::Version, futures::StreamExt, multiaddr, swarm::NetworkBehaviour, Multiaddr,
+        PeerId, Transport,
     },
     macroquad::prelude::*,
-    std::{cell::RefCell, collections::BTreeMap, mem},
+    mini_dht::Route,
+    std::{
+        cell::RefCell,
+        collections::{BTreeMap, HashSet},
+        mem,
+        net::IpAddr,
+    },
     wasm_bindgen_futures::spawn_local,
 };
 
@@ -53,17 +57,17 @@ impl Nodes {
     //     self.inner.len()
     // }
 
-    // fn retain(&mut self, mut keep: impl FnMut(&mut Node) -> bool) {
-    //     for (i, node) in self.inner.iter_mut().enumerate() {
-    //         let Some(nd) = node else {
-    //             continue;
-    //         };
-    //         if !keep(nd) {
-    //             *node = None;
-    //             self.free.push(i);
-    //         }
-    //     }
-    // }
+    fn retain(&mut self, mut keep: impl FnMut(&mut Node) -> bool) {
+        for (i, node) in self.inner.iter_mut().enumerate() {
+            let Some(nd) = node else {
+                continue;
+            };
+            if !keep(nd) {
+                *node = None;
+                self.free.push(i);
+            }
+        }
+    }
 
     fn iter(&self) -> impl Iterator<Item = (usize, &Node)> + '_ {
         self.inner
@@ -78,8 +82,8 @@ struct Node {
     pid: PeerId,
     position: Vec2,
     velocity: Vec2,
-    client: bool,
     brightness: f32,
+    reached: bool,
 }
 
 impl Node {
@@ -89,13 +93,13 @@ impl Node {
     const MIN_NODE_BRIGHTNESS: f32 = 0.5;
     const NODE_SIZE: f32 = 20.0;
 
-    fn new(x: f32, y: f32, client: bool, pid: PeerId) -> Self {
+    fn new(x: f32, y: f32, pid: PeerId) -> Self {
         Self {
             pid,
             position: Vec2::new(x, y),
             velocity: Vec2::from_angle(rand::gen_range(0.0, 2.0 * std::f32::consts::PI)) * 300.0,
-            client,
             brightness: 1.0,
+            reached: true,
         }
     }
 
@@ -124,8 +128,8 @@ impl Node {
         self.brightness = (self.brightness - time * 0.8).max(Self::MIN_NODE_BRIGHTNESS);
     }
 
-    fn draw(&self) {
-        let color = if self.client {
+    fn draw(&self, is_client: bool) {
+        let color = if is_client {
             Color::from_hex(0x1aaf72)
         } else {
             Color::from_hex(0xcc0000)
@@ -179,6 +183,7 @@ type EdgeVaule = f32;
 
 struct World {
     nodes: Nodes,
+    servers: HashSet<PeerId>,
     edges: BTreeMap<Edge, EdgeVaule>,
     protocols: Vec<Protocol>,
     center_node: Node,
@@ -188,6 +193,7 @@ impl Default for World {
     fn default() -> Self {
         Self {
             nodes: Nodes::default(),
+            servers: HashSet::new(),
             edges: BTreeMap::new(),
             protocols: vec![
                 Protocol {
@@ -207,7 +213,7 @@ impl Default for World {
                     color: Color::from_hex(0x66ff66),
                 },
             ],
-            center_node: Node::new(0.0, 0.0, false, PeerId::random()),
+            center_node: Node::new(0.0, 0.0, PeerId::random()),
         }
     }
 }
@@ -247,9 +253,20 @@ impl World {
     }
 
     fn update(&mut self, time: f32) {
+        self.nodes.iter_mut().for_each(|(_, node)| {
+            node.reached = false;
+        });
         self.edges.retain(|edge, brightness| {
             *brightness = (*brightness - time * 2.0).max(Node::MIN_LINE_BRIGHTNESS);
-            self.nodes.get_mut(edge.start).is_some() && self.nodes.get_mut(edge.end).is_some()
+            self.nodes
+                .get_mut(edge.start)
+                .map(|n| n.reached = true)
+                .is_some()
+                && self
+                    .nodes
+                    .get_mut(edge.end)
+                    .map(|n| n.reached = true)
+                    .is_some()
         });
 
         let mut iter = self.nodes.inner.iter_mut();
@@ -269,6 +286,8 @@ impl World {
         for (_, node) in self.nodes.iter_mut() {
             node.update(time);
         }
+        self.nodes
+            .retain(|node| node.reached || self.servers.contains(&node.pid));
     }
 
     fn draw(&self) {
@@ -288,7 +307,8 @@ impl World {
         }
 
         for (_, node) in self.nodes.iter() {
-            node.draw();
+            let is_client = !self.servers.contains(&node.pid);
+            node.draw(is_client);
         }
 
         let mut cursor = 30.0;
@@ -316,27 +336,19 @@ fn by_peer_id(nodes: &Nodes, peer: PeerId) -> Option<usize> {
 }
 
 impl topology_wrapper::collector::World for WorldRc {
-    fn handle_update(
-        &mut self,
-        peer: PeerId,
-        update: topology_wrapper::report::Update,
-        client: bool,
-    ) {
+    fn handle_update(&mut self, peer: PeerId, update: topology_wrapper::report::Update) {
         let mut s = self.0.borrow_mut();
 
         let (width, height) = (screen_width() / 2.0, screen_height() / 2.0);
 
         let index = by_peer_id(&s.nodes, peer)
-            .unwrap_or_else(|| s.add_node(Node::new(width, height, client, peer)));
+            .unwrap_or_else(|| s.add_node(Node::new(width, height, peer)));
         let other = by_peer_id(&s.nodes, update.peer)
-            .unwrap_or_else(|| s.add_node(Node::new(width, height, client, update.peer)));
+            .unwrap_or_else(|| s.add_node(Node::new(width, height, update.peer)));
 
         if index == other {
             return;
         }
-
-        s.nodes.get_mut(index).unwrap().client &= client;
-        s.nodes.get_mut(other).unwrap().client &= client;
 
         use topology_wrapper::report::Event as E;
         let (protocol, brightness) = match update.event {
@@ -384,8 +396,7 @@ impl topology_wrapper::collector::World for WorldRc {
 #[derive(NetworkBehaviour)]
 struct Behaviour {
     collector: topology_wrapper::collector::Behaviour<WorldRc>,
-    kad: libp2p::kad::Behaviour<libp2p::kad::store::MemoryStore>,
-    identify: libp2p::identify::Behaviour,
+    dht: mini_dht::Behaviour,
 }
 
 macro_rules! build_env {
@@ -397,12 +408,17 @@ macro_rules! build_env {
     };
 }
 
-fn boot_node() -> Multiaddr {
-    build_env!(pub BOOT_NODE);
-    BOOT_NODE.parse().unwrap()
+fn node_contract() -> ContractId {
+    build_env!(pub NODE_CONTRACT);
+    NODE_CONTRACT.parse().unwrap()
 }
 
-#[macroquad::main("BasicShapes")]
+fn chain_node() -> String {
+    build_env!(pub CHAIN_NODE);
+    CHAIN_NODE.to_string()
+}
+
+#[macroquad::main("Topology-Vis")]
 async fn main() {
     console_error_panic_hook::set_once();
     console_log::init_with_level(if cfg!(debug_assertions) {
@@ -422,11 +438,7 @@ async fn main() {
     let world = WorldRc::default();
     let behaviour = Behaviour {
         collector: topology_wrapper::collector::Behaviour::new(peer_id, world),
-        kad: libp2p::kad::Behaviour::new(peer_id, libp2p::kad::store::MemoryStore::new(peer_id)),
-        identify: libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
-            "l".into(),
-            identity.public(),
-        )),
+        dht: mini_dht::Behaviour::new(|_, _, _, _| Ok(())),
     };
     let mut swarm = libp2p::Swarm::new(
         transport,
@@ -434,56 +446,57 @@ async fn main() {
         peer_id,
         libp2p::swarm::Config::with_wasm_executor(),
     );
-    log::info!("Dialing {}", boot_node());
-    swarm.dial(boot_node()).unwrap();
+
+    fn unpack_node_addr(addr: chain_api::NodeAddress) -> Multiaddr {
+        let (addr, port) = addr.into();
+        Multiaddr::empty()
+            .with(match addr {
+                IpAddr::V4(ip) => multiaddr::Protocol::Ip4(ip),
+                IpAddr::V6(ip) => multiaddr::Protocol::Ip6(ip),
+            })
+            .with(multiaddr::Protocol::Tcp(port + 100))
+            .with(multiaddr::Protocol::Ws("/".into()))
+    }
 
     spawn_local(async move {
+        let nodes = chain_api::Client::with_signer(&chain_node(), ())
+            .await
+            .unwrap()
+            .list(node_contract())
+            .await
+            .unwrap();
+        for (node, ip) in nodes {
+            let id = libp2p::identity::ed25519::PublicKey::try_from_bytes(&node.id).unwrap();
+            let route = Route::new(id, unpack_node_addr(ip));
+            let peer_id = route.peer_id();
+            swarm.behaviour_mut().dht.table.insert(route);
+            swarm
+                .behaviour_mut()
+                .collector
+                .world_mut()
+                .0
+                .borrow_mut()
+                .servers
+                .insert(peer_id);
+            swarm
+                .behaviour_mut()
+                .collector
+                .world_mut()
+                .0
+                .borrow_mut()
+                .nodes
+                .push(Node::new(
+                    screen_width() / 2.,
+                    screen_height() / 2.,
+                    peer_id,
+                ));
+            _ = swarm.dial(peer_id);
+        }
+
         log::info!("Starting swarm");
-        let mut bootstrap = None;
-        let mut bootstraps_left = 5;
         loop {
             let e = swarm.select_next_some().await;
-            match e {
-                libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Identify(
-                    libp2p::identify::Event::Received { peer_id, info },
-                )) => {
-                    if let Some(addr) = info.listen_addrs.first() {
-                        swarm
-                            .behaviour_mut()
-                            .kad
-                            .add_address(&peer_id, addr.clone());
-                    }
-                    swarm.behaviour_mut().collector.add_peer(peer_id);
-                }
-                libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Kad(
-                    libp2p::kad::Event::OutboundQueryProgressed {
-                        id,
-                        step: ProgressStep { last: true, .. },
-                        ..
-                    },
-                )) if Some(id) == bootstrap && bootstraps_left != 0 => {
-                    bootstraps_left -= 1;
-                    #[allow(unused_assignments)]
-                    {
-                        bootstrap = Some(swarm.behaviour_mut().kad.bootstrap().unwrap());
-                    }
-                }
-                libp2p::swarm::SwarmEvent::ConnectionEstablished {
-                    peer_id,
-                    endpoint: ConnectedPoint::Dialer { address, .. },
-                    ..
-                } => {
-                    swarm.behaviour_mut().collector.add_peer(peer_id);
-                    swarm.behaviour_mut().kad.add_address(&peer_id, address);
-                    if bootstrap.is_none() {
-                        #[allow(unused_assignments)]
-                        {
-                            bootstrap = Some(swarm.behaviour_mut().kad.bootstrap().unwrap());
-                        }
-                    }
-                }
-                e => log::debug!("{:?}", e),
-            }
+            log::debug!("{:?}", e);
         }
     });
 

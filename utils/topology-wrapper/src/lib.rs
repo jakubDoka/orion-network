@@ -28,6 +28,7 @@ pub mod report {
         libp2p::swarm::dummy::Behaviour
     }
 }
+
 #[cfg(feature = "disabled")]
 mod impls {
     pub type EventSender = ();
@@ -56,7 +57,7 @@ pub mod collector {
     };
 
     pub trait World: 'static {
-        fn handle_update(&mut self, peer: PeerId, update: Update, client: bool);
+        fn handle_update(&mut self, peer: PeerId, update: Update);
     }
 
     struct UpdateStream {
@@ -178,8 +179,7 @@ pub mod collector {
                 };
 
                 if update.peer != self.peer_id {
-                    let client = !self.listeners.iter().any(|l| l.peer == update.peer);
-                    self.world.handle_update(peer, update, client);
+                    self.world.handle_update(peer, update);
                 }
             }
         }

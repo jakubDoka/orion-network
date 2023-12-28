@@ -1,9 +1,6 @@
 use {
-    chat_logic::*,
-    component_utils::Codec,
-    libp2p::futures::StreamExt,
-    onion::EncryptedStream,
-    std::{collections::HashMap, convert::Infallible},
+    chat_logic::*, component_utils::Codec, libp2p::futures::StreamExt, onion::EncryptedStream,
+    std::convert::Infallible,
 };
 
 pub struct RequestDispatch {
@@ -97,35 +94,6 @@ impl RequestDispatch {
         <(CallId, ProtocolResult<'_, P>)>::decode(&mut &response[..])
             .ok_or(RequestError::InvalidResponse)
             .and_then(|(_, resp)| resp.map_err(RequestError::Handler))
-    }
-
-    pub async fn dispatch_direct_batch<'a, 'b, P: Protocol>(
-        &'a mut self,
-        stream: &mut EncryptedStream,
-        requests: impl Iterator<Item = P::Request<'b>>,
-    ) -> Result<impl Iterator<Item = (ProtocolResult<'a, P>, P::Request<'b>)>, RequestError<P>>
-    {
-        let mut mapping = HashMap::new();
-        for request in requests {
-            let id = CallId::new();
-            stream
-                .write((P::PREFIX, id, &request))
-                .ok_or(RequestError::ServerIsOwervhelmed)?;
-            mapping.insert(id, request);
-        }
-
-        let mut stream = stream.by_ref().take(mapping.len());
-        while let Some(packet) = stream.next().await {
-            self.buffer
-                .extend(packet.map_err(|_| RequestError::ChannelClosed)?);
-        }
-
-        Ok(
-            (0..mapping.len()).scan(self.buffer.as_slice(), move |b, _| {
-                <(CallId, ProtocolResult<'_, P>)>::decode(b)
-                    .and_then(|(id, body)| Some((body, mapping.remove(&id)?)))
-            }),
-        )
     }
 
     pub fn subscribe<P: Topic>(

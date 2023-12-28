@@ -1,10 +1,10 @@
 use {
-    super::{HandlerTypes, ProvideKadAndRpc, ProvidePeerId, Sync, TryUnwrap, VerifyTopic},
+    super::{HandlerTypes, ProvideDhtAndRpc, ProvidePeerId, Sync, TryUnwrap, VerifyTopic},
     crate::{Handler, REPLICATION_FACTOR},
     chat_logic::{ExtractTopic, PossibleTopic, Protocol, ReplError},
     component_utils::{arrayvec::ArrayVec, Codec, FindAndRemove},
-    libp2p::kad::KBucketKey,
     rpc::CallId,
+    std::borrow::Borrow,
 };
 
 pub type SyncRepl<H> = ReplBase<Sync<H>, rpc::Event>;
@@ -21,17 +21,18 @@ pub enum ReplBase<H, E> {
 }
 
 impl<H, E> ReplBase<H, E> {
-    pub fn new_replicating<C: ProvideKadAndRpc>(
+    pub fn new_replicating<C: ProvideDhtAndRpc>(
         response: Vec<u8>,
         request: Vec<u8>,
         topic: PossibleTopic,
         cx: &mut C,
     ) -> Self {
-        let (kad, rpc) = cx.kad_and_rpc_mut();
-        let ongoing = kad
-            .get_closest_local_peers(&KBucketKey::new(topic))
-            .take(REPLICATION_FACTOR.get())
-            .filter_map(|peer| rpc.request(*peer.preimage(), request.as_slice()).ok())
+        let (dht, rpc) = cx.dht_and_rpc_mut();
+        let ongoing = dht
+            .table
+            .closest(topic.borrow())
+            .take(REPLICATION_FACTOR.get() + 1)
+            .filter_map(|peer| rpc.request(peer.peer_id(), request.as_slice()).ok())
             .collect();
 
         Self::Replicating {
@@ -50,7 +51,7 @@ impl<H: HandlerTypes, E> HandlerTypes for ReplBase<H, E> {
 
 impl<C, H, E> Handler<C> for ReplBase<H, E>
 where
-    C: ProvideKadAndRpc + ProvidePeerId,
+    C: ProvideDhtAndRpc + ProvidePeerId,
     H: Handler<C>,
     H::Protocol: ExtractTopic,
     for<'a> &'a E: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,

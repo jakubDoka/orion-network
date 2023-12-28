@@ -24,6 +24,4 @@ rand = "0.8.5"
 tokio = { version = "1.32.0", features = ["rt", "macros", "time", "rt-multi-thread"] }
 
 [features]
-default = ["kad"]
-kad = [ "component-utils/libp2p", "libp2p/kad"]
 wasm = ["instant/wasm-bindgen"]

@@ -8,12 +8,26 @@ edition = "2021"
 [dependencies]
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
-libp2p = { version = "0.53.1", features = ["kad", "noise", "yamux", "identify", "wasm-bindgen", "macros"] }
+crypto = { version = "0.1.0", path = "../../core/crypto" }
+libp2p = { version = "0.53.1", features = ["noise", "yamux", "wasm-bindgen", "macros"] }
 log = "0.4.20"
 macroquad = "0.4.4"
+mini-dht = { version = "0.1.0", path = "../../core/mini-dht" }
 topology-wrapper = { version = "0.1.0", path = "../../utils/topology-wrapper" }
 wasm-bindgen-futures = "0.4.39"
 websocket-websys = { version = "0.1.0", path = "../../utils/websocket-websys" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.chain-api]
+version = "0.1.0"
+path = "../../core/chain-api"
+features = ["native"]
+default-features = false 
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.chain-api]
+version = "0.1.0"
+path = "../../core/chain-api"
+features = ["web"]
+default-features = false 
 
 [features]
 building = []

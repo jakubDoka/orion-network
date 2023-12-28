@@ -237,16 +237,6 @@ impl Behaviour {
     }
 }
 
-impl component_utils::KadSearchComponent for Behaviour {
-    fn redail(&mut self, peer: libp2p::identity::PeerId) {
-        self.redail(peer);
-    }
-
-    fn mark_failed(&mut self, peer: PeerId) {
-        self.report_unreachable(peer);
-    }
-}
-
 impl NetworkBehaviour for Behaviour {
     type ConnectionHandler = Handler;
     type ToSwarm = Event;

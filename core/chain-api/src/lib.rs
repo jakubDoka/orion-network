@@ -97,6 +97,21 @@ impl TransactionHandler for Keypair {
     }
 }
 
+impl TransactionHandler for () {
+    async fn account_id_async(&self) -> Result<AccountId> {
+        Ok(AccountId::from([0; 32]))
+    }
+
+    async fn handle(
+        &self,
+        _inner: &InnerClient,
+        _call: impl TxPayload,
+        _nonce: Nonce,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
 pub async fn wait_for_in_block(
     mut progress: TxProgress<PolkadotConfig, OnlineClient<PolkadotConfig>>,
 ) -> Result<Hash> {

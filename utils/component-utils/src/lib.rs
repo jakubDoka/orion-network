@@ -130,13 +130,14 @@ macro_rules! gen_simple_error {
 pub mod codec;
 #[cfg(feature = "std")]
 pub mod kad;
+pub mod proximity;
 #[cfg(feature = "std")]
 pub mod stream;
 
 pub use arrayvec;
 use core::task::Waker;
 #[cfg(feature = "std")]
-pub use {codec::*, futures, kad::*, libp2p, stream::*, thiserror};
+pub use {codec::*, futures, libp2p, stream::*, thiserror};
 
 pub struct DropFn<F: FnOnce()>(Option<F>);
 

@@ -2,7 +2,6 @@ use {
     self::web_sys::wasm_bindgen::JsValue,
     chain_api::{ContractId, TransactionHandler},
     leptos::*,
-    libp2p::Multiaddr,
     primitives::UserName,
     std::str::FromStr,
     web_sys::js_sys::wasm_bindgen,
@@ -20,11 +19,6 @@ macro_rules! build_env {
 pub async fn node(name: UserName) -> Result<chain_api::Client<WebSigner>, chain_api::Error> {
     build_env!(CHAIN_NODE);
     chain_api::Client::with_signer(CHAIN_NODE, WebSigner(name)).await
-}
-
-pub fn boot_node() -> Multiaddr {
-    build_env!(NETWORK_BOOT_NODE);
-    NETWORK_BOOT_NODE.parse().unwrap()
 }
 
 pub fn user_contract() -> ContractId {

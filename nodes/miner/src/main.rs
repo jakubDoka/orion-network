@@ -9,24 +9,24 @@ use {
     anyhow::Context as _,
     chain_api::{ContractId, NodeAddress},
     chat_logic::*,
-    component_utils::{kad::KadPeerSearch, libp2p::kad::StoreInserts, Codec, LinearMap, Reminder},
+    component_utils::{Codec, LinearMap, Reminder},
     core::panic,
     crypto::{enc, sign, TransmutationCircle},
     handlers::{Repl, SendMail, SyncRepl, *},
     libp2p::{
-        core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version, ConnectedPoint},
+        core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
         futures::{self, stream::SelectAll, SinkExt, StreamExt},
-        kad::{self, QueryId},
+        identity::{self, ed25519},
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Transport,
     },
+    mini_dht::Route,
     onion::{EncryptedStream, PathId},
     primitives::contracts::{NodeData, StoredNodeData},
     std::{
-        borrow::Cow,
         collections::HashMap,
         convert::Infallible,
-        fs, io, iter, mem,
+        fs, io,
         net::{IpAddr, Ipv4Addr},
         time::Duration,
     },
@@ -37,6 +37,7 @@ macro_rules! extract_ctx {
         Context {
             swarm: &mut $self.swarm,
             streams: &mut $self.clients,
+            storage: &mut $self.storage,
         }
     };
 }
@@ -44,7 +45,6 @@ macro_rules! extract_ctx {
 mod handlers;
 #[cfg(test)]
 mod tests;
-mod white_list;
 
 compose_handlers! {
     InternalServer {
@@ -53,7 +53,6 @@ compose_handlers! {
     }
 
     ExternalServer {
-        Sync<SearchPeers>,
         Sync<Subscribe>,
 
         SyncRepl<CreateProfile>, SyncRepl<SetVault>, Repl<SendMail>, SyncRepl<ReadMail>, SyncRepl<FetchProfile>,
@@ -115,22 +114,16 @@ type StakeEvents = futures::channel::mpsc::Receiver<chain_api::Result<chain_api:
 
 struct Miner {
     swarm: libp2p::swarm::Swarm<Behaviour>,
-    peer_discovery: KadPeerSearch,
+    storage: Storage,
     clients: futures::stream::SelectAll<Stream>,
     buffer: Vec<u8>,
-    bootstrapped: Option<QueryId>,
     internal: InternalServer,
     external: ExternalServer,
     stake_events: StakeEvents,
 }
 
-fn unpack_node_id(id: sign::Ed) -> anyhow::Result<PeerId> {
-    let peer_id = {
-        let ed_kp = libp2p::identity::ed25519::PublicKey::try_from_bytes(&id)
-            .context("deriving ed signature")?;
-        libp2p::identity::PublicKey::from(ed_kp).to_peer_id()
-    };
-    Ok(peer_id)
+fn unpack_node_id(id: sign::Ed) -> anyhow::Result<ed25519::PublicKey> {
+    libp2p::identity::ed25519::PublicKey::try_from_bytes(&id).context("deriving ed signature")
 }
 
 fn unpack_node_addr(addr: chain_api::NodeAddress) -> Multiaddr {
@@ -206,6 +199,28 @@ async fn deal_with_chain(
     Ok((node_list, stake_events))
 }
 
+fn filter_incoming(
+    table: &mut mini_dht::RoutingTable,
+    peer: PeerId,
+    local_addr: &Multiaddr,
+    _: &Multiaddr,
+) -> Result<(), libp2p::swarm::ConnectionDenied> {
+    if local_addr
+        .iter()
+        .any(|p| p == multiaddr::Protocol::Ws("/".into()))
+    {
+        return Ok(());
+    }
+
+    if table.get(peer).is_none() {
+        return Err(libp2p::swarm::ConnectionDenied::new(
+            "not registered as a node",
+        ));
+    }
+
+    Ok(())
+}
+
 impl Miner {
     async fn new(
         config: NodeConfig,
@@ -228,7 +243,6 @@ impl Miner {
 
         let (sender, receiver) = topology_wrapper::channel();
         let behaviour = Behaviour {
-            white_list: white_list::Behaviour::new(port + 100),
             onion: topology_wrapper::new(
                 onion::Behaviour::new(
                     onion::Config::new(keys.enc.clone().into(), peer_id)
@@ -237,25 +251,7 @@ impl Miner {
                 ),
                 sender.clone(),
             ),
-            kad: topology_wrapper::new(
-                kad::Behaviour::with_config(
-                    peer_id,
-                    Storage::new(),
-                    mem::take(
-                        kad::Config::default()
-                            .set_replication_factor(REPLICATION_FACTOR)
-                            .set_record_filtering(StoreInserts::FilterBoth),
-                    ),
-                ),
-                sender.clone(),
-            ),
-            identfy: topology_wrapper::new(
-                libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
-                    "0.1.0".into(),
-                    local_key.public(),
-                )),
-                sender.clone(),
-            ),
+            dht: mini_dht::Behaviour::new(filter_incoming),
             rpc: topology_wrapper::new(rpc::Behaviour::default(), sender.clone()),
             report: topology_wrapper::report::new(receiver),
         };
@@ -292,8 +288,6 @@ impl Miner {
                 .with_idle_connection_timeout(Duration::from_millis(idle_timeout)),
         );
 
-        swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
-
         swarm
             .listen_on(
                 Multiaddr::empty()
@@ -313,14 +307,15 @@ impl Miner {
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        for (node, addr) in node_list {
-            let peer_id = unpack_node_id(node.id)?;
-            swarm
-                .behaviour_mut()
-                .kad
-                .add_address(&peer_id, unpack_node_addr(addr));
-            swarm.behaviour_mut().white_list.allow_peer(peer_id);
-        }
+        let node_data = node_list
+            .into_iter()
+            .map(|(node, addr)| {
+                let pk = unpack_node_id(node.id)?;
+                let addr = unpack_node_addr(addr);
+                Ok(Route::new(pk, addr))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        swarm.behaviour_mut().dht.table.bulk_insert(node_data);
 
         for boot_node in boot_nodes.0 {
             swarm.dial(boot_node).context("dialing a boot peer")?;
@@ -328,11 +323,10 @@ impl Miner {
 
         Ok(Self {
             swarm,
-            peer_discovery: Default::default(),
             clients: Default::default(),
             buffer: Default::default(),
-            bootstrapped: None,
             stake_events,
+            storage: Default::default(),
             internal: Default::default(),
             external: Default::default(),
         })
@@ -358,45 +352,11 @@ impl Miner {
 
     fn handle_event(&mut self, event: SE) {
         match event {
-            SwarmEvent::ConnectionEstablished {
-                peer_id,
-                endpoint: ConnectedPoint::Dialer { address, .. },
-                ..
-            } => {
-                self.swarm
-                    .behaviour_mut()
-                    .kad
-                    .add_address(&peer_id, address);
-
-                if self.bootstrapped.is_none() {
-                    self.bootstrapped = Some(
-                        self.swarm
-                            .behaviour_mut()
-                            .kad
-                            .bootstrap()
-                            .expect("we now have at least one node connected"),
-                    );
-                }
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Identfy(libp2p::identify::Event::Received {
-                peer_id,
-                info,
-            })) => {
-                for addr in info.listen_addrs {
-                    self.swarm.behaviour_mut().kad.add_address(&peer_id, addr);
-                }
-            }
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
-                component_utils::handle_conn_request(to, &mut self.swarm, &mut self.peer_discovery)
+                self.swarm.behaviour_mut().onion.redail(to);
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Kad(e))
-                if component_utils::try_handle_conn_response(
-                    &e,
-                    &mut self.swarm,
-                    &mut self.peer_discovery,
-                ) => {}
             SwarmEvent::Behaviour(BehaviourEvent::Rpc(rpc::Event::Request(peer, id, body))) => {
-                if !self.swarm.behaviour_mut().white_list.is_allowed(&peer) {
+                if self.swarm.behaviour_mut().dht.table.get(peer).is_none() {
                     log::warn!(
                         "peer {} made rpc request but is not on the white list",
                         peer
@@ -534,36 +494,34 @@ impl Miner {
 
         match event {
             chain_api::StakeEvent::Joined(j) => {
-                let Ok(peer_id) = unpack_node_id(j.identity) else {
+                let Ok(pk) = unpack_node_id(j.identity) else {
                     log::info!("invalid node id");
                     return;
                 };
-                log::info!("node joined the network: {peer_id}");
-                self.swarm
-                    .behaviour_mut()
-                    .kad
-                    .add_address(&peer_id, unpack_node_addr(j.addr));
-                self.swarm.behaviour_mut().white_list.allow_peer(peer_id);
+                log::info!("node joined the network: {pk:?}");
+                let route = Route::new(pk, unpack_node_addr(j.addr));
+                self.swarm.behaviour_mut().dht.table.insert(route);
             }
             chain_api::StakeEvent::Reclaimed(r) => {
-                let Ok(peer_id) = unpack_node_id(r.identity) else {
+                let Ok(pk) = unpack_node_id(r.identity) else {
                     log::info!("invalid node id");
                     return;
                 };
-                log::info!("node left the network: {peer_id}");
-                self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
-                self.swarm.behaviour_mut().white_list.disallow_peer(peer_id);
-            }
-            chain_api::StakeEvent::AddrChanged(c) => {
-                let Ok(peer_id) = unpack_node_id(c.identity) else {
-                    log::info!("invalid node id");
-                    return;
-                };
-                log::info!("node changed address: {peer_id}");
+                log::info!("node left the network: {pk:?}");
                 self.swarm
                     .behaviour_mut()
-                    .kad
-                    .add_address(&peer_id, unpack_node_addr(c.addr));
+                    .dht
+                    .table
+                    .remove(identity::PublicKey::from(pk).to_peer_id());
+            }
+            chain_api::StakeEvent::AddrChanged(c) => {
+                let Ok(pk) = unpack_node_id(c.identity) else {
+                    log::info!("invalid node id");
+                    return;
+                };
+                log::info!("node changed address: {pk:?}");
+                let route = Route::new(pk, unpack_node_addr(c.addr));
+                self.swarm.behaviour_mut().dht.table.insert(route);
             }
         }
     }
@@ -582,6 +540,7 @@ impl Miner {
 struct Context<'a> {
     swarm: &'a mut libp2p::swarm::Swarm<Behaviour>,
     streams: &'a mut SelectAll<Stream>,
+    storage: &'a mut Storage,
 }
 
 impl ProvideSubscription for Context<'_> {
@@ -600,21 +559,16 @@ impl ProvidePeerId for Context<'_> {
     }
 }
 
-impl ProvideKadAndRpc for Context<'_> {
-    fn kad_and_rpc_mut(
-        &mut self,
-    ) -> (
-        &mut libp2p::kad::Behaviour<impl kad::store::RecordStore + Send + 'static>,
-        &mut rpc::Behaviour,
-    ) {
+impl ProvideDhtAndRpc for Context<'_> {
+    fn dht_and_rpc_mut(&mut self) -> (&mut mini_dht::Behaviour, &mut rpc::Behaviour) {
         let beh = self.swarm.behaviour_mut();
-        (&mut beh.kad, &mut beh.rpc)
+        (&mut beh.dht, &mut beh.rpc)
     }
 }
 
 impl ProvideStorage for Context<'_> {
     fn store_mut(&mut self) -> &mut crate::Storage {
-        self.swarm.behaviour_mut().kad.store_mut()
+        self.storage
     }
 }
 
@@ -664,10 +618,8 @@ type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {
-    white_list: white_list::Behaviour,
     onion: topology_wrapper::Behaviour<onion::Behaviour>,
-    kad: topology_wrapper::Behaviour<kad::Behaviour<Storage>>,
-    identfy: topology_wrapper::Behaviour<libp2p::identify::Behaviour>,
+    dht: mini_dht::Behaviour,
     rpc: topology_wrapper::Behaviour<rpc::Behaviour>,
     report: topology_wrapper::report::Behaviour,
 }
@@ -681,21 +633,6 @@ impl From<Infallible> for BehaviourEvent {
 impl TryUnwrap<Infallible> for BehaviourEvent {
     fn try_unwrap(self) -> Result<Infallible, Self> {
         Err(self)
-    }
-}
-
-impl From<libp2p::kad::Event> for BehaviourEvent {
-    fn from(v: libp2p::kad::Event) -> Self {
-        BehaviourEvent::Kad(v)
-    }
-}
-
-impl TryUnwrap<kad::Event> for BehaviourEvent {
-    fn try_unwrap(self) -> Result<kad::Event, Self> {
-        match self {
-            BehaviourEvent::Kad(e) => Ok(e),
-            e => Err(e),
-        }
     }
 }
 
@@ -726,8 +663,6 @@ impl<'a> TryUnwrap<&'a Infallible> for &'a rpc::Event {
     }
 }
 
-component_utils::impl_kad_search!(Behaviour => (Storage, onion::Behaviour => onion, kad));
-
 pub struct Stream {
     id: PathId,
     subscriptions: LinearMap<PossibleTopic, CallId>,
@@ -757,59 +692,8 @@ impl libp2p::futures::Stream for Stream {
     }
 }
 
+#[derive(Default)]
 pub struct Storage {
     profiles: HashMap<Identity, Profile>,
     chats: HashMap<ChatName, Chat>,
-}
-
-impl Default for Storage {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Storage {
-    pub fn new() -> Self {
-        Self {
-            profiles: HashMap::new(),
-            chats: HashMap::new(),
-        }
-    }
-}
-
-impl libp2p::kad::store::RecordStore for Storage {
-    type ProvidedIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::ProviderRecord>>
-    where
-        Self: 'a;
-    type RecordsIter<'a> = std::iter::Empty<Cow<'a, libp2p::kad::Record>>
-    where
-        Self: 'a;
-
-    fn get(&self, _: &libp2p::kad::RecordKey) -> Option<std::borrow::Cow<'_, libp2p::kad::Record>> {
-        None
-    }
-
-    fn put(&mut self, _: libp2p::kad::Record) -> libp2p::kad::store::Result<()> {
-        Ok(())
-    }
-
-    fn remove(&mut self, _: &libp2p::kad::RecordKey) {}
-
-    fn records(&self) -> Self::RecordsIter<'_> {
-        iter::empty()
-    }
-
-    fn add_provider(&mut self, _: libp2p::kad::ProviderRecord) -> libp2p::kad::store::Result<()> {
-        Ok(())
-    }
-
-    fn providers(&self, _: &libp2p::kad::RecordKey) -> Vec<libp2p::kad::ProviderRecord> {
-        Vec::new()
-    }
-
-    fn provided(&self) -> Self::ProvidedIter<'_> {
-        iter::empty()
-    }
-
-    fn remove_provider(&mut self, _: &libp2p::kad::RecordKey, _: &PeerId) {}
 }
