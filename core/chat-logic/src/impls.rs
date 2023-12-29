@@ -2,7 +2,7 @@ use {
     crate::{ExtractTopic, Protocol},
     component_utils::{codec, Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
-    std::{borrow::Borrow, convert::Infallible, fmt::Debug, iter, num::NonZeroUsize},
+    std::{convert::Infallible, fmt::Debug, iter, num::NonZeroUsize},
 };
 pub use {chat::*, profile::*};
 

@@ -24,7 +24,6 @@ use {
     primitives::{contracts::StoredUserIdentity, RawUserName, UserName},
     rand::seq::IteratorRandom,
     std::{
-        borrow::Borrow,
         collections::{HashMap, HashSet},
         io,
         net::IpAddr,

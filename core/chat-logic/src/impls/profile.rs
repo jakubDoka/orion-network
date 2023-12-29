@@ -1,5 +1,5 @@
 use {
-    crate::{Identity, Nonce, Topic},
+    crate::{Identity, Nonce, Proof, Topic},
     component_utils::Reminder,
     crypto::{enc, sign, Serialized},
 };
@@ -59,6 +59,17 @@ impl<'a> From<&'a Profile> for BorrowedProfile<'a> {
             vault: profile.vault.as_slice(),
             mail: profile.mail.as_slice(),
         }
+    }
+}
+
+impl<'a> BorrowedProfile<'a> {
+    pub fn is_valid(&self) -> bool {
+        Proof {
+            pk: self.sign,
+            signature: self.last_sig,
+            nonce: self.vault_version,
+        }
+        .verify_vault(self.vault)
     }
 }
 

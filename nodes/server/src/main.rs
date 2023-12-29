@@ -1,4 +1,6 @@
 #![feature(iter_advance_by)]
+#![feature(let_chains)]
+#![feature(entry_insert)]
 #![feature(iter_next_chunk)]
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
@@ -24,7 +26,6 @@ use {
     onion::{EncryptedStream, PathId},
     primitives::contracts::{NodeData, StoredNodeData},
     std::{
-        borrow::Borrow,
         collections::HashMap,
         convert::Infallible,
         fs, io,
@@ -564,14 +565,27 @@ impl Context<'_> {
     }
 
     fn is_valid_topic(&self, topic: PossibleTopic) -> bool {
-        self.swarm
-            .behaviour()
-            .dht
-            .table
-            .closest(topic.as_bytes())
-            .take(REPLICATION_FACTOR.get() + 1)
-            .any(|peer| peer.peer_id() == *self.swarm.local_peer_id())
+        replicators_for(&self.swarm.behaviour().dht.table, topic)
+            .any(|peer| peer == *self.swarm.local_peer_id())
     }
+}
+
+fn replicators_for(
+    table: &mini_dht::RoutingTable,
+    topic: PossibleTopic,
+) -> impl Iterator<Item = PeerId> + '_ {
+    table
+        .closest(topic.as_bytes())
+        .take(REPLICATION_FACTOR.get() + 1)
+        .map(Route::peer_id)
+}
+
+fn other_replicators_for(
+    table: &mini_dht::RoutingTable,
+    topic: PossibleTopic,
+    us: PeerId,
+) -> impl Iterator<Item = PeerId> + '_ {
+    replicators_for(table, topic).filter(move |&p| p != us)
 }
 
 fn push_notification(

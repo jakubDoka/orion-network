@@ -4,7 +4,6 @@ use {
     chat_logic::{ExtractTopic, PossibleTopic, Protocol, ReplError},
     component_utils::{arrayvec::ArrayVec, Codec, FindAndRemove},
     rpc::CallId,
-    std::borrow::Borrow,
 };
 
 pub type SyncRepl<H> = ReplBase<Sync<H>, rpc::Event>;
@@ -27,15 +26,10 @@ impl<H, E> ReplBase<H, E> {
         topic: PossibleTopic,
         cx: crate::Context,
     ) -> Self {
-        let my_id = *cx.swarm.local_peer_id();
+        let us = *cx.swarm.local_peer_id();
         let beh = cx.swarm.behaviour_mut();
-        let ongoing = beh
-            .dht
-            .table
-            .closest(topic.as_bytes())
-            .take(REPLICATION_FACTOR.get() + 1)
-            .filter(|peer| peer.peer_id() != my_id)
-            .filter_map(|peer| beh.rpc.request(peer.peer_id(), request.as_slice()).ok())
+        let ongoing = crate::other_replicators_for(&beh.dht.table, topic, us)
+            .filter_map(|peer| beh.rpc.request(peer, request.as_slice()).ok())
             .collect();
 
         Self::Replicating {
@@ -135,4 +129,3 @@ where
         Err(self)
     }
 }
-
