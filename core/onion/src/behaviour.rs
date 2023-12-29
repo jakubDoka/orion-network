@@ -105,8 +105,14 @@ impl Behaviour {
                 sr.to,
                 self.config.current_peer_id
             );
-            self.events
-                .push_back(TS::GenerateEvent(Event::ConnectRequest(sr.to)));
+            if self.config.dial_first {
+                self.events.push_back(TS::Dial {
+                    opts: DialOpts::peer_id(sr.to).build(),
+                });
+            } else {
+                self.events
+                    .push_back(TS::GenerateEvent(Event::ConnectRequest(sr.to)));
+            }
             return;
         };
 
@@ -150,8 +156,14 @@ impl Behaviour {
                 meta.to,
                 self.config.current_peer_id
             );
-            self.events
-                .push_back(TS::GenerateEvent(Event::ConnectRequest(meta.to)));
+            if self.config.dial_first {
+                self.events.push_back(TS::Dial {
+                    opts: DialOpts::peer_id(meta.to).build(),
+                });
+            } else {
+                self.events
+                    .push_back(TS::GenerateEvent(Event::ConnectRequest(meta.to)));
+            }
             return;
         };
 
@@ -355,6 +367,8 @@ component_utils::gen_config! {
     keep_alive_interval: std::time::Duration = std::time::Duration::from_secs(30),
     /// size of the buffer for forwarding packets.
     buffer_cap: usize = 1 << 13,
+    /// Try dialing first instead of emmiting a connection request.
+    dial_first: bool = true,
 }
 
 #[derive(Debug)]

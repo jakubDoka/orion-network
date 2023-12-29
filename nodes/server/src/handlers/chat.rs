@@ -4,12 +4,12 @@ const CHAT_CAP: usize = 1024 * 1024;
 const MAX_MESSAGE_SIZE: usize = 1024;
 const MESSAGE_FETCH_LIMIT: usize = 20;
 
-impl<C: ProvideStorage> SyncHandler<C> for CreateChat {
+impl SyncHandler for CreateChat {
     fn execute<'a>(
-        mut cx: Scope<'a, C>,
+        mut cx: Scope<'a>,
         (identity, name): Self::Request<'_>,
     ) -> ProtocolResult<'a, Self> {
-        let chat_entry = cx.store_mut().chats.entry(name);
+        let chat_entry = cx.storage.chats.entry(name);
         crate::ensure!(
             let std::collections::hash_map::Entry::Vacant(entry) = chat_entry,
             CreateChatError::AlreadyExists
@@ -21,15 +21,15 @@ impl<C: ProvideStorage> SyncHandler<C> for CreateChat {
     }
 }
 
-impl<C: ProvideStorage> SyncHandler<C> for AddUser {
+impl SyncHandler for AddUser {
     fn execute<'a>(
-        mut cx: Scope<'a, C>,
+        mut cx: Scope<'a>,
         (identiy, name, proof): Self::Request<'_>,
     ) -> ProtocolResult<'a, Self> {
         ensure!(proof.verify_chat(name), AddUserError::InvalidProof);
 
         let chat = cx
-            .store_mut()
+            .storage
             .chats
             .get_mut(&name)
             .ok_or(AddUserError::ChatNotFound)?;
@@ -57,9 +57,9 @@ impl<C: ProvideStorage> SyncHandler<C> for AddUser {
     }
 }
 
-impl<C: EventEmmiter<ChatName> + ProvideStorage> SyncHandler<C> for SendMessage {
+impl SyncHandler for SendMessage {
     fn execute<'a>(
-        mut cx: Scope<'a, C>,
+        mut cx: Scope<'a>,
         (name, proof, message): Self::Request<'_>,
     ) -> ProtocolResult<'a, Self> {
         ensure!(proof.verify_chat(name), SendMessageError::InvalidProof);
@@ -70,7 +70,7 @@ impl<C: EventEmmiter<ChatName> + ProvideStorage> SyncHandler<C> for SendMessage 
         );
 
         let chat = cx
-            .store_mut()
+            .storage
             .chats
             .get_mut(&name)
             .ok_or(SendMessageError::ChatNotFound)?;
@@ -94,10 +94,10 @@ impl<C: EventEmmiter<ChatName> + ProvideStorage> SyncHandler<C> for SendMessage 
     }
 }
 
-impl<C: ProvideStorage> SyncHandler<C> for FetchMessages {
-    fn execute<'a>(mut cx: Scope<'a, C>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
+impl SyncHandler for FetchMessages {
+    fn execute<'a>(mut cx: Scope<'a>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
         let chat = cx
-            .store_mut()
+            .storage
             .chats
             .get_mut(&request.0)
             .ok_or(FetchMessagesError::ChatNotFound)?;

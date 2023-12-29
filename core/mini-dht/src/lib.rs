@@ -137,6 +137,10 @@ impl RoutingTable {
     pub fn closest(&self, data: &[u8]) -> impl Iterator<Item = &Route> + '_ {
         let hash = blake3::hash(data);
         let id = U256::from(hash.as_bytes());
+        self.closest_low(id)
+    }
+
+    fn closest_low(&self, id: U256) -> impl Iterator<Item = &Route> + '_ {
         let index = self
             .routes
             .binary_search_by_key(&id, |r| r.id)
@@ -144,21 +148,22 @@ impl RoutingTable {
 
         let mut left = self.routes[..index].iter().rev();
         let mut right = self.routes[index..].iter();
-        let mut left_peek = left.next();
-        let mut right_peek = right.next();
+        let mut left_peek = left.next().or_else(|| right.next_back());
+        let mut right_peek = right.next().or_else(|| left.next_back());
 
         iter::from_fn(move || {
             let (left_route, right_route) = match (left_peek, right_peek) {
                 (Some(left), Some(right)) => (left, right),
                 // we do not peek anymore since this must be the last one
-                (Some(either), None) | (None, Some(either)) => return Some(either),
+                (Some(either), None) | (None, Some(either)) => {
+                    left_peek = None;
+                    right_peek = None;
+                    return Some(either);
+                }
                 (None, None) => return None,
             };
 
-            let dist_left = id.abs_diff(left_route.id);
-            let dist_right = right_route.id.abs_diff(id);
-
-            if dist_left < dist_right {
+            if shortest_distance(id, left_route.id) < shortest_distance(id, right_route.id) {
                 left_peek = left.next().or_else(|| right.next_back());
                 Some(left_route)
             } else {
@@ -169,12 +174,17 @@ impl RoutingTable {
     }
 }
 
+fn shortest_distance(a: U256, b: U256) -> U256 {
+    a.overflowing_sub(b).0.min(b.overflowing_sub(a).0)
+}
+
 pub fn try_peer_id_to_ed(id: PeerId) -> Option<[u8; 32]> {
     let multihash: &Multihash<64> = id.as_ref();
     let bytes = multihash.digest();
     bytes[bytes.len() - 32..].try_into().ok()
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Route {
     id: U256,
     pub addr: Multiaddr,
@@ -182,7 +192,7 @@ pub struct Route {
 
 impl Route {
     pub fn new(id: ed25519::PublicKey, addr: Multiaddr) -> Self {
-        let id: U256 = id.to_bytes().into();
+        let id = U256::from(id.to_bytes());
         Self { id, addr }
     }
 
@@ -191,5 +201,60 @@ impl Route {
         let key = ed25519::PublicKey::try_from_bytes(&bytes).expect("id to always be valid ed key");
         let key = PublicKey::from(key);
         PeerId::from(key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, libp2p::identity};
+
+    #[test]
+    fn convert_peer_id() {
+        let key = ed25519::Keypair::generate();
+        let id = key.public();
+        let peer_id = identity::PublicKey::from(id.clone()).to_peer_id();
+
+        assert_eq!(try_peer_id_to_ed(peer_id), Some(id.to_bytes()));
+    }
+
+    #[test]
+    fn closest_correct_len() {
+        let count = 10;
+        let table = RoutingTable {
+            routes: (0..count)
+                .map(|i| Route {
+                    id: i.into(),
+                    addr: Multiaddr::empty(),
+                })
+                .collect(),
+        };
+
+        assert_eq!(table.closest(&[]).count(), count);
+    }
+
+    #[test]
+    fn wrap_around() {
+        let table = RoutingTable {
+            routes: vec![
+                Route {
+                    id: U256::from(2),
+                    addr: Multiaddr::empty(),
+                },
+                Route {
+                    id: U256::MAX / 2,
+                    addr: Multiaddr::empty(),
+                },
+                Route {
+                    id: U256::MAX,
+                    addr: Multiaddr::empty(),
+                },
+            ],
+        };
+
+        assert_eq!(table.closest_low(1.into()).collect::<Vec<_>>(), vec![
+            &table.routes[0],
+            &table.routes[2],
+            &table.routes[1]
+        ]);
     }
 }

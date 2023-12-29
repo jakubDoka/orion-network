@@ -24,6 +24,7 @@ use {
     onion::{EncryptedStream, PathId},
     primitives::contracts::{NodeData, StoredNodeData},
     std::{
+        borrow::Borrow,
         collections::HashMap,
         convert::Infallible,
         fs, io,
@@ -32,11 +33,12 @@ use {
     },
 };
 
+#[macro_export]
 macro_rules! extract_ctx {
     ($self:expr) => {
-        Context {
+        $crate::Context {
             swarm: &mut $self.swarm,
-            streams: &mut $self.clients,
+            clients: &mut $self.clients,
             storage: &mut $self.storage,
         }
     };
@@ -48,7 +50,7 @@ mod tests;
 
 compose_handlers! {
     InternalServer {
-        Sync<CreateProfile>, Sync<SetVault>, SendMail, Sync<ReadMail>, Sync<FetchProfile>,
+        Sync<CreateProfile>, Sync<SetVault>, SendMail, Sync<ReadMail>, Sync<FetchProfile>, Sync<FetchFullProfile>,
         Sync<CreateChat>, Sync<AddUser>, Sync<SendMessage>,
     }
 
@@ -372,13 +374,13 @@ impl Miner {
                 let req = handlers::Request {
                     prefix,
                     id,
-                    origin: RequestOrigin::Miner(peer),
+                    origin: RequestOrigin::Server(peer),
                     body,
                 };
                 self.buffer.clear();
                 let res = self
                     .internal
-                    .execute(&mut extract_ctx!(self), req, &mut self.buffer);
+                    .execute(extract_ctx!(self), req, &mut self.buffer);
                 match res {
                     Ok(false) => {}
                     Ok(true) => {
@@ -400,10 +402,15 @@ impl Miner {
             }
             SwarmEvent::Behaviour(ev) => {
                 self.buffer.clear();
-                let cx = &mut extract_ctx!(self);
                 let Ok((origin, id)) = Err(ev)
-                    .or_else(|ev| self.internal.try_complete(cx, ev, &mut self.buffer))
-                    .or_else(|ev| self.external.try_complete(cx, ev, &mut self.buffer))
+                    .or_else(|ev| {
+                        self.internal
+                            .try_complete(extract_ctx!(self), ev, &mut self.buffer)
+                    })
+                    .or_else(|ev| {
+                        self.external
+                            .try_complete(extract_ctx!(self), ev, &mut self.buffer)
+                    })
                 else {
                     return;
                 };
@@ -418,7 +425,7 @@ impl Miner {
                             log::info!("client cannot process the late response");
                         }
                     }
-                    RequestOrigin::Miner(mid) => {
+                    RequestOrigin::Server(mid) => {
                         self.swarm
                             .behaviour_mut()
                             .rpc
@@ -459,7 +466,7 @@ impl Miner {
         self.buffer.clear();
         let res = self
             .external
-            .execute(&mut extract_ctx!(self), req, &mut self.buffer);
+            .execute(extract_ctx!(self), req, &mut self.buffer);
 
         match res {
             Ok(false) => {}
@@ -537,68 +544,55 @@ impl Miner {
     }
 }
 
-struct Context<'a> {
+pub struct Context<'a> {
     swarm: &'a mut libp2p::swarm::Swarm<Behaviour>,
-    streams: &'a mut SelectAll<Stream>,
+    clients: &'a mut SelectAll<Stream>,
     storage: &'a mut Storage,
 }
 
-impl ProvideSubscription for Context<'_> {
+impl Context<'_> {
     fn subscribe(&mut self, topic: PossibleTopic, id: CallId, origin: PathId) {
-        let Some(stream) = self.streams.iter_mut().find(|s| s.id == origin) else {
+        let Some(stream) = self.clients.iter_mut().find(|s| s.id == origin) else {
             log::error!("whaaaat???");
             return;
         };
         stream.subscriptions.insert(topic, id);
     }
-}
 
-impl ProvidePeerId for Context<'_> {
-    fn peer_id(&self) -> PeerId {
-        *self.swarm.local_peer_id()
-    }
-}
-
-impl ProvideDhtAndRpc for Context<'_> {
-    fn dht_and_rpc_mut(&mut self) -> (&mut mini_dht::Behaviour, &mut rpc::Behaviour) {
-        let beh = self.swarm.behaviour_mut();
-        (&mut beh.dht, &mut beh.rpc)
-    }
-}
-
-impl ProvideStorage for Context<'_> {
-    fn store_mut(&mut self) -> &mut crate::Storage {
-        self.storage
-    }
-}
-
-impl EventEmmiter<ChatName> for Context<'_> {
     fn push(&mut self, topic: ChatName, event: <ChatName as Topic>::Event<'_>) {
-        handle_event(self.streams, PossibleTopic::Chat(topic), event)
+        handle_event(self.clients, PossibleTopic::Chat(topic), event)
+    }
+
+    fn is_valid_topic(&self, topic: PossibleTopic) -> bool {
+        self.swarm
+            .behaviour()
+            .dht
+            .table
+            .closest(topic.as_bytes())
+            .take(REPLICATION_FACTOR.get() + 1)
+            .any(|peer| peer.peer_id() == *self.swarm.local_peer_id())
     }
 }
 
-impl DirectedEventEmmiter<Identity> for Context<'_> {
-    fn push(
-        &mut self,
-        topic: Identity,
-        event: <Identity as Topic>::Event<'_>,
-        recip: PathId,
-    ) -> bool {
-        let Some(stream) = self.streams.iter_mut().find(|s| s.id == recip) else {
-            return false;
-        };
+fn push_notification(
+    streams: &mut SelectAll<Stream>,
+    topic: Identity,
+    event: <Identity as Topic>::Event<'_>,
+    recip: PathId,
+) -> bool {
+    let Some(stream) = streams.iter_mut().find(|s| s.id == recip) else {
+        return false;
+    };
 
-        let Some(&call_id) = stream.subscriptions.get(&PossibleTopic::Profile(topic)) else {
-            return false;
-        };
+    let Some(&call_id) = stream.subscriptions.get(&PossibleTopic::Profile(topic)) else {
+        return false;
+    };
 
-        if stream.inner.write((call_id, &event)).is_none() {
-            return false;
-        }
-
-        true
+    if stream.inner.write((call_id, &event)).is_none() {
+        return false;
     }
+
+    true
 }
 
 fn handle_event<'a>(streams: &mut SelectAll<Stream>, topic: PossibleTopic, event: impl Codec<'a>) {
@@ -695,5 +689,6 @@ impl libp2p::futures::Stream for Stream {
 #[derive(Default)]
 pub struct Storage {
     profiles: HashMap<Identity, Profile>,
+    online: HashMap<Identity, RequestOrigin>,
     chats: HashMap<ChatName, Chat>,
 }

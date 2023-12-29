@@ -1,6 +1,6 @@
 use {
-    super::{HandlerTypes, ProvideDhtAndRpc, ProvidePeerId, Sync, TryUnwrap, VerifyTopic},
-    crate::{Handler, REPLICATION_FACTOR},
+    super::{Handler, Sync, TryUnwrap},
+    crate::REPLICATION_FACTOR,
     chat_logic::{ExtractTopic, PossibleTopic, Protocol, ReplError},
     component_utils::{arrayvec::ArrayVec, Codec, FindAndRemove},
     rpc::CallId,
@@ -8,7 +8,7 @@ use {
 };
 
 pub type SyncRepl<H> = ReplBase<Sync<H>, rpc::Event>;
-pub type Repl<H> = ReplBase<H, <H as HandlerTypes>::Event>;
+pub type Repl<H> = ReplBase<H, <H as Handler>::Event>;
 
 pub enum ReplBase<H, E> {
     Resolving(H, PossibleTopic, Vec<u8>),
@@ -21,18 +21,21 @@ pub enum ReplBase<H, E> {
 }
 
 impl<H, E> ReplBase<H, E> {
-    pub fn new_replicating<C: ProvideDhtAndRpc>(
+    pub fn new_replicating(
         response: Vec<u8>,
         request: Vec<u8>,
         topic: PossibleTopic,
-        cx: &mut C,
+        cx: crate::Context,
     ) -> Self {
-        let (dht, rpc) = cx.dht_and_rpc_mut();
-        let ongoing = dht
+        let my_id = *cx.swarm.local_peer_id();
+        let beh = cx.swarm.behaviour_mut();
+        let ongoing = beh
+            .dht
             .table
-            .closest(topic.borrow())
+            .closest(topic.as_bytes())
             .take(REPLICATION_FACTOR.get() + 1)
-            .filter_map(|peer| rpc.request(peer.peer_id(), request.as_slice()).ok())
+            .filter(|peer| peer.peer_id() != my_id)
+            .filter_map(|peer| beh.rpc.request(peer.peer_id(), request.as_slice()).ok())
             .collect();
 
         Self::Replicating {
@@ -44,20 +47,17 @@ impl<H, E> ReplBase<H, E> {
     }
 }
 
-impl<H: HandlerTypes, E> HandlerTypes for ReplBase<H, E> {
-    type Event = E;
-    type Protocol = chat_logic::Repl<H::Protocol>;
-}
-
-impl<C, H, E> Handler<C> for ReplBase<H, E>
+impl<H, E> Handler for ReplBase<H, E>
 where
-    C: ProvideDhtAndRpc + ProvidePeerId,
-    H: Handler<C>,
+    H: Handler,
     H::Protocol: ExtractTopic,
     for<'a> &'a E: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
 {
+    type Event = E;
+    type Protocol = chat_logic::Repl<H::Protocol>;
+
     fn execute<'a>(
-        mut scope: super::Scope<'a, C>,
+        mut scope: super::Scope<'a>,
         req: <Self::Protocol as chat_logic::Protocol>::Request<'_>,
     ) -> super::HandlerResult<'a, Self> {
         let topic: PossibleTopic = <H::Protocol as ExtractTopic>::extract_topic(&req).into();
@@ -78,7 +78,7 @@ where
 
     fn resume<'a>(
         mut self,
-        mut cx: super::Scope<'a, C>,
+        mut cx: super::Scope<'a>,
         event: &'a Self::Event,
     ) -> super::HandlerResult<'a, Self> {
         let (response, ongoing, matched) = match self {
@@ -135,3 +135,4 @@ where
         Err(self)
     }
 }
+

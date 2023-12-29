@@ -39,6 +39,8 @@ crate::compose_protocols! {
         where Topic(Identity): |&(i, ..)| i;
     fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>
         where Topic(Identity): |&i| i;
+    fn FetchFullProfile<'a>(Identity) -> Result<BorrowedProfile<'a>, FetchProfileError>
+        where Topic(Identity): |&i| i;
 }
 
 pub struct Repl<T: Protocol>(T);
@@ -103,8 +105,8 @@ component_utils::protocol! {'a:
     }
 }
 
-impl Borrow<[u8]> for PossibleTopic {
-    fn borrow(&self) -> &[u8] {
+impl PossibleTopic {
+    pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Profile(i) => i.0.as_slice(),
             Self::Chat(c) => c.as_bytes(),

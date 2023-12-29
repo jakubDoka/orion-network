@@ -163,7 +163,7 @@ impl<'a, T: Buffer> std::io::Write for WritableBuffer<'a, T> {
     }
 }
 
-pub trait Buffer {
+pub trait Buffer: AsMut<[u8]> {
     #[must_use = "handle the error"]
     fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()>;
     #[must_use = "handle the error"]

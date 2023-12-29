@@ -371,7 +371,6 @@ impl Node {
         };
 
         let mut topology = HashMap::<PeerId, HashSet<ChatName>>::new();
-        let mut discovered = 0;
         let iter = vault.chats.keys().copied().flat_map(|c| {
             swarm
                 .behaviour()
@@ -388,7 +387,6 @@ impl Node {
             }
 
             topology.entry(peer).or_default().insert(chat);
-            discovered += 1;
         }
 
         set_state!(ChatLoad);
@@ -397,7 +395,7 @@ impl Node {
         topology.sort_by_key(|(_, v)| v.len());
         let mut to_connect = vec![];
         let mut seen = HashSet::new();
-        while seen.len() < discovered {
+        while seen.len() < vault.chats.len() {
             let (peer, mut chats) = topology.pop().unwrap();
             chats.retain(|&c| seen.insert(c));
             if chats.is_empty() {
@@ -492,7 +490,7 @@ impl Node {
             .behaviour()
             .dht
             .table
-            .closest(search_key.borrow())
+            .closest(search_key.as_bytes())
             .take(REPLICATION_FACTOR.get() + 1)
             .map(Route::peer_id)
             .collect::<Vec<_>>();

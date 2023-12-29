@@ -203,6 +203,12 @@ impl Buffer for NoCapOverflow<'_> {
     }
 }
 
+impl AsMut<[u8]> for NoCapOverflow<'_> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.vec.as_mut()
+    }
+}
+
 #[derive(Debug)]
 pub struct PacketWriter {
     buffer: Vec<u8>,
@@ -347,6 +353,17 @@ impl<'a> PacketWriterGuard<'a> {
                 }
 
                 Some(())
+            }
+        }
+
+        impl AsMut<[u8]> for RawSliceBuffer {
+            fn as_mut(&mut self) -> &mut [u8] {
+                unsafe {
+                    core::slice::from_raw_parts_mut(
+                        self.start,
+                        self.end as usize - self.start as usize,
+                    )
+                }
             }
         }
 

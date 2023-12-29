@@ -204,14 +204,6 @@ impl Default for World {
                     name: "/onion/ksr/0.1.0".into(),
                     color: Color::from_hex(0xccccff),
                 },
-                Protocol {
-                    name: "/ipfs/kad/1.0.0".into(),
-                    color: Color::from_hex(0xff9966),
-                },
-                Protocol {
-                    name: "/ipfs/id/1.0.0".into(),
-                    color: Color::from_hex(0x66ff66),
-                },
             ],
             center_node: Node::new(0.0, 0.0, PeerId::random()),
         }

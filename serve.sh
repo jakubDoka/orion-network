@@ -32,7 +32,7 @@ if [ "$1" = "release" ]; then
   TARGET_DIR="target/native-optimized"
 fi
 
-on_exit() { killall node-template miner runner trunk live-server; }
+on_exit() { killall node-template server runner trunk live-server; }
 trap on_exit EXIT
 
 rm -rf node_keys node_logs
@@ -80,7 +80,7 @@ run_miners --first-run
 while read -r line; do
 	case "$line" in
 		"miners")
-			killall runner miner
+			killall runner server
 			rebuild_workspace
 			run_miners
 			;;
