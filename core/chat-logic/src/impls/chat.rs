@@ -2,6 +2,7 @@ use {
     super::Nonce,
     crate::{Proof, Topic},
     component_utils::{arrayvec::ArrayString, Reminder},
+    std::convert::Infallible,
 };
 
 pub const NO_CURSOR: Cursor = Cursor::MAX;
@@ -14,6 +15,7 @@ pub type RawChatName = [u8; CHAT_NAME_CAP];
 
 impl Topic for ChatName {
     type Event<'a> = ChatEvent<'a>;
+    type Record = Infallible;
 }
 
 component_utils::protocol! { 'a:

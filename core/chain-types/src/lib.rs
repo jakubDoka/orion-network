@@ -44,6 +44,15 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 pub type Keypair = subxt_signer::sr25519::Keypair;
 
+impl Clone for NodeAddress {
+    fn clone(&self) -> Self {
+        match self {
+            NodeAddress::Ip4(bytes) => NodeAddress::Ip4(*bytes),
+            NodeAddress::Ip6(bytes) => NodeAddress::Ip6(*bytes),
+        }
+    }
+}
+
 impl From<(IpAddr, u16)> for NodeAddress {
     fn from((addr, port): (IpAddr, u16)) -> Self {
         match addr {

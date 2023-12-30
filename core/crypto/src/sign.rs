@@ -6,7 +6,7 @@ use {ed25519_dalek::Signer, thiserror::Error};
 
 impl_transmute! {
     Signature,
-    KeyPair,
+    Keypair,
     PublicKey,
 }
 
@@ -19,12 +19,12 @@ pub struct Signature {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct KeyPair {
+pub struct Keypair {
     post: falcon::Keypair,
     pre: ed25519_dalek::SecretKey,
 }
 
-impl KeyPair {
+impl Keypair {
     #[cfg(feature = "getrandom")]
     pub fn new() -> Self {
         use aes_gcm::aead::rand_core::RngCore;
@@ -58,7 +58,7 @@ impl KeyPair {
 }
 
 #[cfg(feature = "getrandom")]
-impl Default for KeyPair {
+impl Default for Keypair {
     fn default() -> Self {
         Self::new()
     }
@@ -103,7 +103,7 @@ mod test {
     #[test]
     fn test_sign_verify() {
         use super::*;
-        let keypair = KeyPair::new();
+        let keypair = Keypair::new();
         let data = b"hello world";
         let signature = keypair.sign(data);
         let public_key = keypair.public_key();

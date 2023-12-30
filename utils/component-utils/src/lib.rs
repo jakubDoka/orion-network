@@ -93,7 +93,7 @@ macro_rules! gen_simple_error {
             $variant:ident$(($ty:ty))? => $message:literal,
         )*}
     )*) => {$(
-        #[derive(Debug, Clone, Copy, $crate::thiserror::Error)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, $crate::thiserror::Error)]
         #[repr(u8)]
         pub enum $name {$(
             #[error($message)]

@@ -56,6 +56,12 @@ impl<T: FromStr> FromStr for List<T> {
     }
 }
 
+impl<T> Default for List<T> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Key([u8; 32]);
 

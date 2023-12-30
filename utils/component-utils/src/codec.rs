@@ -120,9 +120,22 @@ macro_rules! protocol {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct NoCodec<T>(pub T);
+
+impl<'a, T> Codec<'a> for NoCodec<T> {
+    fn encode(&self, _: &mut impl Buffer) -> Option<()> {
+        None
+    }
+
+    fn decode(_: &mut &'a [u8]) -> Option<Self> {
+        None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Ignored<T>(pub T);
 
-impl<'a, T: Codec<'a> + Default> Codec<'a> for Ignored<T> {
+impl<'a, T: Default> Codec<'a> for Ignored<T> {
     fn encode(&self, _: &mut impl Buffer) -> Option<()> {
         Some(())
     }

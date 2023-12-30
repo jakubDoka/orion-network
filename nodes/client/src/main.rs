@@ -61,7 +61,7 @@ pub fn main() {
 #[derive(Clone)]
 struct RawUserKeys {
     name: RawUserName,
-    sign: sign::KeyPair,
+    sign: sign::Keypair,
     enc: enc::Keypair,
     vault: crypto::SharedSecret,
 }
@@ -71,14 +71,14 @@ crypto::impl_transmute!(RawUserKeys,);
 #[derive(Clone)]
 struct UserKeys {
     name: UserName,
-    sign: sign::KeyPair,
+    sign: sign::Keypair,
     enc: enc::Keypair,
     vault: crypto::SharedSecret,
 }
 
 impl UserKeys {
     pub fn new(name: UserName) -> Self {
-        let sign = sign::KeyPair::new();
+        let sign = sign::Keypair::new();
         let enc = enc::Keypair::new();
         let vault = crypto::new_secret();
         Self {

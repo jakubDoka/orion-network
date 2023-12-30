@@ -97,10 +97,11 @@ impl From<&Profile> for FetchProfileResp {
 }
 
 impl Topic for Identity {
-    type Event<'a> = MailEvent<'a>;
+    type Event<'a> = ProfileEvent<'a>;
+    type Record = Profile;
 }
 
-type MailEvent<'a> = Reminder<'a>;
+type ProfileEvent<'a> = Reminder<'a>;
 
 component_utils::protocol! {'a:
     struct FetchProfileResp {

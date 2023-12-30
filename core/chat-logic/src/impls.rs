@@ -97,6 +97,52 @@ impl<'a, T: Codec<'a>> Codec<'a> for ReplError<T> {
     }
 }
 
+pub struct NotFound<T: Protocol>(T);
+
+impl<T: Protocol> Protocol for NotFound<T> {
+    type Error = NotFoundError<T::Error>;
+    type Request<'a> = T::Request<'a>;
+    type Response<'a> = T::Response<'a>;
+
+    const PREFIX: u8 = T::PREFIX;
+}
+
+impl<T: ExtractTopic> ExtractTopic for NotFound<T> {
+    type Topic = T::Topic;
+
+    fn extract_topic(request: &Self::Request<'_>) -> Self::Topic {
+        T::extract_topic(request)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum NotFoundError<T> {
+    #[error("not found")]
+    NotFound,
+    #[error(transparent)]
+    Inner(T),
+}
+
+impl<'a, T: Codec<'a>> Codec<'a> for NotFoundError<T> {
+    fn encode(&self, buf: &mut impl codec::Buffer) -> Option<()> {
+        match self {
+            Self::NotFound => buf.push(0),
+            Self::Inner(e) => {
+                buf.push(1)?;
+                e.encode(buf)
+            }
+        }
+    }
+
+    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
+        match buf.take_first()? {
+            0 => Some(Self::NotFound),
+            1 => Some(Self::Inner(T::decode(buf)?)),
+            _ => None,
+        }
+    }
+}
+
 component_utils::protocol! {'a:
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     untagged_enum PossibleTopic {
@@ -202,19 +248,19 @@ component_utils::protocol! {'a:
 impl Proof {
     const PAYLOAD_SIZE: usize = std::mem::size_of::<Nonce>() + CHAT_NAME_CAP;
 
-    pub fn for_mail(kp: &sign::KeyPair, nonce: &mut Nonce) -> Self {
+    pub fn for_mail(kp: &sign::Keypair, nonce: &mut Nonce) -> Self {
         Self::new(kp, nonce, [0xff - 1; CHAT_NAME_CAP])
     }
 
-    pub fn for_vault(kp: &sign::KeyPair, nonce: &mut Nonce, vault: &[u8]) -> Self {
+    pub fn for_vault(kp: &sign::Keypair, nonce: &mut Nonce, vault: &[u8]) -> Self {
         Self::new(kp, nonce, crypto::hash::new_slice(vault).0)
     }
 
-    pub fn for_chat(kp: &sign::KeyPair, nonce: &mut Nonce, chat_name: ChatName) -> Self {
+    pub fn for_chat(kp: &sign::Keypair, nonce: &mut Nonce, chat_name: ChatName) -> Self {
         Self::new(kp, nonce, component_utils::arrstr_to_array(chat_name))
     }
 
-    fn new(kp: &sign::KeyPair, nonce: &mut Nonce, context: ProofContext) -> Self {
+    fn new(kp: &sign::Keypair, nonce: &mut Nonce, context: ProofContext) -> Self {
         let signature = kp.sign(&Self::pack_payload(*nonce, context));
         *nonce += 1;
         Self {

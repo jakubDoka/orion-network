@@ -12,7 +12,6 @@ use {
     chain_api::{ContractId, NodeAddress},
     chat_logic::*,
     component_utils::{Codec, LinearMap, Reminder},
-    core::panic,
     crypto::{enc, sign, TransmutationCircle},
     handlers::{Repl, SendMail, SyncRepl, *},
     libp2p::{
@@ -28,7 +27,9 @@ use {
     std::{
         collections::HashMap,
         convert::Infallible,
-        fs, io,
+        fs,
+        future::Future,
+        io,
         net::{IpAddr, Ipv4Addr},
         time::Duration,
     },
@@ -51,7 +52,8 @@ mod tests;
 
 compose_handlers! {
     InternalServer {
-        Sync<CreateProfile>, Sync<SetVault>, SendMail, Sync<ReadMail>, Sync<FetchProfile>, Sync<FetchFullProfile>,
+        Sync<CreateProfile>, Sync<SetVault>, SendMail, Sync<ReadMail>,
+        Sync<FetchProfile>, Sync<FetchFullProfile>,
         Sync<CreateChat>, Sync<AddUser>, Sync<SendMessage>,
     }
 
@@ -68,7 +70,17 @@ compose_handlers! {
 #[derive(Default, Clone)]
 struct NodeKeys {
     enc: enc::Keypair,
-    sign: sign::KeyPair,
+    sign: sign::Keypair,
+}
+
+impl NodeKeys {
+    pub fn to_stored(&self) -> StoredNodeData {
+        NodeData {
+            sign: self.sign.public_key(),
+            enc: self.enc.public_key(),
+        }
+        .to_stored()
+    }
 }
 
 crypto::impl_transmute! {
@@ -81,13 +93,10 @@ async fn main() -> anyhow::Result<()> {
 
     let node_config = NodeConfig::from_env();
     let chain_config = ChainConfig::from_env();
-    let (keys, is_new) = Miner::load_keys(&node_config.key_path)?;
+    let (keys, is_new) = Server::load_keys(&node_config.key_path)?;
     let (node_list, stake_events) = deal_with_chain(chain_config, &keys, is_new).await?;
 
-    Miner::new(node_config, keys, node_list, stake_events)
-        .await?
-        .run()
-        .await;
+    Server::new(node_config, keys, node_list, stake_events)?.await;
 
     Ok(())
 }
@@ -115,7 +124,7 @@ config::env_config! {
 
 type StakeEvents = futures::channel::mpsc::Receiver<chain_api::Result<chain_api::StakeEvent>>;
 
-struct Miner {
+struct Server {
     swarm: libp2p::swarm::Swarm<Behaviour>,
     storage: Storage,
     clients: futures::stream::SelectAll<Stream>,
@@ -184,11 +193,7 @@ async fn deal_with_chain(
         client
             .join(
                 node_contract.clone(),
-                NodeData {
-                    sign: keys.sign.public_key(),
-                    enc: keys.enc.public_key(),
-                }
-                .to_stored(),
+                keys.to_stored(),
                 (exposed_address, port).into(),
                 nonce,
             )
@@ -224,8 +229,8 @@ fn filter_incoming(
     Ok(())
 }
 
-impl Miner {
-    async fn new(
+impl Server {
+    fn new(
         config: NodeConfig,
         keys: NodeKeys,
         node_list: Vec<(StoredNodeData, NodeAddress)>,
@@ -307,8 +312,6 @@ impl Miner {
                     .with(multiaddr::Protocol::Ws("/".into())),
             )
             .context("starting to isten for clients")?;
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
 
         let node_data = node_list
             .into_iter()
@@ -533,14 +536,36 @@ impl Miner {
             }
         }
     }
+}
 
-    async fn run(mut self) {
+impl Future for Server {
+    type Output = Infallible;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         loop {
-            futures::select! {
-                e = self.swarm.select_next_some() => self.handle_event(e),
-                e = self.stake_events.select_next_some() => self.handle_stake_event(e),
-                (id, m) = self.clients.select_next_some() => self.handle_client_message(id, m),
-            };
+            let mut progress = false;
+
+            while let std::task::Poll::Ready(Some((id, m))) = self.clients.poll_next_unpin(cx) {
+                self.handle_client_message(id, m);
+                progress = true;
+            }
+
+            while let std::task::Poll::Ready(Some(e)) = self.swarm.poll_next_unpin(cx) {
+                self.handle_event(e);
+                progress = true;
+            }
+
+            while let std::task::Poll::Ready(Some(e)) = self.stake_events.poll_next_unpin(cx) {
+                self.handle_stake_event(e);
+                progress = true;
+            }
+
+            if !progress {
+                return std::task::Poll::Pending;
+            }
         }
     }
 }

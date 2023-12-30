@@ -29,6 +29,7 @@ pub trait ExtractTopic: Protocol {
 
 pub trait Topic: for<'a> Codec<'a> + std::hash::Hash + Eq + 'static + Into<PossibleTopic> {
     type Event<'a>: Codec<'a>;
+    type Record: for<'a> Codec<'a>;
 }
 
 component_utils::protocol! {'a:
