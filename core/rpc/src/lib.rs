@@ -468,7 +468,6 @@ mod test {
         },
         mini_dht::Route,
         std::net::Ipv4Addr,
-        tracing_subscriber::EnvFilter,
     };
 
     #[derive(NetworkBehaviour, Default)]
@@ -480,10 +479,6 @@ mod test {
     #[tokio::test(flavor = "current_thread")]
     async fn test_random_rpc_calls() {
         env_logger::init();
-
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
 
         let pks = (0..2)
             .map(|_| libp2p::identity::ed25519::Keypair::generate())

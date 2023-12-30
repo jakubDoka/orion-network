@@ -7,6 +7,8 @@
 #![feature(macro_metavar_expr)]
 #![feature(slice_take)]
 
+#[cfg(test)]
+use futures::channel::mpsc;
 use {
     self::handlers::RequestOrigin,
     anyhow::Context as _,
@@ -75,7 +77,7 @@ compose_handlers! {
         Repl<Retry<SendMail>>,
         SyncReplRetry<ReadMail>,
         SyncReplRetry<FetchProfile>,
-        Sync<FetchVault>,
+        SyncRetry<FetchVault>,
 
         SyncRepl<CreateChat>,
         SyncRepl<AddUser>,
@@ -641,7 +643,7 @@ fn push_notification(
         return false;
     };
 
-    if stream.inner.write((call_id, &event)).is_none() {
+    if stream.inner.write((call_id, event)).is_none() {
         return false;
     }
 
@@ -710,10 +712,27 @@ impl<'a> TryUnwrap<&'a Infallible> for &'a rpc::Event {
     }
 }
 
+enum InnerStream {
+    Normal(EncryptedStream),
+    #[cfg(test)]
+    Test(mpsc::Receiver<Vec<u8>>, mpsc::Sender<Vec<u8>>),
+}
+
+impl InnerStream {
+    #[must_use = "write could have failed"]
+    pub fn write<'a>(&mut self, data: impl Codec<'a>) -> Option<()> {
+        match self {
+            InnerStream::Normal(s) => s.write(data),
+            #[cfg(test)]
+            InnerStream::Test(_, s) => s.try_send(data.to_bytes()).ok(),
+        }
+    }
+}
+
 pub struct Stream {
     id: PathId,
     subscriptions: LinearMap<PossibleTopic, CallId>,
-    inner: EncryptedStream,
+    inner: InnerStream,
 }
 
 impl Stream {
@@ -721,8 +740,20 @@ impl Stream {
         Stream {
             id,
             subscriptions: Default::default(),
-            inner,
+            inner: InnerStream::Normal(inner),
         }
+    }
+
+    #[cfg(test)]
+    fn new_test() -> [Self; 2] {
+        let (input_s, input_r) = mpsc::channel(1);
+        let (output_s, output_r) = mpsc::channel(1);
+        let id = PathId::new();
+        [(input_r, output_s), (output_r, input_s)].map(|(a, b)| Stream {
+            id,
+            subscriptions: Default::default(),
+            inner: InnerStream::Test(a, b),
+        })
     }
 }
 
@@ -733,9 +764,11 @@ impl libp2p::futures::Stream for Stream {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner
-            .poll_next_unpin(cx)
-            .map(|v| v.map(|v| (self.id, v)))
+        match &mut self.inner {
+            InnerStream::Normal(n) => n.poll_next_unpin(cx).map(|v| v.map(|v| (self.id, v))),
+            #[cfg(test)]
+            InnerStream::Test(t, _) => t.poll_next_unpin(cx).map(|v| v.map(|v| (self.id, Ok(v)))),
+        }
     }
 }
 

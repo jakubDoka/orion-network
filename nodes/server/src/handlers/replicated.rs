@@ -41,6 +41,7 @@ impl<H, E> ReplBase<H, E> {
     }
 }
 
+// TODO: This doesnt actually consider that only we are the minority and willing to reconfigure
 impl<H, E> Handler for ReplBase<H, E>
 where
     H: Handler,
