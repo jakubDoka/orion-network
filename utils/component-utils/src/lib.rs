@@ -89,7 +89,7 @@ macro_rules! gen_unique_id {
 #[macro_export]
 macro_rules! gen_simple_error {
     ($(
-        error $name:ident {$(
+        enum $name:ident {$(
             $variant:ident$(($ty:ty))? => $message:literal,
         )*}
     )*) => {$(

@@ -24,7 +24,7 @@ macro_rules! compose_protocols {
             type Response<$lt> = $resp;
         }
 
-        $(impl $crate::extractors::ExtractTopic for $for {
+        $(impl $crate::extractors::TopicProtocol for $for {
             type Topic = $topic;
             fn extract_topic($topic_arg: &Self::Request<'_>) -> Self::Topic {
                 $topic_extractor

@@ -2,12 +2,11 @@ use {
     super::*,
     chat_logic::{Protocol, *},
     component_utils::{arrayvec::ArrayVec, FindAndRemove},
-    std::{collections::hash_map::Entry, marker::PhantomData, u8},
+    std::{collections::hash_map::Entry, marker::PhantomData},
 };
 
-pub trait CanBeMissing: ExtractTopic {
-    fn not_found() -> Self::Error;
-}
+pub type SyncRetry<H> = RetryBase<Sync<H>, rpc::Event>;
+pub type Retry<H> = RetryBase<H, <H as Handler>::Event>;
 
 pub struct Restoring {
     topic: PossibleTopic,
@@ -23,26 +22,27 @@ pub enum RetryBase<H, E> {
 impl<H, E> Handler for RetryBase<H, E>
 where
     H: Handler,
-    H::Protocol: CanBeMissing,
+    H::Protocol: TopicProtocol,
     for<'a> &'a E: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
-    for<'a> &'a H::Event: TryUnwrap<&'a rpc::Event>,
     H::Event: 'static,
 {
     type Event = E;
-    type Protocol = H::Protocol;
+    type Protocol = NotFound<H::Protocol>;
 
     fn execute<'a>(
         sc: Scope<'a>,
         req: <Self::Protocol as Protocol>::Request<'_>,
     ) -> HandlerResult<'a, Self> {
-        let topic: PossibleTopic = <Self::Protocol as ExtractTopic>::extract_topic(&req).into();
+        let topic: PossibleTopic = <Self::Protocol as TopicProtocol>::extract_topic(&req).into();
 
-        crate::ensure!(sc.cx.is_valid_topic(topic), Ok(H::Protocol::not_found()));
+        crate::ensure!(sc.cx.is_valid_topic(topic), Ok(NotFoundError::NotFound));
 
         let mut packet = [0u8; std::mem::size_of::<(u8, Identity)>()];
         match topic {
             PossibleTopic::Profile(identity) if sc.cx.storage.profiles.contains_key(&identity) => {
-                return H::execute(sc, req).map_err(|h| Self::Handling(h, topic, PhantomData))
+                return H::execute(sc, req)
+                    .map_err(|h| Self::Handling(h, topic, PhantomData))
+                    .map(|r| r.map_err(NotFoundError::Inner))
             }
             PossibleTopic::Profile(identity) => {
                 (<FetchFullProfile as Protocol>::PREFIX, identity)
@@ -69,7 +69,9 @@ where
         match self {
             Self::Handling(h, topic, ph) => {
                 crate::ensure!(let Ok(event) = TryUnwrap::<&'a H::Event>::try_unwrap(event), Self::Handling(h, topic, ph));
-                H::resume(h, sc, event).map_err(|h| Self::Handling(h, topic, ph))
+                H::resume(h, sc, event)
+                    .map_err(|h| Self::Handling(h, topic, ph))
+                    .map(|e| e.map_err(NotFoundError::Inner))
             }
             Self::Restoring(mut r) => {
                 crate::ensure!(let Ok(&rpc::Event::Response(_, call, ref res)) = event.try_unwrap(), Self::Restoring(r));
@@ -114,8 +116,52 @@ where
                 crate::ensure!(r.pending.is_empty(), Self::Restoring(r));
                 let req = <Self::Protocol as Protocol>::Request::decode(&mut r.request.as_slice())
                     .expect("always valid");
-                H::execute(sc, req).map_err(|h| Self::Handling(h, r.topic, PhantomData))
+                H::execute(sc, req)
+                    .map_err(|h| Self::Handling(h, r.topic, PhantomData))
+                    .map(|r| r.map_err(NotFoundError::Inner))
             }
+        }
+    }
+}
+
+pub struct NotFound<T: Protocol>(T);
+
+impl<T: Protocol> Protocol for NotFound<T> {
+    type Error = NotFoundError<T::Error>;
+    type Request<'a> = T::Request<'a>;
+    type Response<'a> = T::Response<'a>;
+
+    const PREFIX: u8 = T::PREFIX;
+}
+
+impl<T: TopicProtocol> TopicProtocol for NotFound<T> {
+    type Topic = T::Topic;
+
+    fn extract_topic(request: &Self::Request<'_>) -> Self::Topic {
+        T::extract_topic(request)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum NotFoundError<T> {
+    #[error("not found")]
+    NotFound,
+    #[error(transparent)]
+    Inner(T),
+}
+
+impl<'a, T: Codec<'a>> Codec<'a> for NotFoundError<T> {
+    fn encode(&self, buf: &mut impl codec::Buffer) -> Option<()> {
+        match self {
+            Self::NotFound => buf.push(0),
+            Self::Inner(e) => e.encode(buf),
+        }
+    }
+
+    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
+        match buf.take_first()? {
+            0 => Some(Self::NotFound),
+            _ => Some(Self::Inner(T::decode(buf)?)),
         }
     }
 }

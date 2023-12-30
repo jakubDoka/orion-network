@@ -1,7 +1,7 @@
 use {
     super::{Handler, Sync, TryUnwrap},
     crate::REPLICATION_FACTOR,
-    chat_logic::{ExtractTopic, PossibleTopic, Protocol, ReplError},
+    chat_logic::{PossibleTopic, Protocol, ReplError, TopicProtocol},
     component_utils::{arrayvec::ArrayVec, Codec, FindAndRemove},
     rpc::CallId,
 };
@@ -44,7 +44,7 @@ impl<H, E> ReplBase<H, E> {
 impl<H, E> Handler for ReplBase<H, E>
 where
     H: Handler,
-    H::Protocol: ExtractTopic,
+    H::Protocol: TopicProtocol,
     for<'a> &'a E: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
 {
     type Event = E;
@@ -54,7 +54,7 @@ where
         mut scope: super::Scope<'a>,
         req: <Self::Protocol as chat_logic::Protocol>::Request<'_>,
     ) -> super::HandlerResult<'a, Self> {
-        let topic: PossibleTopic = <H::Protocol as ExtractTopic>::extract_topic(&req).into();
+        let topic: PossibleTopic = <H::Protocol as TopicProtocol>::extract_topic(&req).into();
 
         if !scope.is_valid_topic(topic) {
             return Ok(Err(ReplError::InvalidTopic));

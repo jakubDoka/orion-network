@@ -25,27 +25,27 @@ component_utils::protocol! { 'a:
 }
 
 component_utils::gen_simple_error! {
-    error CreateChatError {
+    enum CreateChatError {
         AlreadyExists => "chat already exists",
     }
 
-    error AddUserError {
+    enum AddUserError {
+        ChatNotFound => "chat not found",
         InvalidProof => "invalid proof",
         AlreadyExists => "user already exists",
         NotMember => "you are not a member",
         InvalidAction(Nonce) => "invalid action, expected nonce higher then {0}",
-        ChatNotFound => "chat not found",
     }
 
-    error SendMessageError {
-        InvalidProof => "invalid proof",
+    enum SendMessageError {
         ChatNotFound => "chat not found",
+        InvalidProof => "invalid proof",
         NotMember => "you are not a member",
         InvalidAction(Nonce) => "invalid action, expected nonce higher then {0}",
         MessageTooLarge => "message too large",
     }
 
-    error FetchMessagesError {
+    enum FetchMessagesError {
         ChatNotFound => "chat not found",
     }
 }

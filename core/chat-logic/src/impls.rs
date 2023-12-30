@@ -1,5 +1,5 @@
 use {
-    crate::{ExtractTopic, Protocol},
+    crate::{Protocol, TopicProtocol},
     component_utils::{codec, Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
     std::{convert::Infallible, fmt::Debug, iter, num::NonZeroUsize},
@@ -53,7 +53,7 @@ impl<T: Protocol> Protocol for Repl<T> {
     const PREFIX: u8 = T::PREFIX;
 }
 
-impl<T: ExtractTopic> ExtractTopic for Repl<T> {
+impl<T: TopicProtocol> TopicProtocol for Repl<T> {
     type Topic = T::Topic;
 
     fn extract_topic(request: &Self::Request<'_>) -> Self::Topic {
@@ -92,52 +92,6 @@ impl<'a, T: Codec<'a>> Codec<'a> for ReplError<T> {
             1 => Some(Self::Inner(T::decode(buf)?)),
             2 => Some(Self::InvalidResponse),
             3 => Some(Self::InvalidTopic),
-            _ => None,
-        }
-    }
-}
-
-pub struct NotFound<T: Protocol>(T);
-
-impl<T: Protocol> Protocol for NotFound<T> {
-    type Error = NotFoundError<T::Error>;
-    type Request<'a> = T::Request<'a>;
-    type Response<'a> = T::Response<'a>;
-
-    const PREFIX: u8 = T::PREFIX;
-}
-
-impl<T: ExtractTopic> ExtractTopic for NotFound<T> {
-    type Topic = T::Topic;
-
-    fn extract_topic(request: &Self::Request<'_>) -> Self::Topic {
-        T::extract_topic(request)
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum NotFoundError<T> {
-    #[error("not found")]
-    NotFound,
-    #[error(transparent)]
-    Inner(T),
-}
-
-impl<'a, T: Codec<'a>> Codec<'a> for NotFoundError<T> {
-    fn encode(&self, buf: &mut impl codec::Buffer) -> Option<()> {
-        match self {
-            Self::NotFound => buf.push(0),
-            Self::Inner(e) => {
-                buf.push(1)?;
-                e.encode(buf)
-            }
-        }
-    }
-
-    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
-        match buf.take_first()? {
-            0 => Some(Self::NotFound),
-            1 => Some(Self::Inner(T::decode(buf)?)),
             _ => None,
         }
     }

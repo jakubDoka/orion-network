@@ -111,34 +111,34 @@ component_utils::protocol! {'a:
 }
 
 component_utils::gen_simple_error! {
-    error FetchProfileError {
+    enum FetchProfileError {
         NotFound => "account not found",
     }
 
-    error CreateAccountError {
+    enum CreateAccountError {
         InvalidProof => "invalid proof",
         AlreadyExists => "account already exists",
     }
 
-    error SetVaultError {
-        InvalidProof => "invalid proof",
+    enum SetVaultError {
         NotFound => "account not found",
+        InvalidProof => "invalid proof",
         InvalidAction => "invalid action",
     }
 
-    error FetchVaultError {
+    enum FetchVaultError {
         NotFound => "account not found",
     }
 
-    error ReadMailError {
-        InvalidProof => "invalid proof",
+    enum ReadMailError {
         NotFound => "account not found",
+        InvalidProof => "invalid proof",
         InvalidAction => "invalid action",
     }
 
-    error SendMailError {
+    enum SendMailError {
+        NotFound => "account not found",
         SentDirectly => "sent directly",
-        NotFound => "account not found",
         SendingToSelf => "sending to self is not allowed",
         MailboxFull => "mailbox full (limit: {MAIL_BOX_CAP})",
     }

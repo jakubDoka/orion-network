@@ -50,7 +50,7 @@ impl RequestDispatch {
         Self::parse_response::<P>(&self.buffer)
     }
 
-    pub async fn dispatch<P: Protocol + ExtractTopic>(
+    pub async fn dispatch<P: Protocol + TopicProtocol>(
         &mut self,
         request: <Repl<P> as Protocol>::Request<'_>,
     ) -> Result<<Repl<P> as Protocol>::Response<'_>, RequestError<Repl<P>>> {

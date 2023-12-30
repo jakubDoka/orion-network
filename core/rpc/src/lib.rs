@@ -150,11 +150,8 @@ impl Behaviour {
             log::warn!("duplicate connection for peer {}", peer);
         }
 
-        let dialing = self.ongoing_dials.contains(&peer)
-            || self.pending_dials.find_and_remove_value(&peer).is_some();
-
         Ok(Handler {
-            requested: listening || !dialing || duplicate,
+            requested: listening || duplicate,
             stream: None,
             waker: None,
         })

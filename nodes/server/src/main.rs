@@ -5,6 +5,7 @@
 #![feature(if_let_guard)]
 #![feature(map_try_insert)]
 #![feature(macro_metavar_expr)]
+#![feature(slice_take)]
 
 use {
     self::handlers::RequestOrigin,
@@ -50,19 +51,35 @@ mod handlers;
 #[cfg(test)]
 mod tests;
 
+type SyncReplRetry<T> = Repl<SyncRetry<T>>;
+
 compose_handlers! {
     InternalServer {
-        Sync<CreateProfile>, Sync<SetVault>, SendMail, Sync<ReadMail>,
-        Sync<FetchProfile>, Sync<FetchFullProfile>,
-        Sync<CreateChat>, Sync<AddUser>, Sync<SendMessage>,
+        Sync<CreateProfile>,
+        SyncRetry<SetVault>,
+        Retry<SendMail>,
+        SyncRetry<ReadMail>,
+        SyncRetry<FetchProfile>,
+        Sync<FetchFullProfile>,
+
+        Sync<CreateChat>,
+        Sync<AddUser>,
+        Sync<SendMessage>,
     }
 
     ExternalServer {
         Sync<Subscribe>,
 
-        SyncRepl<CreateProfile>, SyncRepl<SetVault>, Repl<SendMail>, SyncRepl<ReadMail>, SyncRepl<FetchProfile>,
+        SyncRepl<CreateProfile>,
+        SyncReplRetry<SetVault>,
+        Repl<Retry<SendMail>>,
+        SyncReplRetry<ReadMail>,
+        SyncReplRetry<FetchProfile>,
         Sync<FetchVault>,
-        SyncRepl<CreateChat>, SyncRepl<AddUser>, SyncRepl<SendMessage>,
+
+        SyncRepl<CreateChat>,
+        SyncRepl<AddUser>,
+        SyncRepl<SendMessage>,
         Sync<FetchMessages>,
     }
 }

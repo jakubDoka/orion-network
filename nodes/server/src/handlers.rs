@@ -50,25 +50,12 @@ macro_rules! compose_handlers {
         impl Default for $name {
             fn default() -> Self {
                 Self($(
-                    ${ignore($handler)}
-                    $crate::handlers::HandlerNest::default(),
+                    $crate::handlers::HandlerNest::<$handler>::default(),
                 )*)
             }
         }
 
         impl $name {
-            pub fn execute(
-                &mut self,
-                mut cx: $crate::Context<'_>,
-                req: $crate::handlers::Request<'_>,
-                bp: &mut impl component_utils::codec::Buffer,
-            ) -> Result<$crate::handlers::ExitedEarly, $crate::handlers::HandlerExecError>
-            {
-                $(if <<$handler as Handler>::Protocol as Protocol>::PREFIX == req.prefix
-                    { return self.${index(0)}.execute($crate::extract_ctx!(cx), req, bp) })*
-                Err($crate::handlers::HandlerExecError::UnknownPrefix)
-            }
-
             pub fn try_complete<E>(
                 &mut self,
                 mut cx: $crate::Context<'_>,
@@ -82,14 +69,26 @@ macro_rules! compose_handlers {
                 )*
             {
                 $(
-                    ${ignore($handler)}
-                    match self.${index(0)}.try_complete($crate::extract_ctx!(cx), event, bp) {
+                    match HandlerNest::<$handler>::try_complete(&mut self.${index(0)}, $crate::extract_ctx!(cx), event, bp) {
                         Ok(res) => return Ok(res),
                         Err(e) => event = e,
                     }
                 )*
                 Err(event)
             }
+
+            pub fn execute(
+                &mut self,
+                mut cx: $crate::Context<'_>,
+                req: $crate::handlers::Request<'_>,
+                bp: &mut impl component_utils::codec::Buffer,
+            ) -> Result<$crate::handlers::ExitedEarly, $crate::handlers::HandlerExecError>
+            {
+                $(if <<$handler as Handler>::Protocol as Protocol>::PREFIX == req.prefix
+                    { return self.${index(0)}.execute($crate::extract_ctx!(cx), req, bp) })*
+                Err($crate::handlers::HandlerExecError::UnknownPrefix)
+            }
+
         }
     )*};
 }
@@ -182,12 +181,7 @@ impl<H: SyncHandler> Handler for Sync<H> {
     }
 }
 
-pub struct Scope<'a> {
-    pub cx: crate::Context<'a>,
-    pub origin: RequestOrigin,
-    pub call_id: CallId,
-    pub prefix: u8,
-}
+pub type Scope<'a> = ScopeRepr<crate::Context<'a>>;
 
 impl<'a> Scope<'a> {
     fn reborrow(&mut self) -> Scope<'_> {
@@ -198,6 +192,13 @@ impl<'a> Scope<'a> {
             prefix: self.prefix,
         }
     }
+}
+
+pub struct ScopeRepr<T> {
+    pub cx: T,
+    pub origin: RequestOrigin,
+    pub call_id: CallId,
+    pub prefix: u8,
 }
 
 impl<'a> Deref for Scope<'a> {
@@ -318,7 +319,7 @@ impl<H: Handler> HandlerNest<H> {
 }
 
 component_utils::gen_simple_error! {
-    error HandlerExecError {
+    enum HandlerExecError {
         DecodeRequest => "failed to decode request",
         UnknownPrefix => "unknown prefix",
     }
