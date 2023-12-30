@@ -22,8 +22,8 @@ use {
     libp2p::{
         identity::PeerId,
         swarm::{
-            dial_opts::{DialOpts, PeerCondition},
-            ConnectionId, NetworkBehaviour, NotifyHandler, StreamUpgradeError, ToSwarm as TS,
+            dial_opts::DialOpts, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
+            StreamUpgradeError, ToSwarm as TS,
         },
     },
     std::{
@@ -36,6 +36,7 @@ pub struct Behaviour {
     config: Config,
     router: FuturesUnordered<Channel>,
     peer_to_connection: component_utils::LinearMap<PeerId, ConnectionId>,
+    dialing_peers: component_utils::LinearMap<ConnectionId, PeerId>,
     events: VecDeque<TS<Event, handler::FromBehaviour>>,
     pending_connections: Vec<IncomingStream>,
     pending_requests: Vec<Arc<StreamRequest>>,
@@ -49,6 +50,7 @@ impl Behaviour {
             config,
             router: Default::default(),
             peer_to_connection: Default::default(),
+            dialing_peers: Default::default(),
             events: Default::default(),
             pending_connections: Default::default(),
             pending_requests: Default::default(),
@@ -105,14 +107,7 @@ impl Behaviour {
                 sr.to,
                 self.config.current_peer_id
             );
-            if self.config.dial_first {
-                self.events.push_back(TS::Dial {
-                    opts: DialOpts::peer_id(sr.to).build(),
-                });
-            } else {
-                self.events
-                    .push_back(TS::GenerateEvent(Event::ConnectRequest(sr.to)));
-            }
+            self.handle_missing_connection(sr.to);
             return;
         };
 
@@ -156,14 +151,7 @@ impl Behaviour {
                 meta.to,
                 self.config.current_peer_id
             );
-            if self.config.dial_first {
-                self.events.push_back(TS::Dial {
-                    opts: DialOpts::peer_id(meta.to).build(),
-                });
-            } else {
-                self.events
-                    .push_back(TS::GenerateEvent(Event::ConnectRequest(meta.to)));
-            }
+            self.handle_missing_connection(meta.to);
             return;
         };
 
@@ -228,19 +216,19 @@ impl Behaviour {
         }
     }
 
-    /// Must be called when `ConnectionRequest` is refering to already connected peer but the
-    /// behaviour it self is not aware of it.
-    pub fn redail(&mut self, peer: PeerId) {
-        if self.peer_to_connection.get(&peer).is_some() {
-            log::debug!("redail to already connected peer, {peer}");
-            return;
+    fn handle_missing_connection(&mut self, to: PeerId) {
+        if self.config.dial {
+            self.dial(to);
+        } else {
+            self.events
+                .push_back(TS::GenerateEvent(Event::ConnectRequest(to)));
         }
+    }
 
-        self.events.push_back(TS::Dial {
-            opts: DialOpts::peer_id(peer)
-                .condition(PeerCondition::NotDialing)
-                .build(),
-        });
+    fn dial(&mut self, peer: PeerId) {
+        let opts = DialOpts::from(peer);
+        self.dialing_peers.insert(opts.connection_id(), peer);
+        self.events.push_back(TS::Dial { opts });
     }
 
     fn create_handler(&mut self, peer: PeerId, connection_id: ConnectionId) -> Handler {
@@ -286,6 +274,13 @@ impl NetworkBehaviour for Behaviour {
             }
             log::debug!("connection closed to {}", c.peer_id);
             self.peer_to_connection.remove(&c.peer_id);
+        }
+
+        if let libp2p::swarm::FromSwarm::DialFailure(e) = event
+            && let Some(peer) = self.dialing_peers.remove(&e.connection_id)
+            && !matches!(e.error, DialError::DialPeerConditionFalse(_))
+        {
+            self.report_unreachable(peer);
         }
     }
 
@@ -367,8 +362,8 @@ component_utils::gen_config! {
     keep_alive_interval: std::time::Duration = std::time::Duration::from_secs(30),
     /// size of the buffer for forwarding packets.
     buffer_cap: usize = 1 << 13,
-    /// Try dialing first instead of emmiting a connection request.
-    dial_first: bool = true,
+    /// Dial instead of emmiting a connection request.
+    dial: bool = true,
 }
 
 #[derive(Debug)]

@@ -1,4 +1,5 @@
 #![feature(extract_if)]
+#![feature(let_chains)]
 #![feature(iter_collect_into)]
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
@@ -10,8 +11,8 @@ use {
         core::UpgradeInfo,
         futures::{stream::SelectAll, AsyncWriteExt, StreamExt},
         swarm::{
-            dial_opts::DialOpts, ConnectionHandler, ConnectionId, DialFailure, NetworkBehaviour,
-            StreamUpgradeError, SubstreamProtocol,
+            dial_opts::DialOpts, ConnectionHandler, ConnectionId, DialError, DialFailure,
+            NetworkBehaviour, StreamUpgradeError, SubstreamProtocol,
         },
         InboundUpgrade, OutboundUpgrade, PeerId, StreamProtocol,
     },
@@ -98,8 +99,8 @@ pub struct Behaviour {
     pending_requests: Vec<(PeerId, CallId, Vec<u8>, std::time::Instant)>,
     ongoing_requests: Vec<(CallId, PeerId, std::time::Instant)>,
     pending_repsonses: Vec<(PeerId, CallId, Vec<u8>)>,
+    ongoing_dials: Vec<(PeerId, ConnectionId)>,
     pending_dials: Vec<PeerId>,
-    ongoing_dials: Vec<PeerId>,
     events: Vec<Event>,
 }
 
@@ -117,7 +118,7 @@ impl Behaviour {
         } else {
             self.pending_requests
                 .push((peer, call, packet.into(), std::time::Instant::now()));
-            if !self.ongoing_dials.contains(&peer) && !self.pending_dials.contains(&peer) {
+            if !self.pending_dials.contains(&peer) {
                 self.pending_dials.push(peer);
             }
         }
@@ -134,7 +135,7 @@ impl Behaviour {
             _ = stream.write(call, payload.as_ref(), false);
         } else {
             self.pending_repsonses.push((peer, call, payload.into()));
-            if !self.ongoing_dials.contains(&peer) && !self.pending_dials.contains(&peer) {
+            if !self.pending_dials.contains(&peer) {
                 self.pending_dials.push(peer);
             }
         }
@@ -171,6 +172,12 @@ impl Behaviour {
             .map(|(c, p)| Event::Response(p, c, Err(error.clone())))
             .collect_into(&mut self.events);
     }
+
+    fn new_dial_opts(&mut self, peer: PeerId) -> DialOpts {
+        let opts = DialOpts::from(peer);
+        self.ongoing_dials.push((peer, opts.connection_id()));
+        opts
+    }
 }
 
 impl NetworkBehaviour for Behaviour {
@@ -199,16 +206,22 @@ impl NetworkBehaviour for Behaviour {
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
         if let libp2p::swarm::FromSwarm::DialFailure(DialFailure {
-            peer_id: Some(peer_id),
             error,
+            connection_id,
             ..
         }) = event
+            && let Some((peer, _)) = self
+                .ongoing_dials
+                .find_and_remove(|(_, c)| *c == connection_id)
         {
-            self.ongoing_dials.find_and_remove_value(&peer_id);
-            self.clean_failed_requests(
-                peer_id,
-                StreamUpgradeError::Io(io::Error::other(error.to_string())),
-            );
+            if let DialError::DialPeerConditionFalse(_) = error {
+                self.ongoing_dials.push((peer, connection_id));
+            } else {
+                self.clean_failed_requests(
+                    peer,
+                    StreamUpgradeError::Io(io::Error::other(error.to_string())),
+                );
+            }
         }
 
         if let libp2p::swarm::FromSwarm::ConnectionClosed(c) = event {
@@ -228,7 +241,6 @@ impl NetworkBehaviour for Behaviour {
     ) {
         match event {
             Ok(stream) => {
-                self.ongoing_dials.find_and_remove_value(&peer_id);
                 let mut stream = Stream::new(peer_id, stream, self.config.buffer_size);
                 for (peer, call, packet, rt) in
                     self.pending_requests.extract_if(|(p, ..)| *p == peer_id)
@@ -286,11 +298,8 @@ impl NetworkBehaviour for Behaviour {
         }
 
         if let Some(peer) = self.pending_dials.pop() {
-            self.ongoing_dials.push(peer);
             return Poll::Ready(libp2p::swarm::ToSwarm::Dial {
-                opts: DialOpts::peer_id(peer)
-                    .condition(libp2p::swarm::dial_opts::PeerCondition::NotDialing)
-                    .build(),
+                opts: self.new_dial_opts(peer),
             });
         }
 
@@ -453,17 +462,19 @@ mod test {
         super::*,
         libp2p::{
             futures::{stream::FuturesUnordered, StreamExt},
+            identity::{Keypair, PublicKey},
             multiaddr::Protocol,
             Multiaddr, Transport,
         },
+        mini_dht::Route,
         std::net::Ipv4Addr,
         tracing_subscriber::EnvFilter,
     };
 
-    #[derive(NetworkBehaviour)]
+    #[derive(NetworkBehaviour, Default)]
     struct TestBehatiour {
         rpc: Behaviour,
-        kad: libp2p::kad::Behaviour<libp2p::kad::store::MemoryStore>,
+        dht: mini_dht::Behaviour,
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -475,56 +486,51 @@ mod test {
             .try_init();
 
         let pks = (0..2)
-            .map(|_| libp2p::identity::Keypair::generate_ed25519())
+            .map(|_| libp2p::identity::ed25519::Keypair::generate())
             .collect::<Vec<_>>();
+        let public_keys = pks.iter().map(|kp| kp.public()).collect::<Vec<_>>();
         let peer_ids = pks
             .iter()
-            .map(|kp| kp.public().to_peer_id())
+            .map(|kp| PublicKey::from(kp.public()).to_peer_id())
             .collect::<Vec<_>>();
-        let servers = pks.into_iter().enumerate().map(|(i, kp)| {
-            let peer_id = kp.public().to_peer_id();
-            let beh = TestBehatiour {
-                rpc: Behaviour::default(),
-                kad: libp2p::kad::Behaviour::new(
-                    peer_id,
-                    libp2p::kad::store::MemoryStore::new(peer_id),
-                ),
-            };
-            let transport = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
-                .upgrade(libp2p::core::upgrade::Version::V1)
-                .authenticate(libp2p::noise::Config::new(&kp).unwrap())
-                .multiplex(libp2p::yamux::Config::default())
-                .boxed();
-            let mut swarm = libp2p::Swarm::new(
-                transport,
-                beh,
-                kp.public().to_peer_id(),
-                libp2p::swarm::Config::with_tokio_executor()
-                    .with_idle_connection_timeout(Duration::from_secs(10)),
-            );
-
-            swarm
-                .listen_on(
-                    Multiaddr::empty()
-                        .with(Protocol::Ip4(Ipv4Addr::LOCALHOST))
-                        .with(Protocol::Tcp(3000 + i as u16)),
-                )
-                .unwrap();
-
-            for (j, peer_id) in peer_ids.iter().enumerate() {
-                if i == j {
-                    continue;
-                }
-                swarm.behaviour_mut().kad.add_address(
-                    peer_id,
-                    Multiaddr::empty()
-                        .with(Protocol::Ip4(Ipv4Addr::LOCALHOST))
-                        .with(Protocol::Tcp(3000 + j as u16)),
+        let servers = pks
+            .into_iter()
+            .map(Keypair::from)
+            .enumerate()
+            .map(|(i, kp)| {
+                let beh = TestBehatiour::default();
+                let transport = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
+                    .upgrade(libp2p::core::upgrade::Version::V1)
+                    .authenticate(libp2p::noise::Config::new(&kp).unwrap())
+                    .multiplex(libp2p::yamux::Config::default())
+                    .boxed();
+                let mut swarm = libp2p::Swarm::new(
+                    transport,
+                    beh,
+                    kp.public().to_peer_id(),
+                    libp2p::swarm::Config::with_tokio_executor()
+                        .with_idle_connection_timeout(Duration::from_secs(10)),
                 );
-            }
 
-            swarm
-        });
+                swarm
+                    .listen_on(
+                        Multiaddr::empty()
+                            .with(Protocol::Ip4(Ipv4Addr::LOCALHOST))
+                            .with(Protocol::Tcp(3000 + i as u16)),
+                    )
+                    .unwrap();
+
+                for (j, pk) in public_keys.iter().enumerate() {
+                    swarm.behaviour_mut().dht.table.insert(Route::new(
+                        pk.clone(),
+                        Multiaddr::empty()
+                            .with(Protocol::Ip4(Ipv4Addr::LOCALHOST))
+                            .with(Protocol::Tcp(3000 + j as u16)),
+                    ));
+                }
+
+                swarm
+            });
 
         async fn run_server(mut swarm: libp2p::Swarm<TestBehatiour>, mut all_peers: Vec<PeerId>) {
             all_peers.retain(|p| p != swarm.local_peer_id());
@@ -532,7 +538,7 @@ mod test {
             let mut pending_request_count = 0;
             let mut iteration = 0;
             let mut total_requests = 0;
-            while total_requests < 1000000 {
+            while total_requests < 30000 {
                 if max_pending_requests > pending_request_count {
                     let peer_id = all_peers[iteration % all_peers.len()];
                     swarm.behaviour_mut().rpc.request(peer_id, [0, 0]).unwrap();

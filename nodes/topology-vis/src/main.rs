@@ -430,7 +430,7 @@ async fn main() {
     let world = WorldRc::default();
     let behaviour = Behaviour {
         collector: topology_wrapper::collector::Behaviour::new(peer_id, world),
-        dht: mini_dht::Behaviour::new(|_, _, _, _| Ok(())),
+        dht: mini_dht::Behaviour::default(),
     };
     let mut swarm = libp2p::Swarm::new(
         transport,

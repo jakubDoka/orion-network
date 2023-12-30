@@ -229,7 +229,7 @@ impl Node {
                 onion::Config::new(None, peer_id).keep_alive_interval(Duration::from_secs(100)),
             ),
             key_share: onion::key_share::Behaviour::default(),
-            dht: mini_dht::Behaviour::new(|_, _, _, _| Ok(())),
+            dht: mini_dht::Behaviour::default(),
         };
         let transport = websocket_websys::Transport::new(100)
             .upgrade(Version::V1)

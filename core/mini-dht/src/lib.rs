@@ -11,23 +11,30 @@ use {
     std::{convert::Infallible, iter},
 };
 
-pub trait Filter = FnMut(
+pub type Filter = fn(
     &mut RoutingTable,
     PeerId,
     &Multiaddr,
     &Multiaddr,
 ) -> Result<(), libp2p::swarm::ConnectionDenied>;
 
+#[derive(Clone)]
 pub struct Behaviour {
     pub table: RoutingTable,
-    filter: Box<dyn Filter>,
+    filter: Filter,
+}
+
+impl Default for Behaviour {
+    fn default() -> Self {
+        Self::new(|_, _, _, _| Ok(()))
+    }
 }
 
 impl Behaviour {
-    pub fn new<F: Filter + 'static>(filter: F) -> Self {
+    pub fn new(filter: Filter) -> Self {
         Self {
             table: RoutingTable::default(),
-            filter: Box::new(filter),
+            filter,
         }
     }
 }
@@ -94,7 +101,7 @@ impl NetworkBehaviour for Behaviour {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RoutingTable {
     // sorted vec is perfect since we almost never insert new entries
     routes: Vec<Route>,

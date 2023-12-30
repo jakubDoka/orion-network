@@ -375,9 +375,6 @@ impl Server {
 
     fn handle_event(&mut self, event: SE) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::ConnectRequest(to))) => {
-                self.swarm.behaviour_mut().onion.redail(to);
-            }
             SwarmEvent::Behaviour(BehaviourEvent::Rpc(rpc::Event::Request(peer, id, body))) => {
                 if self.swarm.behaviour_mut().dht.table.get(peer).is_none() {
                     log::warn!(

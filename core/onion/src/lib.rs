@@ -1,5 +1,6 @@
 #![feature(iter_map_windows)]
 #![feature(array_windows)]
+#![feature(let_chains)]
 #![feature(array_chunks)]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(unwrap_infallible)]

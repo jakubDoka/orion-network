@@ -50,7 +50,7 @@ pub mod collector {
         component_utils::Codec,
         libp2p::{
             futures::{stream::SelectAll, StreamExt},
-            swarm::{dial_opts::DialOpts, NetworkBehaviour},
+            swarm::{NetworkBehaviour},
             PeerId,
         },
         std::{convert::Infallible, io},
@@ -155,9 +155,7 @@ pub mod collector {
             libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>,
         > {
             if let Some(peer) = self.pending_connections.pop() {
-                return std::task::Poll::Ready(libp2p::swarm::ToSwarm::Dial {
-                    opts: DialOpts::peer_id(peer).build(),
-                });
+                return std::task::Poll::Ready(libp2p::swarm::ToSwarm::Dial { opts: peer.into() });
             }
 
             loop {
