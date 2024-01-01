@@ -45,10 +45,10 @@ pub const ASOC_DATA: &[u8] = concat!("pqc-orion-crypto/enc/", env!("CARGO_PKG_VE
 pub type Serialized<T> = <T as TransmutationCircle>::Serialized;
 
 pub mod enc;
-pub mod hash;
+mod hash;
 pub mod sign;
 
-pub use hash::{AnyHash, Hash};
+pub use hash::{Hash, HASH_SIZE};
 
 pub trait TransmutationCircle: Sized {
     type Serialized: AsRef<[u8]>;

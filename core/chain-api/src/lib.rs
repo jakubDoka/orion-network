@@ -317,7 +317,7 @@ impl<S: TransactionHandler> Client<S> {
         dest: ContractId,
         id: crypto::Hash<sign::PublicKey>,
     ) -> Result<RawUserName> {
-        let call = user_manager::messages::get_username(id.0);
+        let call = user_manager::messages::get_username(*id);
         self.call_dry(0, dest, call).await
     }
 

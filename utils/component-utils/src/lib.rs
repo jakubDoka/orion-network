@@ -132,10 +132,13 @@ pub mod proximity;
 #[cfg(feature = "std")]
 pub mod stream;
 
+#[cfg(feature = "std")]
+pub mod merkle_tree;
+
 pub use arrayvec;
 use core::task::Waker;
 #[cfg(feature = "std")]
-pub use {codec::*, futures, libp2p, stream::*, thiserror};
+pub use {codec::*, codec_derive::Codec, futures, libp2p, stream::*, thiserror};
 
 pub struct DropFn<F: FnOnce()>(Option<F>);
 

@@ -8,10 +8,7 @@ use {
     crate::{
         chat::Chat,
         login::{Login, Register},
-        node::{
-            ChatInvite, ChatMeta, HardenedChatInvite, HardenedChatInvitePayload,
-            HardenedJoinRequest, JoinRequestPayload, Mail, MemberMeta, Node,
-        },
+        node::{ChatMeta, HardenedChatInvitePayload, JoinRequestPayload, Mail, MemberMeta, Node},
         profile::Profile,
         protocol::SubsOwner,
     },
@@ -90,7 +87,7 @@ impl UserKeys {
     }
 
     pub fn identity_hash(&self) -> Identity {
-        crypto::hash::new(&self.sign.public_key())
+        crypto::Hash::new(&self.sign.public_key())
     }
 
     pub fn to_identity(&self) -> UserIdentity {
@@ -152,7 +149,7 @@ impl State {
                 let keys = keys.as_ref()?;
                 self.vault.try_update(|vault| {
                     let chat = vault.chats.get_mut(&chat_name)?;
-                    chat.action_no.0 = nonce.map_or(chat.action_no.0, |n| n + 1);
+                    chat.action_no = nonce.map_or(chat.action_no, |n| n + 1);
                     Some(Proof::for_chat(&keys.sign, &mut chat.action_no, chat_name))
                 })
             })
@@ -258,12 +255,12 @@ fn App() -> impl IntoView {
             identity,
         }
         .into_bytes();
-        let invite = Mail::HardenedJoinRequest(HardenedJoinRequest {
+        let invite = Mail::HardenedJoinRequest {
             cp: cp.into_bytes(),
             payload: unsafe {
                 std::mem::transmute(FixedAesPayload::new(payload, secret, crypto::ASOC_DATA))
             },
-        })
+        }
         .to_bytes();
 
         dispatch
@@ -289,7 +286,7 @@ fn App() -> impl IntoView {
         assert!(raw_mail.is_empty());
 
         match mail {
-            Mail::ChatInvite(ChatInvite { chat, cp }) => {
+            Mail::ChatInvite { chat, cp } => {
                 let secret = enc
                     .decapsulate_choosen(ChoosenCiphertext::from_bytes(cp))
                     .context("failed to decapsulate invite")?;
@@ -298,7 +295,7 @@ fn App() -> impl IntoView {
                     .vault
                     .update(|v| _ = v.chats.insert(chat, ChatMeta::from_secret(secret)));
             }
-            Mail::HardenedJoinRequest(HardenedJoinRequest { cp, payload }) => {
+            Mail::HardenedJoinRequest { cp, payload } => {
                 log::debug!("handling hardened join request");
                 let secret = enc
                     .decapsulate(Ciphertext::from_bytes(cp))
@@ -329,7 +326,7 @@ fn App() -> impl IntoView {
                     chat.members.insert(name, MemberMeta { secret, identity });
                 })
             }
-            Mail::HardenedChatInvite(HardenedChatInvite { cp, payload }) => {
+            Mail::HardenedChatInvite { cp, payload } => {
                 log::debug!("handling hardened chat invite");
                 let enc = enc.clone();
                 let secret = enc
@@ -368,12 +365,18 @@ fn App() -> impl IntoView {
                     Ok(())
                 });
             }
-            Mail::HardenedChatMessage(msg) => {
-                let mut message = msg.content.0.to_owned();
+            Mail::HardenedChatMessage {
+                nonce,
+                chat,
+                content,
+            } => {
+                let mut message = content.0.to_owned();
                 state.vault.update(|v| {
-                    let Some((&chat, meta)) = v.hardened_chats.iter_mut().find(|(c, _)| {
-                        crypto::hash::new_with_nonce(c.as_bytes(), msg.nonce) == msg.chat
-                    }) else {
+                    let Some((&chat, meta)) = v
+                        .hardened_chats
+                        .iter_mut()
+                        .find(|(c, _)| crypto::Hash::with_nonce(c.as_bytes(), nonce) == chat)
+                    else {
                         log::warn!("received message for unknown chat");
                         return;
                     };

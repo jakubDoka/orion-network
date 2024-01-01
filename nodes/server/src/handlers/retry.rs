@@ -89,7 +89,7 @@ where
                                 break 'a;
                             };
 
-                            if crypto::hash::new_raw(&profile.sign) != identity {
+                            if crypto::Hash::from_raw(&profile.sign) != identity {
                                 break 'a;
                             }
 

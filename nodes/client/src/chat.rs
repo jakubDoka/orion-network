@@ -1,7 +1,7 @@
 use {
     crate::{
         db, handled_async_closure, handled_callback, handled_spawn_local,
-        node::{self, ChatInvite, HardenedChatInvitePayload, Mail, MessageContent, RawChatMessage},
+        node::{self, HardenedChatInvitePayload, Mail, MessageContent, RawChatMessage},
         protocol::{RequestError, SubsOwner},
     },
     anyhow::Context,
@@ -185,7 +185,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         handled_spawn_local("reading chat messages", async move {
             let (mut sub, owner) = requests().subscribe(chat)?;
             subscription_owner.set_value(Some(owner)); // drop old subscription
-            while let Some(ChatEvent::Message((proof, Reminder(message)))) = sub.next().await {
+            while let Some(ChatEvent::Message(proof, Reminder(message))) = sub.next().await {
                 if !proof.verify_chat(chat) {
                     log::warn!("received message with invalid proof");
                     continue;
@@ -357,7 +357,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let cp = enc::Keypair::from_bytes(my_enc)
             .encapsulate_choosen(enc::PublicKey::from_ref(&user_data.enc), secret)
             .into_bytes();
-        let invite = Mail::ChatInvite(ChatInvite { chat, cp }).to_bytes();
+        let invite = Mail::ChatInvite { chat, cp }.to_bytes();
         requests
             .dispatch_mail((invitee.sign, Reminder(invite.as_slice())))
             .await
@@ -415,10 +415,10 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         .to_bytes();
         crypto::encrypt(&mut payload, secret);
 
-        let invite = Mail::HardenedChatInvite(node::HardenedChatInvite {
+        let invite = Mail::HardenedChatInvite {
             cp: cp.into_bytes(),
             payload: Reminder(&payload),
-        })
+        }
         .to_bytes();
 
         requests
@@ -519,11 +519,11 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 let mut message = content.as_bytes().to_vec();
                 crypto::encrypt(&mut message, member.secret);
                 let nonce = rand::thread_rng().gen();
-                let message = Mail::HardenedChatMessage(node::HardenedChatMessage {
+                let message = Mail::HardenedChatMessage {
                     nonce,
-                    chat: crypto::hash::new_with_nonce(chat.as_bytes(), nonce),
+                    chat: crypto::Hash::with_nonce(chat.as_bytes(), nonce),
                     content: Reminder(&message),
-                })
+                }
                 .to_bytes();
                 async move {
                     requests()

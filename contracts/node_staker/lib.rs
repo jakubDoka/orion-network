@@ -3,8 +3,8 @@
 #[ink::contract]
 mod node_staker {
     use {
-        core::{marker::PhantomData, u32},
-        crypto::{sign, Serialized, TransmutationCircle},
+        core::u32,
+        crypto::{sign, Serialized, TransmutationCircle, HASH_SIZE},
         ink::prelude::vec::Vec,
         primitives::contracts::*,
     };
@@ -61,32 +61,32 @@ mod node_staker {
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
     )]
     struct NodeIdentity {
-        sign: crypto::AnyHash,
-        enc: crypto::AnyHash,
+        sign: [u8; HASH_SIZE],
+        enc: [u8; HASH_SIZE],
     }
 
     impl NodeIdentity {
         fn from_bytes(bytes: Serialized<StoredNodeIdentity>) -> Self {
             let data = StoredNodeIdentity::from_bytes(bytes);
             Self {
-                sign: data.sign.0,
-                enc: data.enc.0,
+                sign: *data.sign,
+                enc: *data.enc,
             }
         }
 
         #[cfg(test)]
         fn to_bytes(self) -> Serialized<StoredNodeIdentity> {
             StoredNodeIdentity {
-                sign: (self.sign, PhantomData),
-                enc: (self.enc, PhantomData),
+                sign: self.sign.into(),
+                enc: self.enc.into(),
             }
             .into_bytes()
         }
 
         fn to_data_bytes(self, id: sign::Ed) -> Serialized<StoredNodeData> {
             StoredNodeData {
-                sign: (self.sign, PhantomData),
-                enc: (self.enc, PhantomData),
+                sign: self.sign.into(),
+                enc: self.enc.into(),
                 id,
             }
             .into_bytes()
@@ -152,8 +152,8 @@ mod node_staker {
             assert!(amount == STAKE_AMOUNT, "wrong amount");
             let data = StoredNodeData::from_bytes(data);
             let id = NodeIdentity {
-                sign: data.sign.0,
-                enc: data.enc.0,
+                sign: *data.sign,
+                enc: *data.enc,
             };
             let stake = Stake {
                 amount,
@@ -288,8 +288,8 @@ mod node_staker {
             ink_env::set_block_timestamp::<Env>(0);
             staker.join(
                 StoredNodeData {
-                    sign: (identity.sign, PhantomData),
-                    enc: (identity.enc, PhantomData),
+                    sign: identity.sign.into(),
+                    enc: identity.enc.into(),
                     id: sign::Ed::default(),
                 }
                 .into_bytes(),

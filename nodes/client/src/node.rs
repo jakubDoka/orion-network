@@ -5,7 +5,7 @@ use {
         CallId, ChatName, CreateProfile, FetchVault, Identity, Nonce, PossibleTopic, Proof,
         RawChatName, Repl, REPLICATION_FACTOR,
     },
-    component_utils::{futures, Codec, FindAndRemove, Ignored, LinearMap, Reminder},
+    component_utils::{futures, Codec, FindAndRemove, LinearMap, Reminder},
     crypto::{
         decrypt,
         enc::{self, ChoosenCiphertext, Ciphertext},
@@ -43,69 +43,66 @@ pub struct JoinRequestPayload {
 
 crypto::impl_transmute!(JoinRequestPayload,);
 
-component_utils::protocol! { 'a:
-    #[derive(Default)]
-    struct Vault {
-        chats: LinearMap<ChatName, ChatMeta>,
-        hardened_chats: LinearMap<ChatName, HardenedChatMeta>,
-        theme: Theme,
-    }
+#[derive(Default, Codec)]
+pub struct Vault {
+    pub chats: LinearMap<ChatName, ChatMeta>,
+    pub hardened_chats: LinearMap<ChatName, HardenedChatMeta>,
+    pub theme: Theme,
+}
 
-    struct ChatMeta {
-        secret: crypto::SharedSecret,
-        action_no: Ignored<Nonce>,
-    }
+#[derive(Codec)]
+pub struct ChatMeta {
+    pub secret: crypto::SharedSecret,
+    #[codec(skip)]
+    pub action_no: Nonce,
+}
 
-    #[derive(Default)]
-    struct HardenedChatMeta {
-        members: LinearMap<UserName, MemberMeta>,
-    }
+#[derive(Default, Codec)]
+pub struct HardenedChatMeta {
+    pub members: LinearMap<UserName, MemberMeta>,
+}
 
-    #[derive(Clone, Copy)]
-    struct MemberMeta {
-        secret: crypto::SharedSecret,
-        identity: crypto::Hash<sign::PublicKey>,
-    }
+#[derive(Clone, Copy, Codec)]
+pub struct MemberMeta {
+    pub secret: crypto::SharedSecret,
+    pub identity: crypto::Hash<sign::PublicKey>,
+}
 
-    struct RawChatMessage<'a> {
-        sender: UserName,
-        content: &'a str,
-    }
+#[derive(Codec)]
+pub struct RawChatMessage<'a> {
+    pub sender: UserName,
+    pub content: &'a str,
+}
 
-    enum Mail<'a> {
-        ChatInvite: ChatInvite,
-        HardenedJoinRequest: HardenedJoinRequest,
-        HardenedChatInvite: HardenedChatInvite<'a>,
-        HardenedChatMessage: HardenedChatMessage<'a>,
-    }
-
-    struct ChatInvite {
+#[derive(Codec)]
+pub enum Mail<'a> {
+    ChatInvite {
         chat: ChatName,
         cp: Serialized<ChoosenCiphertext>,
-    }
-
-    struct HardenedJoinRequest {
+    },
+    HardenedJoinRequest {
         cp: Serialized<Ciphertext>,
-        payload: [u8; std::mem::size_of::<FixedAesPayload<{ std::mem::size_of::<JoinRequestPayload>() }>>()],
-    }
-
-    struct HardenedChatMessage<'a> {
+        payload: [u8; std::mem::size_of::<
+            FixedAesPayload<{ std::mem::size_of::<JoinRequestPayload>() }>,
+        >()],
+    },
+    HardenedChatMessage {
         nonce: Nonce,
-        chat: crypto::AnyHash,
+        chat: crypto::Hash,
         content: Reminder<'a>,
-    }
-
-    struct HardenedChatInvite<'a> {
+    },
+    HardenedChatInvite {
         cp: Serialized<Ciphertext>,
         payload: Reminder<'a>,
-    }
+    },
+}
 
-    struct HardenedChatInvitePayload {
-        chat: ChatName,
-        inviter: UserName,
-        inviter_id: Identity,
-        members: Vec<UserName>,
-    }
+#[derive(Codec)]
+pub struct HardenedChatInvitePayload {
+    pub chat: ChatName,
+    pub inviter: UserName,
+    pub inviter_id: Identity,
+    pub members: Vec<UserName>,
 }
 
 impl ChatMeta {
@@ -147,14 +144,10 @@ macro_rules! gen_theme {
     ($(
         $name:ident: $value:literal,
     )*) => {
-        component_utils::protocol! { 'a:
-            #[derive(Clone, Copy, PartialEq)]
-            struct Theme {
-                $(
-                    $name: u32,
-                )*
-            }
-        }
+        #[derive(Clone, Copy, PartialEq, Codec)]
+        pub struct Theme { $(
+            pub $name: u32,
+        )* }
 
         impl Theme {
             pub fn apply(self) -> Result<(), JsValue> {
@@ -314,7 +307,7 @@ impl Node {
             .behaviour()
             .dht
             .table
-            .closest(profile_hash.sign.0.as_slice())
+            .closest(profile_hash.sign.as_ref())
             .take(REPLICATION_FACTOR.get() + 1);
 
         set_state!(ProfileOpen);

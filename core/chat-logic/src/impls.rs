@@ -28,13 +28,13 @@ crate::compose_protocols! {
         where Topic(ChatName): |&(c, ..)| c;
 
     fn CreateProfile<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>
-        where Topic(Identity): |(p, ..)| crypto::hash::new_raw(&p.pk);
+        where Topic(Identity): |(p, ..)| crypto::Hash::from_raw(&p.pk);
     fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>
-        where Topic(Identity): |(p, ..)| crypto::hash::new_raw(&p.pk);
+        where Topic(Identity): |(p, ..)| crypto::Hash::from_raw(&p.pk);
     fn FetchVault<'a>(Identity) -> Result<(Nonce, Nonce, Reminder<'a>), FetchVaultError>
         where Topic(Identity): |&i| i;
     fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>
-        where Topic(Identity): |p| crypto::hash::new_raw(&p.pk);
+        where Topic(Identity): |p| crypto::Hash::from_raw(&p.pk);
     fn SendMail<'a>(Identity, Reminder<'a>) -> Result<(), SendMailError>
         where Topic(Identity): |&(i, ..)| i;
     fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>
@@ -97,18 +97,16 @@ impl<'a, T: Codec<'a>> Codec<'a> for ReplError<T> {
     }
 }
 
-component_utils::protocol! {'a:
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    untagged_enum PossibleTopic {
-        Profile: Identity,
-        Chat: ChatName,
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Codec)]
+pub enum PossibleTopic {
+    Profile(Identity),
+    Chat(ChatName),
 }
 
 impl PossibleTopic {
     pub fn as_bytes(&self) -> &[u8] {
         match self {
-            Self::Profile(i) => i.0.as_slice(),
+            Self::Profile(i) => i.as_ref(),
             Self::Chat(c) => c.as_bytes(),
         }
     }
@@ -190,13 +188,11 @@ pub fn unpack_messages_ref(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
     })
 }
 
-component_utils::protocol! {'a:
-    #[derive(Clone, Copy)]
-    struct Proof {
-        pk: Serialized<sign::PublicKey>,
-        nonce: Nonce,
-        signature: Serialized<sign::Signature>,
-    }
+#[derive(Clone, Copy, Codec)]
+pub struct Proof {
+    pub pk: Serialized<sign::PublicKey>,
+    pub nonce: Nonce,
+    pub signature: Serialized<sign::Signature>,
 }
 
 impl Proof {
@@ -207,7 +203,7 @@ impl Proof {
     }
 
     pub fn for_vault(kp: &sign::Keypair, nonce: &mut Nonce, vault: &[u8]) -> Self {
-        Self::new(kp, nonce, crypto::hash::new_slice(vault).0)
+        Self::new(kp, nonce, *crypto::Hash::from_slice(vault))
     }
 
     pub fn for_chat(kp: &sign::Keypair, nonce: &mut Nonce, chat_name: ChatName) -> Self {
@@ -236,7 +232,7 @@ impl Proof {
     }
 
     pub fn verify_vault(&self, vault: &[u8]) -> bool {
-        self.verify(crypto::hash::new_slice(vault).0)
+        self.verify(*crypto::Hash::from_slice(vault))
     }
 
     pub fn verify_chat(&self, chat_name: ChatName) -> bool {

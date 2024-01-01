@@ -9,6 +9,19 @@ use {
 pub type SyncRepl<H> = ReplBase<Sync<H>, rpc::Event>;
 pub type Repl<H> = ReplBase<H, <H as Handler>::Event>;
 
+pub trait ProtocolTransform {
+    type From: Protocol;
+    type To: Protocol;
+
+    fn request(
+        request: <Self::From as Protocol>::Request<'_>,
+    ) -> <Self::To as Protocol>::Request<'_>;
+    fn response(
+        response: <Self::To as Protocol>::Response<'_>,
+    ) -> <Self::From as Protocol>::Response<'_>;
+    fn error(error: <Self::To as Protocol>::Error) -> <Self::From as Protocol>::Error;
+}
+
 pub enum ReplBase<H, E> {
     Resolving(H, PossibleTopic, Vec<u8>),
     Replicating {

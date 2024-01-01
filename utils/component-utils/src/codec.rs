@@ -9,6 +9,7 @@ use {
         marker::PhantomData,
         ops::{Deref, DerefMut},
     },
+    crypto::HASH_SIZE,
     std::{sync::Arc, u32, usize},
 };
 
@@ -23,100 +24,15 @@ pub fn decode_len(bytes: [u8; PACKET_LEN_WIDTH]) -> usize {
     PacketLen::from_be_bytes(bytes) as usize
 }
 
-#[macro_export]
-macro_rules! protocol {
-    (@low $(#[$meta:meta])* enum $lt:lifetime $name:ident$(<$lt2:lifetime>)? {$(
-        $variant:ident $(: $value:ty)?,
-    )*}) => {
-       $(#[$meta])*
-        pub enum $name$(<$lt2>)? {
-            $($variant$(($value))?,)*
-        }
+impl<T> Codec<'_> for crypto::Hash<T> {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.deref().encode(buffer)
+    }
 
-        impl<$lt> $crate::codec::Codec<$lt> for $name$(<$lt2>)? {
-            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
-                match self {
-                    $($crate::protocol!(@pattern $variant value $($value)?) => {
-                        (${index()} as u8).encode(buffer)
-                        $(?;<$value as $crate::codec::Codec<$lt>>::encode(value, buffer))?
-                    })*
-                }
-            }
-
-            fn decode(buffer: &mut &$lt [u8]) -> Option<Self> {
-                let value = <u8>::decode(buffer)?;
-                match value {
-                    $( ${index()} => {
-                        Some(Self::$variant$((<$value as $crate::codec::Codec<$lt>>::decode(buffer)?))?)
-                    })*
-                    _ => None,
-                }
-            }
-        }
-    };
-
-    (@low $(#[$meta:meta])* untagged_enum $lt:lifetime $name:ident$(<$lt2:lifetime>)? {$(
-        $variant:ident: $value:ty,
-    )*}) => {
-       $(#[$meta])*
-        pub enum $name$(<$lt2>)? {
-            $($variant($value),)*
-        }
-
-        impl<$lt> $crate::codec::Codec<$lt> for $name$(<$lt2>)? {
-            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
-                match self {
-                    $(Self::$variant(value) => {
-                        <$value as $crate::codec::Codec<$lt>>::encode(value, buffer)
-                    })*
-                }
-            }
-
-            fn decode(buffer: &mut &$lt [u8]) -> Option<Self> {
-                $(
-                    let slice_cpy = *buffer;
-                    if let Some(value) = <$value as $crate::codec::Codec<$lt>>::decode(buffer) {
-                        return Some(Self::$variant(value));
-                    }
-                    *buffer = slice_cpy;
-                )*
-                None
-            }
-        }
-    };
-
-    (@pattern $variant:ident $var:ident) => {Self::$variant};
-    (@pattern $variant:ident $var:ident $value:ty) => {Self::$variant($var)};
-
-    (@low $(#[$meta:meta])* struct $lt:lifetime $name:ident$(<$lt2:lifetime>)? {$(
-        $field:ident: $ty:ty,
-    )*}) => {
-        $(#[$meta])*
-        pub struct $name$(<$lt2>)? {
-            $(pub $field: $ty,)*
-        }
-
-        impl<$lt> $crate::codec::Codec<$lt> for $name$(<$lt2>)? {
-            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
-                $(<$ty as $crate::codec::Codec<$lt>>::encode(&self.$field, buffer)?;)*
-                Some(())
-            }
-
-            fn decode(buffer: &mut &$lt [u8]) -> Option<Self> {
-                Some(Self {
-                    $($field: <$ty as $crate::codec::Codec<$lt>>::decode(buffer)?,)*
-                })
-            }
-        }
-    };
-
-    ($lt:lifetime: $($(#[$meta:meta])* $keyword:ident $name:ident$(<$lt2:lifetime>)? {$(
-        $field:ident$(: $ty:ty)?,
-    )*})*) => {
-        $($crate::protocol!(@low $(#[$meta])* $keyword $lt $name$(<$lt2>)? {$(
-            $field $(: $ty)?,
-        )*});)*
-    };
+    fn decode(buffer: &mut &[u8]) -> Option<Self> {
+        let arr = <[u8; HASH_SIZE]>::decode(buffer)?;
+        Some(Self::from(arr))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -129,33 +45,6 @@ impl<'a, T> Codec<'a> for NoCodec<T> {
 
     fn decode(_: &mut &'a [u8]) -> Option<Self> {
         None
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Ignored<T>(pub T);
-
-impl<'a, T: Default> Codec<'a> for Ignored<T> {
-    fn encode(&self, _: &mut impl Buffer) -> Option<()> {
-        Some(())
-    }
-
-    fn decode(_: &mut &'a [u8]) -> Option<Self> {
-        Some(Self(T::default()))
-    }
-}
-
-impl<T> Deref for Ignored<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> DerefMut for Ignored<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

@@ -192,7 +192,7 @@ impl Account {
     }
 
     fn identity(&self) -> Identity {
-        crypto::hash::new(&self.sign.public_key())
+        crypto::Hash::new(&self.sign.public_key())
     }
 }
 

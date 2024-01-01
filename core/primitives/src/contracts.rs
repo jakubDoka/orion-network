@@ -50,8 +50,8 @@ impl UserData {
     pub fn to_stored(self) -> StoredUserData {
         StoredUserData {
             name: self.name,
-            sign: crypto::hash::new(&self.sign),
-            enc: crypto::hash::new(&self.enc),
+            sign: crypto::Hash::new(&self.sign),
+            enc: crypto::Hash::new(&self.enc),
         }
     }
 }
@@ -80,8 +80,8 @@ impl UserIdentity {
 
     pub fn to_stored(self) -> StoredUserIdentity {
         StoredUserIdentity {
-            sign: crypto::hash::new(&self.sign),
-            enc: crypto::hash::new(&self.enc),
+            sign: crypto::Hash::new(&self.sign),
+            enc: crypto::Hash::new(&self.enc),
         }
     }
 }
@@ -94,8 +94,8 @@ pub struct StoredUserIdentity {
 
 impl StoredUserIdentity {
     pub fn verify(&self, identity: &UserIdentity) -> bool {
-        crypto::hash::verify(&identity.sign, self.sign)
-            && crypto::hash::verify(&identity.enc, self.enc)
+        self.sign == crypto::Hash::new(&identity.sign)
+            && self.enc == crypto::Hash::new(&identity.enc)
     }
 
     pub fn to_data(self, name: UserName) -> StoredUserData {
@@ -116,8 +116,8 @@ pub struct NodeData {
 impl NodeData {
     pub fn to_stored(self) -> StoredNodeData {
         StoredNodeData {
-            sign: crypto::hash::new(&self.sign),
-            enc: crypto::hash::new(&self.enc),
+            sign: crypto::Hash::new(&self.sign),
+            enc: crypto::Hash::new(&self.enc),
             id: self.sign.pre,
         }
     }
@@ -139,8 +139,8 @@ pub struct NodeIdentity {
 impl NodeIdentity {
     pub fn to_stored(self) -> StoredNodeIdentity {
         StoredNodeIdentity {
-            sign: crypto::hash::new(&self.sign),
-            enc: crypto::hash::new(&self.enc),
+            sign: crypto::Hash::new(&self.sign),
+            enc: crypto::Hash::new(&self.enc),
         }
     }
 }

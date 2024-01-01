@@ -1,33 +1,31 @@
 use {
     crate::{Identity, Nonce, Proof, Topic},
-    component_utils::Reminder,
+    component_utils::{Codec, Reminder},
     crypto::{enc, sign, Serialized},
 };
 
 pub const MAIL_BOX_CAP: usize = 1024 * 1024;
 
-component_utils::protocol! {'a:
-    #[derive(Clone)]
-    struct Profile {
-        sign: Serialized<sign::PublicKey>,
-        enc: Serialized<enc::PublicKey>,
-        last_sig: Serialized<sign::Signature>,
-        vault_version: Nonce,
-        mail_action: Nonce,
-        vault: Vec<u8>,
-        mail: Vec<u8>,
-    }
+#[derive(Clone, Codec)]
+pub struct Profile {
+    pub sign: Serialized<sign::PublicKey>,
+    pub enc: Serialized<enc::PublicKey>,
+    pub last_sig: Serialized<sign::Signature>,
+    pub vault_version: Nonce,
+    pub mail_action: Nonce,
+    pub vault: Vec<u8>,
+    pub mail: Vec<u8>,
+}
 
-    #[derive(Clone, Copy)]
-    struct BorrowedProfile<'a> {
-        sign: Serialized<sign::PublicKey>,
-        enc: Serialized<enc::PublicKey>,
-        last_sig: Serialized<sign::Signature>,
-        vault_version: Nonce,
-        mail_action: Nonce,
-        vault: &'a [u8],
-        mail: &'a [u8],
-    }
+#[derive(Clone, Copy, Codec)]
+pub struct BorrowedProfile<'a> {
+    pub sign: Serialized<sign::PublicKey>,
+    pub enc: Serialized<enc::PublicKey>,
+    pub last_sig: Serialized<sign::Signature>,
+    pub vault_version: Nonce,
+    pub mail_action: Nonce,
+    pub vault: &'a [u8],
+    pub mail: &'a [u8],
 }
 
 impl Profile {
@@ -103,43 +101,60 @@ impl Topic for Identity {
 
 type ProfileEvent<'a> = Reminder<'a>;
 
-component_utils::protocol! {'a:
-    struct FetchProfileResp {
-        sign: Serialized<sign::PublicKey>,
-        enc: Serialized<enc::PublicKey>,
-    }
+#[derive(Codec)]
+pub struct FetchProfileResp {
+    pub sign: Serialized<sign::PublicKey>,
+    pub enc: Serialized<enc::PublicKey>,
 }
 
-component_utils::gen_simple_error! {
-    enum FetchProfileError {
-        NotFound => "account not found",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum FetchProfileError {
+    #[error("account not found")]
+    NotFound,
+}
 
-    enum CreateAccountError {
-        InvalidProof => "invalid proof",
-        AlreadyExists => "account already exists",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum CreateAccountError {
+    #[error("invalid proof")]
+    InvalidProof,
+    #[error("account already exists")]
+    AlreadyExists,
+}
 
-    enum SetVaultError {
-        NotFound => "account not found",
-        InvalidProof => "invalid proof",
-        InvalidAction => "invalid action",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum SetVaultError {
+    #[error("account not found")]
+    NotFound,
+    #[error("invalid proof")]
+    InvalidProof,
+    #[error("invalid action")]
+    InvalidAction,
+}
 
-    enum FetchVaultError {
-        NotFound => "account not found",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum FetchVaultError {
+    #[error("account not found")]
+    NotFound,
+}
 
-    enum ReadMailError {
-        NotFound => "account not found",
-        InvalidProof => "invalid proof",
-        InvalidAction => "invalid action",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum ReadMailError {
+    #[error("account not found")]
+    NotFound,
+    #[error("invalid proof")]
+    InvalidProof,
+    #[error("invalid action")]
+    InvalidAction,
+}
 
-    enum SendMailError {
-        NotFound => "account not found",
-        SentDirectly => "sent directly",
-        SendingToSelf => "sending to self is not allowed",
-        MailboxFull => "mailbox full (limit: {MAIL_BOX_CAP})",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum SendMailError {
+    #[error("account not found")]
+    NotFound,
+    #[error("sent directly")]
+    SentDirectly,
+    #[error("sending to self is not allowed")]
+    SendingToSelf,
+    #[error("mailbox full (limit: {MAIL_BOX_CAP})")]
+    MailboxFull,
 }

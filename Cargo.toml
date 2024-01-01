@@ -5,7 +5,8 @@ members = [
 	"utils/*",
 	"tests/*",
 	"contracts/*",
-	"forked/*", "core/*",
+	"forked/*",
+	"core/*",
 	"utils/falcon/falcon"
 ]
 exclude = [

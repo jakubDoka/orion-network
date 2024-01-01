@@ -35,7 +35,7 @@ impl SyncHandler for CreateProfile {
     ) -> ProtocolResult<'a, Self> {
         crate::ensure!(proof.verify_vault(vault), CreateAccountError::InvalidProof);
 
-        let user_id = crypto::hash::new_raw(&proof.pk);
+        let user_id = crypto::Hash::from_raw(&proof.pk);
         let entry = cx.storage.profiles.entry(user_id);
 
         match entry {
@@ -71,7 +71,7 @@ impl SyncHandler for SetVault {
     ) -> ProtocolResult<'a, Self> {
         crate::ensure!(proof.verify_vault(content), SetVaultError::InvalidProof);
 
-        let identity = crypto::hash::new_raw(&proof.pk);
+        let identity = crypto::Hash::from_raw(&proof.pk);
         let profile = cx.storage.profiles.get_mut(&identity);
 
         crate::ensure!(let Some(profile) = profile, SetVaultError::NotFound);
@@ -105,7 +105,7 @@ impl SyncHandler for ReadMail {
     fn execute<'a>(sc: Scope<'a>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
         crate::ensure!(request.verify_mail(), ReadMailError::InvalidProof);
         let store = sc.cx.storage;
-        let identity = crypto::hash::new_raw(&request.pk);
+        let identity = crypto::Hash::from_raw(&request.pk);
         let profile = store.profiles.get_mut(&identity);
         crate::ensure!(let Some(profile) = profile, ReadMailError::NotFound);
         crate::ensure!(

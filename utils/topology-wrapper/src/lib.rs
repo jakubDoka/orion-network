@@ -50,7 +50,7 @@ pub mod collector {
         component_utils::Codec,
         libp2p::{
             futures::{stream::SelectAll, StreamExt},
-            swarm::{NetworkBehaviour},
+            swarm::NetworkBehaviour,
             PeerId,
         },
         std::{convert::Infallible, io},
@@ -342,7 +342,7 @@ pub mod muxer {
 pub mod report {
     use {
         crate::{EventReceiver, ExtraEvent},
-        component_utils::PacketWriter,
+        component_utils::{Codec, PacketWriter},
         libp2p::{
             core::UpgradeInfo,
             futures::{stream::FuturesUnordered, StreamExt},
@@ -365,19 +365,19 @@ pub mod report {
         }
     }
 
-    component_utils::protocol! {'a:
-        struct Update<'a> {
-            event: Event<'a>,
-            peer: PeerId,
-            connection: usize,
-        }
+    #[derive(Codec)]
+    pub struct Update<'a> {
+        pub event: Event<'a>,
+        pub peer: PeerId,
+        pub connection: usize,
+    }
 
-        enum Event<'a> {
-            Stream: &'a str,
-            Packet: &'a str,
-            Closed: &'a str,
-            Disconnected,
-        }
+    #[derive(Codec)]
+    pub enum Event<'a> {
+        Stream(&'a str),
+        Packet(&'a str),
+        Closed(&'a str),
+        Disconnected,
     }
 
     struct UpdateStream {

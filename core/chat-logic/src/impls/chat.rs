@@ -1,7 +1,7 @@
 use {
     super::Nonce,
     crate::{Identity, Proof, Topic},
-    component_utils::{arrayvec::ArrayString, Reminder},
+    component_utils::{arrayvec::ArrayString, Codec, Reminder},
     std::convert::Infallible,
 };
 
@@ -18,21 +18,22 @@ impl Topic for ChatName {
     type Record = Infallible;
 }
 
-component_utils::protocol! { 'a:
-    enum ChatEvent<'a> {
-        Message: (Proof, Reminder<'a>),
-    }
+#[derive(Codec)]
+pub enum ChatEvent<'a> {
+    Message(Proof, Reminder<'a>),
+}
 
-    struct ChatChecksums {
-        size: usize,
-        user_count: usize,
-        message_count: usize,
-    }
+#[derive(Codec)]
+pub struct ChatChecksums {
+    pub size: usize,
+    pub user_count: usize,
+    pub message_count: usize,
+}
 
-    enum ChatAction<'a> {
-        AddUser: Identity,
-        SendMessage: Reminder<'a>,
-    }
+#[derive(Codec)]
+pub enum ChatAction<'a> {
+    AddUser(Identity),
+    SendMessage(Reminder<'a>),
 }
 
 component_utils::gen_simple_error! {

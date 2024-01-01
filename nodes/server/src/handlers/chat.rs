@@ -34,7 +34,7 @@ impl SyncHandler for AddUser {
             .get_mut(&name)
             .ok_or(AddUserError::ChatNotFound)?;
 
-        let requester_id = crypto::hash::new_raw(&proof.pk);
+        let requester_id = crypto::Hash::from_raw(&proof.pk);
         let requester = chat
             .members
             .iter_mut()
@@ -75,7 +75,7 @@ impl SyncHandler for SendMessage {
             .get_mut(&name)
             .ok_or(SendMessageError::ChatNotFound)?;
 
-        let sender_id = crypto::hash::new_raw(&proof.pk);
+        let sender_id = crypto::Hash::from_raw(&proof.pk);
         let sender = chat
             .members
             .iter_mut()
@@ -88,7 +88,7 @@ impl SyncHandler for SendMessage {
         );
 
         chat.messages.push(message.0.iter().copied());
-        cx.push(name, ChatEvent::Message((proof, message)));
+        cx.push(name, ChatEvent::Message(proof, message));
 
         Ok(())
     }
@@ -111,36 +111,35 @@ impl SyncHandler for FetchMessages {
     }
 }
 
-component_utils::protocol! {'a:
-    struct Chat {
-        members: Vec<Member>,
-        messages: MessageBlob,
-    }
+#[derive(Codec)]
+pub struct Chat {
+    pub members: Vec<Member>,
+    pub messages: MessageBlob,
+}
 
-    struct Member {
-        id: Identity,
-        action: Nonce,
-    }
+#[derive(Codec)]
+pub struct Member {
+    pub id: Identity,
+    pub action: Nonce,
+}
 
-    #[derive(Clone, Copy)]
-    struct ChatHistory<'a> {
-        offset: Cursor,
-        first: &'a [u8],
-        last: Reminder<'a>,
-    }
+#[derive(Clone, Copy, Codec)]
+pub struct ChatHistory<'a> {
+    pub offset: Cursor,
+    pub first: &'a [u8],
+    pub last: Reminder<'a>,
+}
 
+#[derive(Default, Codec)]
+pub struct MessageBlob {
+    pub data: VecDeque<u8>,
+    pub offset: Cursor,
+}
 
-    #[derive(Default)]
-    struct MessageBlob {
-        data: VecDeque<u8>,
-        offset: Cursor,
-    }
-
-    #[derive(Clone, Copy)]
-    struct Message<'a> {
-        identiy: Identity,
-        content: Reminder<'a>,
-    }
+#[derive(Clone, Copy, Codec)]
+pub struct Message<'a> {
+    pub identiy: Identity,
+    pub content: Reminder<'a>,
 }
 
 bitflags::bitflags! {

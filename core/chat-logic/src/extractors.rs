@@ -32,12 +32,11 @@ pub trait Topic: for<'a> Codec<'a> + std::hash::Hash + Eq + 'static + Into<Possi
     type Record;
 }
 
-component_utils::protocol! {'a:
-    struct Request<'a> {
-        prefix: u8,
-        id: CallId,
-        body: Reminder<'a>,
-    }
+#[derive(Codec)]
+pub struct Request<'a> {
+    pub prefix: u8,
+    pub id: CallId,
+    pub body: Reminder<'a>,
 }
 
 pub struct PacketBuffer<M> {

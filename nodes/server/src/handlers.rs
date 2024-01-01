@@ -340,10 +340,8 @@ pub struct Request<'a> {
     pub body: &'a [u8],
 }
 
-component_utils::protocol! {'a:
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum RequestOrigin {
-        Client: PathId,
-        Server: PeerId,
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Codec)]
+pub enum RequestOrigin {
+    Client(PathId),
+    Server(PeerId),
 }

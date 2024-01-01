@@ -15,11 +15,11 @@ use {
     chain_api::{ContractId, NodeAddress},
     chat_logic::*,
     component_utils::{Codec, LinearMap, Reminder},
-    crypto::{enc, sign, TransmutationCircle},
+    crypto::{enc, sign, Hash, TransmutationCircle},
     handlers::{Repl, SendMail, SyncRepl, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
-        futures::{self, io::Cursor, stream::SelectAll, SinkExt, StreamExt},
+        futures::{self, stream::SelectAll, SinkExt, StreamExt},
         identity::{self, ed25519},
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Transport,
@@ -32,7 +32,7 @@ use {
         convert::Infallible,
         fs,
         future::Future,
-        io,
+        io, iter,
         net::{IpAddr, Ipv4Addr},
         time::Duration,
         usize,
@@ -562,28 +562,19 @@ impl Future for Server {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        loop {
-            let mut progress = false;
-
-            while let std::task::Poll::Ready(Some((id, m))) = self.clients.poll_next_unpin(cx) {
-                self.handle_client_message(id, m);
-                progress = true;
-            }
-
-            while let std::task::Poll::Ready(Some(e)) = self.swarm.poll_next_unpin(cx) {
-                self.handle_event(e);
-                progress = true;
-            }
-
-            while let std::task::Poll::Ready(Some(e)) = self.stake_events.poll_next_unpin(cx) {
-                self.handle_stake_event(e);
-                progress = true;
-            }
-
-            if !progress {
-                return std::task::Poll::Pending;
-            }
+        while let std::task::Poll::Ready(Some((id, m))) = self.clients.poll_next_unpin(cx) {
+            self.handle_client_message(id, m);
         }
+
+        while let std::task::Poll::Ready(Some(e)) = self.swarm.poll_next_unpin(cx) {
+            self.handle_event(e);
+        }
+
+        while let std::task::Poll::Ready(Some(e)) = self.stake_events.poll_next_unpin(cx) {
+            self.handle_stake_event(e);
+        }
+
+        std::task::Poll::Pending
     }
 }
 
@@ -778,72 +769,4 @@ pub struct Storage {
     profiles: HashMap<Identity, Profile>,
     online: HashMap<Identity, RequestOrigin>,
     chats: HashMap<ChatName, Chat>,
-}
-
-type T = usize;
-
-struct MerkleTree {
-    nodes: Vec<T>,
-}
-
-impl MerkleTree {
-    pub fn new(root: T) -> Self {
-        Self { nodes: vec![root] }
-    }
-
-    pub fn psuh(&mut self, value: T) {
-        self.nodes.extend([Default::default(), value]);
-
-        let mut cursor = self.nodes.len() - 1;
-        let mut clamp = cursor;
-        let mut width = 1;
-        let mut direction_mask = self.nodes.len() >> 1;
-        for _ in 0..self.nodes.len().ilog2() {
-            if direction_mask & 1 == 0 {
-                cursor += width;
-            } else {
-                cursor -= width;
-                self.nodes[cursor] =
-                    self.nodes[cursor - width] + self.nodes[(cursor + width).min(clamp)];
-                clamp = cursor;
-            }
-            width <<= 1;
-            direction_mask >>= 1;
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_next_insert_index() {
-        #[rustfmt::skip]
-        let seq = &[
-            &[1][..],
-            &[1, 2, 1],
-            &[1, 2, 1, 3, 1],
-            &[1, 2, 1, 4, 1, 2, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 5, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 6, 1, 2, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 7, 1, 2, 1, 3, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 9, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 10, 1, 2, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 11, 1, 2, 1, 3, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 12, 1, 2, 1, 4, 1, 2, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 13, 1, 2, 1, 4, 1, 2, 1, 5, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 14, 1, 2, 1, 4, 1, 2, 1, 6, 1, 2, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 15, 1, 2, 1, 4, 1, 2, 1, 7, 1, 2, 1, 3, 1],
-            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 16, 1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1],
-        ];
-
-        let mut tree = MerkleTree::new(1);
-        for &seq in seq.iter() {
-            println!();
-            println!("{:?}\n{:?}\n{:b}", seq, tree.nodes, seq.len());
-            tree.psuh(1);
-        }
-    }
 }

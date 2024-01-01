@@ -3,8 +3,7 @@
 #[ink::contract]
 mod user_manager {
     use {
-        core::marker::PhantomData,
-        crypto::{Serialized, TransmutationCircle},
+        crypto::{Serialized, TransmutationCircle, HASH_SIZE},
         primitives::{contracts::StoredUserIdentity, RawUserName},
     };
 
@@ -14,23 +13,23 @@ mod user_manager {
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
     )]
     struct Profile {
-        sign: crypto::AnyHash,
-        enc: crypto::AnyHash,
+        sign: [u8; HASH_SIZE],
+        enc: [u8; HASH_SIZE],
     }
 
     impl Profile {
         fn from_bytes(bytes: Serialized<StoredUserIdentity>) -> Self {
             let data = StoredUserIdentity::from_bytes(bytes);
             Self {
-                sign: data.sign.0,
-                enc: data.enc.0,
+                sign: *data.sign,
+                enc: *data.enc,
             }
         }
 
         fn to_bytes(&self) -> Serialized<StoredUserIdentity> {
             StoredUserIdentity {
-                sign: (self.sign, PhantomData),
-                enc: (self.enc, PhantomData),
+                sign: self.sign.into(),
+                enc: self.enc.into(),
             }
             .into_bytes()
         }
@@ -40,7 +39,7 @@ mod user_manager {
     pub struct UserManager {
         username_to_owner: ink::storage::Mapping<RawUserName, AccountId>,
         owner_to_username: ink::storage::Mapping<AccountId, RawUserName>,
-        identity_to_username: ink::storage::Mapping<crypto::AnyHash, RawUserName>,
+        identity_to_username: ink::storage::Mapping<[u8; HASH_SIZE], RawUserName>,
         identities: ink::storage::Mapping<AccountId, Profile>,
     }
 
@@ -154,7 +153,7 @@ mod user_manager {
         }
 
         #[ink(message)]
-        pub fn get_username(&self, identity: crypto::AnyHash) -> Option<RawUserName> {
+        pub fn get_username(&self, identity: [u8; HASH_SIZE]) -> Option<RawUserName> {
             self.identity_to_username.get(identity)
         }
     }
