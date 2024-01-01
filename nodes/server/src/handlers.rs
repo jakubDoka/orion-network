@@ -318,11 +318,12 @@ impl<H: Handler> HandlerNest<H> {
     }
 }
 
-component_utils::gen_simple_error! {
-    enum HandlerExecError {
-        DecodeRequest => "failed to decode request",
-        UnknownPrefix => "unknown prefix",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum HandlerExecError {
+    #[error("failed to decode request")]
+    DecodeRequest,
+    #[error("unknown prefix")]
+    UnknownPrefix,
 }
 
 struct HandlerInstance<H> {

@@ -36,28 +36,42 @@ pub enum ChatAction<'a> {
     SendMessage(Reminder<'a>),
 }
 
-component_utils::gen_simple_error! {
-    enum CreateChatError {
-        AlreadyExists => "chat already exists",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum CreateChatError {
+    #[error("chat already exists")]
+    AlreadyExists,
+}
 
-    enum AddUserError {
-        ChatNotFound => "chat not found",
-        InvalidProof => "invalid proof",
-        AlreadyExists => "user already exists",
-        NotMember => "you are not a member",
-        InvalidAction(Nonce) => "invalid action, expected nonce higher then {0}",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum AddUserError {
+    #[error("chat not found")]
+    ChatNotFound,
+    #[error("invalid proof")]
+    InvalidProof,
+    #[error("user already exists")]
+    AlreadyExists,
+    #[error("you are not a member")]
+    NotMember,
+    #[error("invalid action, expected nonce higher then {0}")]
+    InvalidAction(Nonce),
+}
 
-    enum SendMessageError {
-        ChatNotFound => "chat not found",
-        InvalidProof => "invalid proof",
-        NotMember => "you are not a member",
-        InvalidAction(Nonce) => "invalid action, expected nonce higher then {0}",
-        MessageTooLarge => "message too large",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum SendMessageError {
+    #[error("chat not found")]
+    ChatNotFound,
+    #[error("invalid proof")]
+    InvalidProof,
+    #[error("you are not a member")]
+    NotMember,
+    #[error("invalid action, expected nonce higher then {0}")]
+    InvalidAction(Nonce),
+    #[error("message too large")]
+    MessageTooLarge,
+}
 
-    enum FetchMessagesError {
-        ChatNotFound => "chat not found",
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum FetchMessagesError {
+    #[error("chat not found")]
+    ChatNotFound,
 }

@@ -16,7 +16,7 @@ impl MerkleHash for usize {
     }
 }
 
-struct MerkleTree<T> {
+pub struct MerkleTree<T> {
     nodes: Vec<T>,
 }
 

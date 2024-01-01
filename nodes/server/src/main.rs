@@ -15,7 +15,7 @@ use {
     chain_api::{ContractId, NodeAddress},
     chat_logic::*,
     component_utils::{Codec, LinearMap, Reminder},
-    crypto::{enc, sign, Hash, TransmutationCircle},
+    crypto::{enc, sign, TransmutationCircle},
     handlers::{Repl, SendMail, SyncRepl, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
@@ -32,10 +32,9 @@ use {
         convert::Infallible,
         fs,
         future::Future,
-        io, iter,
+        io,
         net::{IpAddr, Ipv4Addr},
         time::Duration,
-        usize,
     },
 };
 

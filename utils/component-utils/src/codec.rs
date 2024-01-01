@@ -7,7 +7,7 @@ use {
     core::{
         convert::Infallible,
         marker::PhantomData,
-        ops::{Deref, DerefMut},
+        ops::{Deref},
     },
     crypto::HASH_SIZE,
     std::{sync::Arc, u32, usize},

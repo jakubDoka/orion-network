@@ -86,46 +86,6 @@ macro_rules! gen_unique_id {
     };
 }
 
-#[macro_export]
-macro_rules! gen_simple_error {
-    ($(
-        enum $name:ident {$(
-            $variant:ident$(($ty:ty))? => $message:literal,
-        )*}
-    )*) => {$(
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, $crate::thiserror::Error)]
-        #[repr(u8)]
-        pub enum $name {$(
-            #[error($message)]
-            $variant$(($ty))?,
-        )*}
-
-
-        impl<'a> $crate::Codec<'a> for $name {
-            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
-                match self {$(
-                    Self::$variant$((val) ${ignore($ty)})? => {
-                        buffer.push(${index()})
-                        $(?;<$ty as $crate::Codec>::encode(val, buffer))?
-                    }
-                )*}
-            }
-
-            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-                let index = buffer.get(0)?;
-                *buffer = &buffer[1..];
-
-                match index {$(
-                    ${index()} => {
-                        $(let val = <$ty as $crate::Codec>::decode(buffer)?;)?
-                        Some(Self::$variant$( (val) ${ignore($ty)} )?)
-                    }
-                )* _ => None, }
-            }
-        }
-    )*};
-}
-
 #[cfg(feature = "std")]
 pub mod codec;
 pub mod proximity;

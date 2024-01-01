@@ -1,9 +1,8 @@
 use {
-    proc_macro::Ident,
     quote::format_ident,
     std::ops::Not,
     syn::{
-        meta::ParseNestedMeta, parenthesized, punctuated::Punctuated, token::Paren, ExprParen,
+        punctuated::Punctuated,
         Meta, Token,
     },
 };
@@ -281,11 +280,10 @@ impl FieldAttrFlags {
                 Meta::List(ml) => Some(ml),
                 _ => None,
             })
-            .map(|ml| {
+            .flat_map(|ml| {
                 ml.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
                     .unwrap()
             })
-            .flatten()
             .fold(Self::default(), |s, m| Self {
                 ignore: s.ignore || m.path().is_ident("skip"),
             })
