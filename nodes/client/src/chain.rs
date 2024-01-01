@@ -7,32 +7,23 @@ use {
     web_sys::js_sys::wasm_bindgen,
 };
 
-macro_rules! build_env {
-    ($vis:vis $name:ident) => {
-        #[cfg(feature = "building")]
-        $vis const $name: &str = env!(stringify!($name));
-        #[cfg(not(feature = "building"))]
-        $vis const $name: &str = "";
-    };
-}
-
 pub async fn node(name: UserName) -> Result<chain_api::Client<WebSigner>, chain_api::Error> {
-    build_env!(CHAIN_NODE);
+    component_utils::build_env!(CHAIN_NODE);
     chain_api::Client::with_signer(CHAIN_NODE, WebSigner(name)).await
 }
 
 pub fn user_contract() -> ContractId {
-    build_env!(USER_CONTRACT);
+    component_utils::build_env!(USER_CONTRACT);
     ContractId::from_str(USER_CONTRACT).unwrap()
 }
 
 pub fn node_contract() -> ContractId {
-    build_env!(NODE_CONTRACT);
+    component_utils::build_env!(NODE_CONTRACT);
     ContractId::from_str(NODE_CONTRACT).unwrap()
 }
 
 pub fn min_nodes() -> usize {
-    build_env!(MIN_NODES);
+    component_utils::build_env!(MIN_NODES);
     MIN_NODES.parse().unwrap()
 }
 

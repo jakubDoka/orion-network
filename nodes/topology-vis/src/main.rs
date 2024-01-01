@@ -28,9 +28,8 @@ impl Nodes {
             return index;
         }
 
-        let index = self.inner.len();
         self.inner.push(Some(node));
-        index
+        self.inner.len() - 1
     }
 
     fn remove(&mut self, index: usize) {
@@ -391,22 +390,13 @@ struct Behaviour {
     dht: mini_dht::Behaviour,
 }
 
-macro_rules! build_env {
-    ($vis:vis $name:ident) => {
-        #[cfg(feature = "building")]
-        $vis const $name: &str = env!(stringify!($name));
-        #[cfg(not(feature = "building"))]
-        $vis const $name: &str = "";
-    };
-}
-
 fn node_contract() -> ContractId {
-    build_env!(pub NODE_CONTRACT);
+    component_utils::build_env!(pub NODE_CONTRACT);
     NODE_CONTRACT.parse().unwrap()
 }
 
 fn chain_node() -> String {
-    build_env!(pub CHAIN_NODE);
+    component_utils::build_env!(pub CHAIN_NODE);
     CHAIN_NODE.to_string()
 }
 

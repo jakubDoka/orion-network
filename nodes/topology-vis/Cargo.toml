@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 crypto = { version = "0.1.0", path = "../../core/crypto" }

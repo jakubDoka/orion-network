@@ -6,6 +6,16 @@
 #![feature(slice_split_at_unchecked)]
 
 #[macro_export]
+macro_rules! build_env {
+    ($vis:vis $name:ident) => {
+        #[cfg(feature = "building")]
+        $vis const $name: &str = env!(stringify!($name));
+        #[cfg(not(feature = "building"))]
+        $vis const $name: &str = "";
+    };
+}
+
+#[macro_export]
 macro_rules! decl_stream_protocol {
     ($decl_name:ident = $name:literal) => {
         pub const $decl_name: StreamProtocol = StreamProtocol::new(concat!(
@@ -59,7 +69,7 @@ macro_rules! gen_config {
 #[macro_export]
 macro_rules! gen_unique_id {
     ($vis:vis $ty:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Codec)]
         $vis struct $ty(usize);
 
         impl $ty {
@@ -71,16 +81,6 @@ macro_rules! gen_unique_id {
 
             $vis fn whatever() -> Self {
                 Self(usize::MAX)
-            }
-        }
-
-        impl $crate::Codec<'_> for $ty {
-            fn encode(&self, buffer: &mut impl $crate::codec::Buffer) -> Option<()> {
-                self.0.encode(buffer)
-            }
-
-            fn decode(buffer: &mut &[u8]) -> Option<Self> {
-                usize::decode(buffer).map(Self)
             }
         }
     };

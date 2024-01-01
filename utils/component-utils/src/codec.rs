@@ -4,11 +4,7 @@ use libp2p::core::multihash::Multihash;
 use libp2p::identity::PeerId;
 use {
     arrayvec::{ArrayString, ArrayVec},
-    core::{
-        convert::Infallible,
-        marker::PhantomData,
-        ops::{Deref},
-    },
+    core::{convert::Infallible, marker::PhantomData, ops::Deref},
     crypto::HASH_SIZE,
     std::{sync::Arc, u32, usize},
 };
@@ -278,8 +274,7 @@ fn base128_decode(buffer: &mut &[u8]) -> Option<u64> {
 }
 
 macro_rules! impl_int {
-    ($($t:ty),*) => {
-        $(
+    ($($t:ty),*) => {$(
             impl<'a> Codec<'a> for $t {
                 fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
                     base128_encode(*self as u64, buffer)
@@ -289,8 +284,7 @@ macro_rules! impl_int {
                     base128_decode(buffer).map(|v| v as $t)
                 }
             }
-        )*
-    };
+    )*};
 }
 
 impl_int!(u16, u32, u64, u128, usize);
