@@ -1,10 +1,7 @@
 use {
     quote::format_ident,
     std::ops::Not,
-    syn::{
-        punctuated::Punctuated,
-        Meta, Token,
-    },
+    syn::{punctuated::Punctuated, Meta, Token},
 };
 
 extern crate proc_macro;
@@ -17,22 +14,57 @@ use {
 #[proc_macro_derive(Codec, attributes(codec))]
 pub fn derive_codec(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    let crate_name = syn::Ident::new("component_utils", proc_macro2::Span::call_site());
 
-    match input.data {
-        syn::Data::Struct(s) => derive_codec_struct(crate_name, input.ident, input.generics, s),
-        syn::Data::Enum(e) => derive_codec_enum(crate_name, input.ident, input.generics, e),
+    let crate_name = syn::Ident::new("component_utils", proc_macro2::Span::call_site());
+    let [encode, decode] = match input.data {
+        syn::Data::Struct(s) => derive_codec_struct(s),
+        syn::Data::Enum(e) => derive_codec_enum(e),
         syn::Data::Union(_) => unimplemented!("Unions are not supported"),
+    };
+    let (generics, lt) = modify_generics(crate_name.clone(), input.generics.clone());
+
+    let ident = input.ident;
+    let (impl_generics, ..) = generics.split_for_impl();
+    let (.., ty_generics, where_clause) = input.generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics #crate_name::Codec<#lt> for #ident #ty_generics #where_clause {
+            fn encode(&self, buffer: &mut impl #crate_name::Buffer) -> Option<()> {
+                #encode
+                Some(())
+            }
+
+            fn decode(buffer: &mut &#lt [u8]) -> Option<Self> {
+                #decode
+            }
+        }
     }
     .into()
 }
 
-fn derive_codec_enum(
-    crate_name: proc_macro2::Ident,
-    ident: proc_macro2::Ident,
-    generics: syn::Generics,
-    e: syn::DataEnum,
-) -> proc_macro2::TokenStream {
+fn modify_generics(
+    crate_name: syn::Ident,
+    mut generics: syn::Generics,
+) -> (syn::Generics, syn::Lifetime) {
+    if generics.lifetimes().next().is_none() {
+        let default_lt =
+            syn::LifetimeParam::new(syn::Lifetime::new("'a", proc_macro2::Span::call_site()));
+        generics
+            .params
+            .insert(0, syn::GenericParam::Lifetime(default_lt));
+    }
+    let mut lts = generics.lifetimes();
+    let lt = lts.next().unwrap().clone();
+    assert!(lts.next().is_none(), "Only one lifetime is supported");
+
+    for gen in generics.type_params_mut() {
+        gen.bounds.push(syn::parse_quote!(#crate_name::Codec<#lt>));
+    }
+
+    (generics, lt.lifetime)
+}
+
+fn derive_codec_enum(e: syn::DataEnum) -> [proc_macro2::TokenStream; 2] {
     let variant_index = 0..e.variants.len() as u8;
     let variant_index2 = 0..e.variants.len() as u8;
 
@@ -114,50 +146,36 @@ fn derive_codec_enum(
         }
     });
 
-    quote! {
-        impl<'a> #crate_name::Codec<'a> for #ident #generics {
-            fn encode(&self, buffer: &mut impl #crate_name::Buffer) -> Option<()> {
-                match self {
-                    #(Self::#destructure => {
-                        buffer.push(#variant_index)?;
-                        #encode_variant
-                    },)*
-                }
-                Some(())
+    [
+        quote! {
+            match self {
+                #(Self::#destructure => {
+                    buffer.push(#variant_index)?;
+                    #encode_variant
+                },)*
             }
+        },
+        quote! {
+            let index = buffer.get(0)?;
+            *buffer = &buffer[1..];
 
-            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-                let index = buffer.get(0)?;
-                *buffer = &buffer[1..];
-
-                match index {
-                    #(#variant_index2 => Some(Self::#decode_variant),)*
-                    _ => None,
-                }
+            match index {
+                #(#variant_index2 => Some(Self::#decode_variant),)*
+                _ => None,
             }
-        }
-    }
+        },
+    ]
 }
 
-fn derive_codec_struct(
-    crate_name: proc_macro2::Ident,
-    ident: proc_macro2::Ident,
-    generics: syn::Generics,
-    s: syn::DataStruct,
-) -> proc_macro2::TokenStream {
+fn derive_codec_struct(s: syn::DataStruct) -> [proc_macro2::TokenStream; 2] {
     match s.fields {
-        syn::Fields::Named(n) => derive_codec_named_struct(crate_name, ident, generics, n),
-        syn::Fields::Unnamed(u) => derive_codec_unnamed_struct(crate_name, ident, generics, u),
-        syn::Fields::Unit => derive_codec_unit_struct(crate_name, ident, generics),
+        syn::Fields::Named(n) => derive_codec_named_struct(n),
+        syn::Fields::Unnamed(u) => derive_codec_unnamed_struct(u),
+        syn::Fields::Unit => derive_codec_unit_struct(),
     }
 }
 
-fn derive_codec_unnamed_struct(
-    crate_name: proc_macro2::Ident,
-    ident: proc_macro2::Ident,
-    generics: syn::Generics,
-    u: syn::FieldsUnnamed,
-) -> proc_macro2::TokenStream {
+fn derive_codec_unnamed_struct(u: syn::FieldsUnnamed) -> [proc_macro2::TokenStream; 2] {
     let flags = u
         .unnamed
         .iter()
@@ -184,27 +202,18 @@ fn derive_codec_unnamed_struct(
         }
     });
 
-    quote! {
-        impl<'a> #crate_name::Codec<'a> for #ident #generics {
-            fn encode(&self, buffer: &mut impl #crate_name::Buffer) -> Option<()> {
-                let Self(#(#field_names,)*) = self;
-                #(Codec::<'a>::encode(#used_fields, buffer)?;)*
-                Some(())
-            }
-
-            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-                Some(Self(#(#decode_fields,)*))
-            }
-        }
-    }
+    [
+        quote! {
+            let Self(#(#field_names,)*) = self;
+            #(Codec::<'a>::encode(#used_fields, buffer)?;)*
+        },
+        quote! {
+            Some(Self(#(#decode_fields,)*))
+        },
+    ]
 }
 
-fn derive_codec_named_struct(
-    crate_name: proc_macro2::Ident,
-    ident: proc_macro2::Ident,
-    generics: syn::Generics,
-    n: syn::FieldsNamed,
-) -> proc_macro2::TokenStream {
+fn derive_codec_named_struct(n: syn::FieldsNamed) -> [proc_macro2::TokenStream; 2] {
     let flags = n
         .named
         .iter()
@@ -233,37 +242,19 @@ fn derive_codec_named_struct(
         }
     });
 
-    quote! {
-        impl<'a> #crate_name::Codec<'a> for #ident #generics {
-            fn encode(&self, buffer: &mut impl #crate_name::Buffer) -> Option<()> {
-                let Self { #(#field_names,)* } = self;
-                #(Codec::<'a>::encode(#used_fields, buffer)?;)*
-                Some(())
-            }
-
-            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-                Some(Self { #(#decode_fields,)* })
-            }
-        }
-    }
+    [
+        quote! {
+            let Self { #(#field_names,)* } = self;
+            #(Codec::<'a>::encode(#used_fields, buffer)?;)*
+        },
+        quote! {
+            Some(Self { #(#decode_fields,)* })
+        },
+    ]
 }
 
-fn derive_codec_unit_struct(
-    crate_name: proc_macro2::Ident,
-    ident: proc_macro2::Ident,
-    generics: syn::Generics,
-) -> proc_macro2::TokenStream {
-    quote! {
-        impl<'a> #crate_name::Codec<'a> for #ident #generics {
-            fn encode(&self, buffer: &mut impl #crate_name::Buffer) -> Option<()> {
-                Some(())
-            }
-
-            fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-                Some(Self)
-            }
-        }
-    }
+fn derive_codec_unit_struct() -> [proc_macro2::TokenStream; 2] {
+    [quote! {}, quote! { Some(Self) }]
 }
 
 #[derive(Default)]

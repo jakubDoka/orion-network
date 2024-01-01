@@ -1,10 +1,13 @@
 use {
-    crate::{codec, decode_len, encode_len, Buffer, Codec, Reminder, PACKET_LEN_WIDTH},
+    crate::{
+        self as component_utils, codec, decode_len, encode_len, Buffer, Codec, Reminder,
+        PACKET_LEN_WIDTH,
+    },
     futures::Future,
     std::{io, pin::Pin, task::Poll},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Codec)]
 pub struct LinearMap<K, V> {
     values: Vec<(K, V)>,
 }
@@ -86,18 +89,6 @@ impl<K: Eq, V> LinearMap<K, V> {
 
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
         self.values.iter_mut().map(|(_, v)| v)
-    }
-}
-
-impl<'a, K: Codec<'a>, V: Codec<'a>> Codec<'a> for LinearMap<K, V> {
-    fn encode(&self, buf: &mut impl Buffer) -> Option<()> {
-        self.values.encode(buf)
-    }
-
-    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
-        Some(Self {
-            values: Vec::decode(buf)?,
-        })
     }
 }
 

@@ -31,19 +31,6 @@ impl<T> Codec<'_> for crypto::Hash<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct NoCodec<T>(pub T);
-
-impl<'a, T> Codec<'a> for NoCodec<T> {
-    fn encode(&self, _: &mut impl Buffer) -> Option<()> {
-        None
-    }
-
-    fn decode(_: &mut &'a [u8]) -> Option<Self> {
-        None
-    }
-}
-
 pub struct WritableBuffer<'a, T> {
     buffer: &'a mut T,
 }

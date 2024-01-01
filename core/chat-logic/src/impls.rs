@@ -61,7 +61,7 @@ impl<T: TopicProtocol> TopicProtocol for Repl<T> {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Codec)]
 pub enum ReplError<T> {
     #[error("no majority")]
     NoMajority,
@@ -71,30 +71,6 @@ pub enum ReplError<T> {
     InvalidTopic,
     #[error(transparent)]
     Inner(T),
-}
-
-impl<'a, T: Codec<'a>> Codec<'a> for ReplError<T> {
-    fn encode(&self, buf: &mut impl codec::Buffer) -> Option<()> {
-        match self {
-            Self::NoMajority => buf.push(0),
-            Self::Inner(e) => {
-                buf.push(1)?;
-                e.encode(buf)
-            }
-            Self::InvalidResponse => buf.push(2),
-            Self::InvalidTopic => buf.push(3),
-        }
-    }
-
-    fn decode(buf: &mut &'a [u8]) -> Option<Self> {
-        match buf.take_first()? {
-            0 => Some(Self::NoMajority),
-            1 => Some(Self::Inner(T::decode(buf)?)),
-            2 => Some(Self::InvalidResponse),
-            3 => Some(Self::InvalidTopic),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Codec)]
