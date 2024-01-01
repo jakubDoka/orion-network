@@ -1,6 +1,6 @@
 use {
     super::Nonce,
-    crate::{Proof, Topic},
+    crate::{Identity, Proof, Topic},
     component_utils::{arrayvec::ArrayString, Reminder},
     std::convert::Infallible,
 };
@@ -21,6 +21,17 @@ impl Topic for ChatName {
 component_utils::protocol! { 'a:
     enum ChatEvent<'a> {
         Message: (Proof, Reminder<'a>),
+    }
+
+    struct ChatChecksums {
+        size: usize,
+        user_count: usize,
+        message_count: usize,
+    }
+
+    enum ChatAction<'a> {
+        AddUser: Identity,
+        SendMessage: Reminder<'a>,
     }
 }
 

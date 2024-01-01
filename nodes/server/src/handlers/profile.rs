@@ -162,7 +162,7 @@ impl Handler for SendMail {
                     Ok(SendMailError::SendingToSelf)
                 );
                 crate::ensure!(
-                    crate::push_notification(sc.cx.clients, for_who, Reminder(mail), p),
+                    !crate::push_notification(sc.cx.clients, for_who, Reminder(mail), p),
                     Ok(SendMailError::SentDirectly)
                 );
 

@@ -15,7 +15,7 @@ macro_rules! compose_protocols {
             $(where Topic($topic:ty): |$topic_arg:pat_param| $topic_extractor:expr)?;
     )*) => {$(
         #[allow(unused_parens)]
-        pub enum $for{}
+        pub enum $for {}
         impl $crate::extractors::Protocol for $for {
             const PREFIX: u8 = ${index(0)};
             type Error = $error;

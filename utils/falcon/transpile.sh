@@ -1,3 +1,5 @@
+
+
 RESOURCES=$(pwd)
 rm -rf falcon
 mkdir falcon
@@ -57,5 +59,3 @@ cargo add rand_core --no-default-features
 cargo remove libc
 cargo build --target wasm32-unknown-unknown
 cargo test --release
-
-echo '*' > .gitignore

@@ -67,11 +67,27 @@ async fn direct_messaging() {
         .test_req::<chat_logic::Subscribe>(&mut nodes, user2.identity().into(), Ok(()))
         .await;
 
+    futures::future::select(
+        nodes.next(),
+        std::pin::pin!(tokio::time::sleep(Duration::from_millis(100))),
+    )
+    .await;
+
     stream1
-        .test_req::<chat_logic::SendMail>(&mut nodes, (user2.identity(), Reminder(&[2])), Ok(()))
+        .test_req::<chat_logic::SendMail>(
+            &mut nodes,
+            (user2.identity(), Reminder(&[2])),
+            Err(SendMailError::SentDirectly),
+        )
         .await;
 
     stream2.expect_event(&mut nodes, Reminder(&[2])).await;
+
+    drop(stream2);
+
+    stream1
+        .test_req::<chat_logic::SendMail>(&mut nodes, (user2.identity(), Reminder(&[3])), Ok(()))
+        .await;
 }
 
 impl Stream {

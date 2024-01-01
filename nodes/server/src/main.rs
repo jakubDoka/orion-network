@@ -19,7 +19,7 @@ use {
     handlers::{Repl, SendMail, SyncRepl, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
-        futures::{self, stream::SelectAll, SinkExt, StreamExt},
+        futures::{self, io::Cursor, stream::SelectAll, SinkExt, StreamExt},
         identity::{self, ed25519},
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Transport,
@@ -35,6 +35,7 @@ use {
         io,
         net::{IpAddr, Ipv4Addr},
         time::Duration,
+        usize,
     },
 };
 
@@ -777,4 +778,72 @@ pub struct Storage {
     profiles: HashMap<Identity, Profile>,
     online: HashMap<Identity, RequestOrigin>,
     chats: HashMap<ChatName, Chat>,
+}
+
+type T = usize;
+
+struct MerkleTree {
+    nodes: Vec<T>,
+}
+
+impl MerkleTree {
+    pub fn new(root: T) -> Self {
+        Self { nodes: vec![root] }
+    }
+
+    pub fn psuh(&mut self, value: T) {
+        self.nodes.extend([Default::default(), value]);
+
+        let mut cursor = self.nodes.len() - 1;
+        let mut clamp = cursor;
+        let mut width = 1;
+        let mut direction_mask = self.nodes.len() >> 1;
+        for _ in 0..self.nodes.len().ilog2() {
+            if direction_mask & 1 == 0 {
+                cursor += width;
+            } else {
+                cursor -= width;
+                self.nodes[cursor] =
+                    self.nodes[cursor - width] + self.nodes[(cursor + width).min(clamp)];
+                clamp = cursor;
+            }
+            width <<= 1;
+            direction_mask >>= 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_next_insert_index() {
+        #[rustfmt::skip]
+        let seq = &[
+            &[1][..],
+            &[1, 2, 1],
+            &[1, 2, 1, 3, 1],
+            &[1, 2, 1, 4, 1, 2, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 5, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 6, 1, 2, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 7, 1, 2, 1, 3, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 9, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 10, 1, 2, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 11, 1, 2, 1, 3, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 12, 1, 2, 1, 4, 1, 2, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 13, 1, 2, 1, 4, 1, 2, 1, 5, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 14, 1, 2, 1, 4, 1, 2, 1, 6, 1, 2, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 15, 1, 2, 1, 4, 1, 2, 1, 7, 1, 2, 1, 3, 1],
+            &[1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1, 16, 1, 2, 1, 4, 1, 2, 1, 8, 1, 2, 1, 4, 1, 2, 1],
+        ];
+
+        let mut tree = MerkleTree::new(1);
+        for &seq in seq.iter() {
+            println!();
+            println!("{:?}\n{:?}\n{:b}", seq, tree.nodes, seq.len());
+            tree.psuh(1);
+        }
+    }
 }
