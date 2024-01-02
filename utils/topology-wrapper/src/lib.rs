@@ -3,6 +3,10 @@
 #![feature(macro_metavar_expr)]
 
 pub use impls::{channel, new, Behaviour, EventReceiver, EventSender};
+use {
+    component_utils::{Buffer, Codec, WritableBuffer},
+    libp2p::{multihash::Multihash, PeerId},
+};
 
 pub enum ExtraEvent {
     Stream(String),
@@ -14,8 +18,8 @@ pub enum PacketKind {
     Closed,
 }
 
-pub type ExtraEventAndMeta = (ExtraEvent, libp2p::PeerId, libp2p::swarm::ConnectionId);
-pub type PacketMeta = (libp2p::PeerId, usize, String);
+pub type ExtraEventAndMeta = (ExtraEvent, PeerIdWrapper, libp2p::swarm::ConnectionId);
+pub type PacketMeta = (PeerIdWrapper, usize, String);
 
 const INIT_TAG: [u8; 32] = [0xff; 32];
 
@@ -176,7 +180,7 @@ pub mod collector {
                     return std::task::Poll::Pending;
                 };
 
-                if update.peer != self.peer_id {
+                if update.peer.0 != self.peer_id {
                     self.world.handle_update(peer, update);
                 }
             }
@@ -341,7 +345,7 @@ pub mod muxer {
 #[cfg(not(feature = "disabled"))]
 pub mod report {
     use {
-        crate::{EventReceiver, ExtraEvent},
+        crate::{EventReceiver, ExtraEvent, PeerIdWrapper},
         component_utils::{Codec, PacketWriter},
         libp2p::{
             core::UpgradeInfo,
@@ -368,7 +372,7 @@ pub mod report {
     #[derive(Codec)]
     pub struct Update<'a> {
         pub event: Event<'a>,
-        pub peer: PeerId,
+        pub peer: PeerIdWrapper,
         pub connection: usize,
     }
 
@@ -401,7 +405,7 @@ pub mod report {
 
     pub struct Behaviour {
         listeners: FuturesUnordered<UpdateStream>,
-        topology: HashMap<PeerId, HashMap<usize, HashSet<String>>>,
+        topology: HashMap<PeerIdWrapper, HashMap<usize, HashSet<String>>>,
         recv: EventReceiver,
     }
 
@@ -658,7 +662,7 @@ pub mod report {
 #[cfg(not(feature = "disabled"))]
 mod impls {
     use {
-        crate::{ExtraEvent, ExtraEventAndMeta, PacketKind, PacketMeta},
+        crate::{ExtraEvent, ExtraEventAndMeta, PacketKind, PacketMeta, PeerIdWrapper},
         component_utils::Codec,
         libp2p::{
             futures::{AsyncWrite, SinkExt},
@@ -728,7 +732,8 @@ mod impls {
         }
 
         fn add_event(&mut self, event: ExtraEvent, peer: libp2p::PeerId, connection: ConnectionId) {
-            self.extra_events.push_back((event, peer, connection));
+            self.extra_events
+                .push_back((event, PeerIdWrapper(peer), connection));
             if let Some(waker) = mem::take(&mut self.waker) {
                 waker.wake();
             }
@@ -1023,7 +1028,11 @@ mod impls {
             async move {
                 let bytes = (
                     crate::INIT_TAG,
-                    (self.peer, self.connection, info.as_ref().to_owned()),
+                    (
+                        PeerIdWrapper(self.peer),
+                        self.connection,
+                        info.as_ref().to_owned(),
+                    ),
                 )
                     .to_bytes();
                 assert_matches!(
@@ -1050,7 +1059,11 @@ mod impls {
             async move {
                 let bytes = (
                     crate::INIT_TAG,
-                    (self.peer, self.connection, info.as_ref().to_owned()),
+                    (
+                        PeerIdWrapper(self.peer),
+                        self.connection,
+                        info.as_ref().to_owned(),
+                    ),
                 )
                     .to_bytes();
                 assert_matches!(
@@ -1065,5 +1078,23 @@ mod impls {
                     .map(|o| (o, info))
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PeerIdWrapper(pub PeerId);
+
+impl<'a> Codec<'a> for PeerIdWrapper {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        let mh = Multihash::from(self.0);
+        mh.write(WritableBuffer { buffer }).ok()?;
+        Some(())
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        let read = Multihash::<64>::read(buffer);
+        read.ok()
+            .and_then(|mh| PeerId::from_multihash(mh).ok())
+            .map(Self)
     }
 }

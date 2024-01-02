@@ -1,7 +1,8 @@
 use {
     crate::{Protocol, TopicProtocol},
-    component_utils::{codec, Codec, Reminder},
+    component_utils::{Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
+    rand_core::OsRng,
     std::{convert::Infallible, fmt::Debug, iter, num::NonZeroUsize},
 };
 pub use {chat::*, profile::*};
@@ -10,7 +11,7 @@ pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecke
 
 pub type Nonce = u64;
 pub type ProofContext = [u8; CHAT_NAME_CAP];
-pub type Identity = crypto::Hash<sign::PublicKey>;
+pub type Identity = crypto::Hash;
 
 mod chat;
 mod profile;
@@ -28,13 +29,13 @@ crate::compose_protocols! {
         where Topic(ChatName): |&(c, ..)| c;
 
     fn CreateProfile<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>
-        where Topic(Identity): |(p, ..)| crypto::Hash::from_raw(&p.pk);
+        where Topic(Identity): |(p, ..)| crypto::hash::from_raw(&p.pk);
     fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>
-        where Topic(Identity): |(p, ..)| crypto::Hash::from_raw(&p.pk);
+        where Topic(Identity): |(p, ..)| crypto::hash::from_raw(&p.pk);
     fn FetchVault<'a>(Identity) -> Result<(Nonce, Nonce, Reminder<'a>), FetchVaultError>
         where Topic(Identity): |&i| i;
     fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>
-        where Topic(Identity): |p| crypto::Hash::from_raw(&p.pk);
+        where Topic(Identity): |p| crypto::hash::from_raw(&p.pk);
     fn SendMail<'a>(Identity, Reminder<'a>) -> Result<(), SendMailError>
         where Topic(Identity): |&(i, ..)| i;
     fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>
@@ -179,7 +180,7 @@ impl Proof {
     }
 
     pub fn for_vault(kp: &sign::Keypair, nonce: &mut Nonce, vault: &[u8]) -> Self {
-        Self::new(kp, nonce, *crypto::Hash::from_slice(vault))
+        Self::new(kp, nonce, crypto::hash::from_slice(vault))
     }
 
     pub fn for_chat(kp: &sign::Keypair, nonce: &mut Nonce, chat_name: ChatName) -> Self {
@@ -187,7 +188,7 @@ impl Proof {
     }
 
     fn new(kp: &sign::Keypair, nonce: &mut Nonce, context: ProofContext) -> Self {
-        let signature = kp.sign(&Self::pack_payload(*nonce, context));
+        let signature = kp.sign(&Self::pack_payload(*nonce, context), OsRng);
         *nonce += 1;
         Self {
             pk: kp.public_key().into_bytes(),
@@ -208,7 +209,7 @@ impl Proof {
     }
 
     pub fn verify_vault(&self, vault: &[u8]) -> bool {
-        self.verify(*crypto::Hash::from_slice(vault))
+        self.verify(crypto::hash::from_slice(vault))
     }
 
     pub fn verify_chat(&self, chat_name: ChatName) -> bool {

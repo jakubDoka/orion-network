@@ -1,4 +1,3 @@
-#![cfg_attr(not(feature = "std"), no_std)]
 #![feature(array_chunks)]
 #![feature(macro_metavar_expr)]
 #![feature(slice_take)]
@@ -86,19 +85,12 @@ macro_rules! gen_unique_id {
     };
 }
 
-#[cfg(feature = "std")]
 pub mod codec;
 pub mod proximity;
-#[cfg(feature = "std")]
 pub mod stream;
 
-#[cfg(feature = "std")]
-pub mod merkle_tree;
-
-pub use arrayvec;
 use core::task::Waker;
-#[cfg(feature = "std")]
-pub use {codec::*, codec_derive::Codec, futures, libp2p, stream::*, thiserror};
+pub use {arrayvec, codec::*, codec_derive::Codec, futures, stream::*, thiserror};
 
 pub struct DropFn<F: FnOnce()>(Option<F>);
 
@@ -137,7 +129,6 @@ pub trait FindAndRemove<T> {
     }
 }
 
-#[cfg(feature = "std")]
 impl<T> FindAndRemove<T> for Vec<T> {
     fn find_and_remove(&mut self, q: impl FnMut(&T) -> bool) -> Option<T> {
         Some(self.swap_remove(self.iter().position(q)?))

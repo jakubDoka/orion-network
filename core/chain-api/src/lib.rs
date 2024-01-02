@@ -12,13 +12,8 @@ use {
         },
         *,
     },
-    crypto::{sign, Serialized, TransmutationCircle},
     futures::{StreamExt, TryFutureExt, TryStreamExt},
     parity_scale_codec::{Decode, Encode as _},
-    primitives::{
-        contracts::{StoredNodeData, StoredNodeIdentity, StoredUserIdentity},
-        RawUserName, UserName,
-    },
     std::str::FromStr,
     subxt::{
         backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
@@ -28,6 +23,8 @@ use {
     subxt_signer::bip39::Mnemonic,
 };
 pub use {serde_json::json, subxt::tx::TxPayload};
+
+pub const USER_NAME_CAP: usize = 32;
 
 pub type Config = PolkadotConfig;
 pub type Balance = u128;
@@ -41,6 +38,10 @@ pub type NodeAddress = node_staker::NodeAddress;
 pub type StakeEvent = node_staker::Event;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub type Nonce = u64;
+pub type RawUserName = [u8; USER_NAME_CAP];
+pub type UserIdentity = user_manager::Profile;
+pub type NodeIdentity = node_staker::NodeIdentity;
+pub type NodeData = node_staker::NodeData;
 
 pub fn immortal_era() -> String {
     encode_then_hex(&subxt::utils::Era::Immortal)
@@ -228,70 +229,51 @@ impl<S: TransactionHandler> Client<S> {
     pub async fn join(
         &self,
         dest: ContractId,
-        data: StoredNodeData,
+        data: NodeData,
         addr: NodeAddress,
         nonce: Nonce,
     ) -> Result<()> {
         self.call_auto_weight(
             1000000,
             dest,
-            node_staker::messages::join(data.into_bytes(), addr),
+            node_staker::messages::join(data, addr),
             nonce,
         )
         .await
     }
 
-    pub async fn list(&self, addr: ContractId) -> Result<Vec<(StoredNodeData, NodeAddress)>> {
-        self.call_dry::<Vec<(Serialized<StoredNodeData>, NodeAddress)>>(
-            0,
-            addr,
-            node_staker::messages::list(),
-        )
-        .await
-        .map(|v| unsafe { std::mem::transmute(v) })
+    pub async fn list(&self, addr: ContractId) -> Result<Vec<(NodeData, NodeAddress)>> {
+        self.call_dry(0, addr, node_staker::messages::list()).await
     }
 
     pub async fn vote(
         &self,
         dest: ContractId,
-        me: StoredNodeIdentity,
-        target: StoredNodeIdentity,
+        me: NodeIdentity,
+        target: NodeIdentity,
         weight: i32,
         nonce: Nonce,
     ) -> Result<()> {
-        let call = node_staker::messages::vote(me.into_bytes(), target.into_bytes(), weight);
+        let call = node_staker::messages::vote(me, target, weight);
         self.call_auto_weight(0, dest, call, nonce).await
     }
 
-    pub async fn reclaim(
-        &self,
-        dest: ContractId,
-        me: StoredNodeIdentity,
-        nonce: Nonce,
-    ) -> Result<()> {
-        self.call_auto_weight(
-            0,
-            dest,
-            node_staker::messages::reclaim(me.into_bytes()),
-            nonce,
-        )
-        .await
+    pub async fn reclaim(&self, dest: ContractId, me: NodeIdentity, nonce: Nonce) -> Result<()> {
+        self.call_auto_weight(0, dest, node_staker::messages::reclaim(me), nonce)
+            .await
     }
 
     pub async fn register(
         &self,
         dest: ContractId,
-        name: UserName,
-        data: primitives::contracts::StoredUserIdentity,
+        name: RawUserName,
+        data: UserIdentity,
         nonce: Nonce,
     ) -> Result<()> {
         self.call_auto_weight(
             0,
             dest,
-            user_manager::messages::register_with_name(
-                primitives::username_to_raw(name),
-                data.into_bytes(),
-            ),
+            user_manager::messages::register_with_name(name, data),
             nonce,
         )
         .await
@@ -300,24 +282,20 @@ impl<S: TransactionHandler> Client<S> {
     pub async fn get_profile_by_name(
         &self,
         dest: ContractId,
-        name: UserName,
-    ) -> Result<Option<Serialized<StoredUserIdentity>>> {
-        let call = user_manager::messages::get_profile_by_name(primitives::username_to_raw(name));
+        name: RawUserName,
+    ) -> Result<Option<UserIdentity>> {
+        let call = user_manager::messages::get_profile_by_name(name);
         self.call_dry(0, dest, call).await
     }
 
-    pub async fn user_exists(&self, dest: ContractId, name: UserName) -> Result<bool> {
+    pub async fn user_exists(&self, dest: ContractId, name: RawUserName) -> Result<bool> {
         self.get_profile_by_name(dest, name)
             .await
             .map(|p| p.is_some())
     }
 
-    pub async fn get_username(
-        &self,
-        dest: ContractId,
-        id: crypto::Hash<sign::PublicKey>,
-    ) -> Result<RawUserName> {
-        let call = user_manager::messages::get_username(*id);
+    pub async fn get_username(&self, dest: ContractId, id: crypto::Hash) -> Result<RawUserName> {
+        let call = user_manager::messages::get_username(id);
         self.call_dry(0, dest, call).await
     }
 

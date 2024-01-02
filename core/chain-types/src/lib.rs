@@ -1,4 +1,4 @@
-use subxt::PolkadotConfig;
+use {self::node_staker::NodeData, subxt::PolkadotConfig};
 
 /// Trait implemented by [`smart_bench_macro::contract`] for all contract constructors.
 pub trait InkConstructor: codec::Encode {
@@ -46,12 +46,19 @@ pub type Keypair = subxt_signer::sr25519::Keypair;
 
 impl Clone for NodeAddress {
     fn clone(&self) -> Self {
-        match self {
-            NodeAddress::Ip4(bytes) => NodeAddress::Ip4(*bytes),
-            NodeAddress::Ip6(bytes) => NodeAddress::Ip6(*bytes),
-        }
+        *self
     }
 }
+
+impl Copy for NodeAddress {}
+
+impl Clone for NodeData {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl Copy for NodeData {}
 
 impl From<(IpAddr, u16)> for NodeAddress {
     fn from((addr, port): (IpAddr, u16)) -> Self {

@@ -334,8 +334,8 @@ impl topology_wrapper::collector::World for WorldRc {
 
         let index = by_peer_id(&s.nodes, peer)
             .unwrap_or_else(|| s.add_node(Node::new(width, height, peer)));
-        let other = by_peer_id(&s.nodes, update.peer)
-            .unwrap_or_else(|| s.add_node(Node::new(width, height, update.peer)));
+        let other = by_peer_id(&s.nodes, update.peer.0)
+            .unwrap_or_else(|| s.add_node(Node::new(width, height, update.peer.0)));
 
         if index == other {
             return;

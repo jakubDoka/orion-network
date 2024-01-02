@@ -34,7 +34,7 @@ impl SyncHandler for AddUser {
             .get_mut(&name)
             .ok_or(AddUserError::ChatNotFound)?;
 
-        let requester_id = crypto::Hash::from_raw(&proof.pk);
+        let requester_id = crypto::hash::from_raw(&proof.pk);
         let requester = chat
             .members
             .iter_mut()
@@ -75,7 +75,7 @@ impl SyncHandler for SendMessage {
             .get_mut(&name)
             .ok_or(SendMessageError::ChatNotFound)?;
 
-        let sender_id = crypto::Hash::from_raw(&proof.pk);
+        let sender_id = crypto::hash::from_raw(&proof.pk);
         let sender = chat
             .members
             .iter_mut()

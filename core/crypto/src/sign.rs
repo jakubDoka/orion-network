@@ -1,8 +1,7 @@
-#[cfg(feature = "getrandom")]
-use aes_gcm::aead::OsRng;
-use ed25519_dalek::{SigningKey, VerifyingKey};
-#[cfg(feature = "std")]
-use {ed25519_dalek::Signer, thiserror::Error};
+use {
+    ed25519_dalek::{Signer, SigningKey, VerifyingKey},
+    rand_core::CryptoRngCore,
+};
 
 impl_transmute! {
     Signature,
@@ -25,14 +24,11 @@ pub struct Keypair {
 }
 
 impl Keypair {
-    #[cfg(feature = "getrandom")]
-    pub fn new() -> Self {
-        use aes_gcm::aead::rand_core::RngCore;
-
+    pub fn new(mut rng: impl CryptoRngCore) -> Self {
         let mut seed = [0u8; falcon::SEED_BYTES];
-        OsRng.fill_bytes(&mut seed);
+        rng.fill_bytes(&mut seed);
         let post = falcon::Keypair::new(&seed).expect("yea, whatever");
-        let pre = SigningKey::generate(&mut OsRng).to_bytes();
+        let pre = SigningKey::generate(&mut rng).to_bytes();
         Self { post, pre }
     }
 
@@ -43,9 +39,8 @@ impl Keypair {
         }
     }
 
-    #[cfg(feature = "getrandom")]
-    pub fn sign(&self, data: &[u8]) -> Signature {
-        let post = self.post.sign(data, OsRng).expect("really now?");
+    pub fn sign(&self, data: &[u8], rng: impl CryptoRngCore) -> Signature {
+        let post = self.post.sign(data, rng).expect("really now?");
         let pre = SigningKey::from(&self.pre)
             .try_sign(data)
             .expect("cannot fail from the implementation");
@@ -54,13 +49,6 @@ impl Keypair {
 
     pub fn pre_quantum(&self) -> Ed {
         self.pre
-    }
-}
-
-#[cfg(feature = "getrandom")]
-impl Default for Keypair {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -74,7 +62,7 @@ impl PublicKey {
     pub fn verify(&self, data: &[u8], signature: &Signature) -> Result<(), SignatureError> {
         VerifyingKey::from_bytes(&self.pre)
             .and_then(|vk| vk.verify_strict(data, &signature.pre))
-            .map_err(SignatureError::PreQuantum)?;
+            .map_err(|_| SignatureError::PreQuantum)?;
         self.post
             .verify(data, &signature.post)
             .then_some(())
@@ -83,29 +71,33 @@ impl PublicKey {
     }
 }
 
-#[cfg(feature = "std")]
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum SignatureError {
-    #[error("dilithium signature failsed")]
     PostQuantum,
-    #[error("ed25519 signature failed: {0}")]
-    PreQuantum(ed25519_dalek::SignatureError),
+    PreQuantum,
 }
 
-#[cfg(not(feature = "std"))]
-pub enum SignatureError {
-    PostQuantum,
-    PreQuantum(ed25519_dalek::SignatureError),
+impl core::fmt::Display for SignatureError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SignatureError::PostQuantum => write!(f, "post quantum signature verification failed"),
+            SignatureError::PreQuantum => write!(f, "pre quantum signature verification failed"),
+        }
+    }
 }
+
+impl core::error::Error for SignatureError {}
 
 #[cfg(test)]
 mod test {
+    use rand_core::OsRng;
+
     #[test]
     fn test_sign_verify() {
         use super::*;
-        let keypair = Keypair::new();
+        let keypair = Keypair::new(OsRng);
         let data = b"hello world";
-        let signature = keypair.sign(data);
+        let signature = keypair.sign(data, OsRng);
         let public_key = keypair.public_key();
         public_key.verify(data, &signature).unwrap();
         public_key

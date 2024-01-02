@@ -1,6 +1,6 @@
-#![cfg_attr(not(feature = "std"), no_std)]
-#[cfg(feature = "getrandom")]
-use aes_gcm::aead::OsRng;
+#![no_std]
+#![feature(error_in_core)]
+
 use aes_gcm::{
     aead::{generic_array::GenericArray, Tag},
     aes::cipher::Unsigned,
@@ -45,10 +45,13 @@ pub const ASOC_DATA: &[u8] = concat!("pqc-orion-crypto/enc/", env!("CARGO_PKG_VE
 pub type Serialized<T> = <T as TransmutationCircle>::Serialized;
 
 pub mod enc;
-mod hash;
+pub mod hash;
+#[cfg(never)]
+pub mod merkle;
 pub mod sign;
 
-pub use hash::{Hash, HASH_SIZE};
+pub use hash::Hash;
+use rand_core::CryptoRngCore;
 
 pub trait TransmutationCircle: Sized {
     type Serialized: AsRef<[u8]>;
@@ -60,16 +63,12 @@ pub trait TransmutationCircle: Sized {
     fn try_from_slice(slice: &[u8]) -> Option<&Self>;
 }
 
-#[cfg(all(feature = "getrandom", feature = "std"))]
-pub fn new_secret() -> SharedSecret {
-    use aes_gcm::aead::rand_core::RngCore;
-
+pub fn new_secret(mut rng: impl CryptoRngCore) -> SharedSecret {
     let mut secret = [0; SHARED_SECRET_SIZE];
-    OsRng.fill_bytes(&mut secret);
+    rng.fill_bytes(&mut secret);
     secret
 }
 
-#[cfg(all(feature = "getrandom", feature = "std"))]
 pub fn decrypt(data: &mut [u8], secret: SharedSecret) -> Option<&mut [u8]> {
     if data.len() < NONCE_SIZE + TAG_SIZE {
         return None;
@@ -85,21 +84,22 @@ pub fn decrypt(data: &mut [u8], secret: SharedSecret) -> Option<&mut [u8]> {
         .map(|()| data)
 }
 
-#[cfg(all(feature = "getrandom", feature = "std"))]
-pub fn encrypt(data: &mut Vec<u8>, secret: SharedSecret) {
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+#[must_use = "dont forget to append the array to the data"]
+pub fn encrypt(
+    data: &mut [u8],
+    secret: SharedSecret,
+    rng: impl CryptoRngCore,
+) -> [u8; TAG_SIZE + NONCE_SIZE] {
+    let nonce = Aes256Gcm::generate_nonce(rng);
     let cipher = Aes256Gcm::new(&GenericArray::from(secret));
     let tag = cipher
         .encrypt_in_place_detached(&nonce, crate::ASOC_DATA, data)
         .expect("data to not be that big");
 
-    data.extend_from_slice(tag.as_slice());
-    data.extend_from_slice(nonce.as_slice());
+    unsafe { core::mem::transmute((tag, nonce)) }
 }
 
-#[cfg(all(feature = "getrandom", feature = "std"))]
 const NONCE_SIZE: usize = <<Aes256Gcm as AeadCore>::NonceSize as Unsigned>::USIZE;
-#[cfg(all(feature = "getrandom", feature = "std"))]
 const TAG_SIZE: usize = <<Aes256Gcm as AeadCore>::TagSize as Unsigned>::USIZE;
 
 #[derive(Debug, Clone, Copy)]
@@ -110,9 +110,13 @@ pub struct FixedAesPayload<const SIZE: usize> {
 }
 
 impl<const SIZE: usize> FixedAesPayload<SIZE> {
-    #[cfg(feature = "getrandom")]
-    pub fn new(mut data: [u8; SIZE], key: SharedSecret, asoc_data: &[u8]) -> Self {
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    pub fn new(
+        mut data: [u8; SIZE],
+        key: SharedSecret,
+        asoc_data: &[u8],
+        rng: impl CryptoRngCore,
+    ) -> Self {
+        let nonce = Aes256Gcm::generate_nonce(rng);
         let cipher = Aes256Gcm::new(&GenericArray::from(key));
         let tag = cipher
             .encrypt_in_place_detached(&nonce, asoc_data, &mut data)

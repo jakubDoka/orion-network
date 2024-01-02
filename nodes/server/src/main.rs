@@ -12,7 +12,7 @@ use futures::channel::mpsc;
 use {
     self::handlers::RequestOrigin,
     anyhow::Context as _,
-    chain_api::{ContractId, NodeAddress},
+    chain_api::{ContractId, NodeAddress, NodeData},
     chat_logic::*,
     component_utils::{Codec, LinearMap, Reminder},
     crypto::{enc, sign, TransmutationCircle},
@@ -26,7 +26,7 @@ use {
     },
     mini_dht::Route,
     onion::{EncryptedStream, PathId},
-    primitives::contracts::{NodeData, StoredNodeData},
+    rand_core::OsRng,
     std::{
         collections::HashMap,
         convert::Infallible,
@@ -86,19 +86,28 @@ compose_handlers! {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 struct NodeKeys {
     enc: enc::Keypair,
     sign: sign::Keypair,
 }
 
-impl NodeKeys {
-    pub fn to_stored(&self) -> StoredNodeData {
-        NodeData {
-            sign: self.sign.public_key(),
-            enc: self.enc.public_key(),
+impl Default for NodeKeys {
+    fn default() -> Self {
+        Self {
+            enc: enc::Keypair::new(OsRng),
+            sign: sign::Keypair::new(OsRng),
         }
-        .to_stored()
+    }
+}
+
+impl NodeKeys {
+    pub fn to_stored(&self) -> NodeData {
+        NodeData {
+            sign: crypto::hash::new(&self.sign.public_key()),
+            enc: crypto::hash::new(&self.enc.public_key()),
+            id: self.sign.public_key().pre,
+        }
     }
 }
 
@@ -171,7 +180,7 @@ async fn deal_with_chain(
     config: ChainConfig,
     keys: &NodeKeys,
     is_new: bool,
-) -> anyhow::Result<(Vec<(StoredNodeData, NodeAddress)>, StakeEvents)> {
+) -> anyhow::Result<(Vec<(NodeData, NodeAddress)>, StakeEvents)> {
     let ChainConfig {
         chain_node,
         node_account,
@@ -252,7 +261,7 @@ impl Server {
     fn new(
         config: NodeConfig,
         keys: NodeKeys,
-        node_list: Vec<(StoredNodeData, NodeAddress)>,
+        node_list: Vec<(NodeData, NodeAddress)>,
         stake_events: StakeEvents,
     ) -> anyhow::Result<Self> {
         let NodeConfig {
@@ -472,9 +481,10 @@ impl Server {
         };
 
         log::info!(
-            "received message from client: {:?} {:?}",
+            "received message from client: {:?} {:?} {:?}",
             req.id,
-            req.prefix
+            req.prefix,
+            req.body.0,
         );
 
         let req = handlers::Request {
@@ -505,7 +515,7 @@ impl Server {
                 }
             }
             Err(e) => {
-                log::info!("failed to dispatch client request request: {}", e);
+                log::info!("failed to dispatch client request: {}", e);
             }
         }
     }
@@ -638,6 +648,7 @@ fn push_notification(
         return false;
     }
 
+    log::info!("pushed notification to client");
     true
 }
 

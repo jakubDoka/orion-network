@@ -3,10 +3,10 @@ use {
         handle_js_err, handled_async_callback, handled_async_closure, RawUserKeys, State, UserKeys,
     },
     anyhow::Context,
+    chat_logic::{username_to_raw, UserName},
     crypto::TransmutationCircle,
     leptos::{html::Input, *},
     leptos_router::A,
-    primitives::{contracts::UserData, UserName},
     web_sys::js_sys::{Array, Uint8Array},
 };
 
@@ -70,18 +70,15 @@ pub fn Register(state: State) -> impl IntoView {
             .context("chain is not reachable")?;
 
         if client
-            .user_exists(crate::chain::user_contract(), username_content)
+            .user_exists(
+                crate::chain::user_contract(),
+                username_to_raw(username_content),
+            )
             .await
             .context("user contract call failed")?
         {
             anyhow::bail!("user with this name already exists");
         }
-
-        let data = UserData {
-            name: username_content,
-            enc: key.enc.public_key(),
-            sign: key.sign.public_key(),
-        };
 
         let key_bytes = key.clone().into_raw().into_bytes();
         let url = web_sys::Url::create_object_url_with_blob(
@@ -102,8 +99,8 @@ pub fn Register(state: State) -> impl IntoView {
         client
             .register(
                 crate::chain::user_contract(),
-                username_content,
-                data.to_identity().to_stored(),
+                username_to_raw(username_content),
+                key.to_identity(),
                 0,
             )
             .await

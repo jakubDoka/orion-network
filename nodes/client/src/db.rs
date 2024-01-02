@@ -1,4 +1,7 @@
-use {crate::handle_js_err, chat_logic::ChatName, primitives::UserName};
+use {
+    crate::handle_js_err,
+    chat_logic::{ChatName, UserName},
+};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Message {

@@ -6,23 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aes-gcm = { version = "0.10.3", features = ["aes"], default-features = false }
+aes-gcm = { version = "0.10.3", features = ["aes", "rand_core"], default-features = false }
 blake3 = { version = "1.5.0", default-features = false }
-ed25519-dalek = { version = "2.0.0", default-features = false }
+ed25519-dalek = { version = "2.0.0", features = ["rand_core"], default-features = false }
 kyber = { path = "../../utils/kyber" }
 falcon = { path = "../../utils/falcon/falcon" }
-thiserror = { version = "1.0.50" }
 x25519-dalek = { version = "2.0.0", features = ["static_secrets"], default-features = false }
+rand_core = { version = "0.6.4", default-features = false }
 
-[features]
-default = ["std", "getrandom"]
-std = [
-	"aes-gcm/std",
-	"ed25519-dalek/std",
-	"blake3/std",
-]
-getrandom = [
-	"x25519-dalek/getrandom",
-	"ed25519-dalek/rand_core",
-	"aes-gcm/getrandom",
-]
+[dev-dependencies]
+rand_core = { version = "0.6.4", features = ["getrandom"] }

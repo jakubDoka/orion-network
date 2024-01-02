@@ -45,7 +45,7 @@ pub fn verify_confirm(key: &SharedSecret, buffer: &mut [u8]) -> bool {
 }
 
 pub fn wrap(client_kp: &KeyPair, sender: &PublicKey, buffer: &mut Vec<u8>) {
-    let (cp, key) = client_kp.encapsulate(sender);
+    let (cp, key) = client_kp.encapsulate(sender, OsRng);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let cipher = Aes256Gcm::new(&GenericArray::from(key));
 
@@ -64,7 +64,7 @@ pub fn new_initial(
     client_kp: &KeyPair,
     buffer: &mut Vec<u8>,
 ) -> SharedSecret {
-    let (cp, key) = client_kp.encapsulate(recipient);
+    let (cp, key) = client_kp.encapsulate(recipient, OsRng);
     buffer.extend_from_slice(&cp.into_bytes());
 
     for (pk, id) in path {

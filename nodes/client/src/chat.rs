@@ -6,8 +6,8 @@ use {
     },
     anyhow::Context,
     chat_logic::{
-        AddUser, AddUserError, ChatEvent, ChatName, CreateChat, FetchMessages, FetchProfile,
-        SendMessage, SendMessageError,
+        username_to_raw, AddUser, AddUserError, ChatEvent, ChatName, CreateChat, FetchMessages,
+        FetchProfile, SendMessage, SendMessageError, UserName,
     },
     component_utils::{Codec, DropFn, Reminder},
     crypto::{
@@ -20,8 +20,7 @@ use {
     },
     leptos_router::Redirect,
     libp2p::futures::{future::join_all, FutureExt},
-    primitives::{contracts::StoredUserIdentity, UserName},
-    rand::Rng,
+    rand::{rngs::OsRng, Rng},
     std::{
         future::Future,
         ops::Deref,
@@ -184,6 +183,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         handled_spawn_local("reading chat messages", async move {
             let (mut sub, owner) = requests().subscribe(chat)?;
+            log::info!("subscribed to chat: {:?}", chat);
             subscription_owner.set_value(Some(owner)); // drop old subscription
             while let Some(ChatEvent::Message(proof, Reminder(message))) = sub.next().await {
                 if !proof.verify_chat(chat) {
@@ -193,7 +193,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
                 let mut message = message.to_vec();
                 let Some(message) = crypto::decrypt(&mut message, secret) else {
-                    log::warn!("message cannot be decrypted: {:?}", message);
+                    log::warn!("message cannot be decrypted: {:?} {:?}", message, secret);
                     continue;
                 };
 
@@ -314,10 +314,10 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         let client = crate::chain::node(my_name).await?;
         let invitee = match client
-            .get_profile_by_name(crate::chain::user_contract(), name)
+            .get_profile_by_name(crate::chain::user_contract(), username_to_raw(name))
             .await
         {
-            Ok(Some(u)) => StoredUserIdentity::from_bytes(u).to_data(name),
+            Ok(Some(u)) => u,
             Ok(None) => anyhow::bail!("user {name} does not exist"),
             Err(e) => anyhow::bail!("failed to fetch user: {e}"),
         };
@@ -355,7 +355,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         };
 
         let cp = enc::Keypair::from_bytes(my_enc)
-            .encapsulate_choosen(enc::PublicKey::from_ref(&user_data.enc), secret)
+            .encapsulate_choosen(enc::PublicKey::from_ref(&user_data.enc), secret, OsRng)
             .into_bytes();
         let invite = Mail::ChatInvite { chat, cp }.to_bytes();
         requests
@@ -389,10 +389,10 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         let client = crate::chain::node(my_name).await?;
         let invitee = match client
-            .get_profile_by_name(crate::chain::user_contract(), name)
+            .get_profile_by_name(crate::chain::user_contract(), username_to_raw(name))
             .await
         {
-            Ok(Some(u)) => StoredUserIdentity::from_bytes(u).to_data(name),
+            Ok(Some(u)) => u,
             Ok(None) => anyhow::bail!("user {name} does not exist"),
             Err(e) => anyhow::bail!("failed to fetch user: {e}"),
         };
@@ -403,8 +403,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .await
             .context("fetching user profile")?;
 
-        let (cp, secret) =
-            enc::Keypair::from_bytes(my_enc).encapsulate(enc::PublicKey::from_ref(&user_data.enc));
+        let (cp, secret) = enc::Keypair::from_bytes(my_enc)
+            .encapsulate(enc::PublicKey::from_ref(&user_data.enc), OsRng);
 
         let mut payload = HardenedChatInvitePayload {
             chat,
@@ -413,7 +413,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             members,
         }
         .to_bytes();
-        crypto::encrypt(&mut payload, secret);
+        crate::encrypt(&mut payload, secret);
 
         let invite = Mail::HardenedChatInvite {
             cp: cp.into_bytes(),
@@ -472,7 +472,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             content: &content,
         }
         .to_bytes();
-        crypto::encrypt(&mut content, secret);
+        crate::encrypt(&mut content, secret);
         let proof = state
             .next_chat_proof(chat, None)
             .expect("we checked we are part of the chat");
@@ -517,11 +517,11 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         handled_spawn_local("sending hardened message", async move {
             join_all(members.into_iter().map(|(name, member)| {
                 let mut message = content.as_bytes().to_vec();
-                crypto::encrypt(&mut message, member.secret);
+                crate::encrypt(&mut message, member.secret);
                 let nonce = rand::thread_rng().gen();
                 let message = Mail::HardenedChatMessage {
                     nonce,
-                    chat: crypto::Hash::with_nonce(chat.as_bytes(), nonce),
+                    chat: crypto::hash::with_nonce(chat.as_bytes(), nonce),
                     content: Reminder(&message),
                 }
                 .to_bytes();

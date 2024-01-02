@@ -2,44 +2,25 @@
 
 #[ink::contract]
 mod user_manager {
-    use {
-        crypto::{Serialized, TransmutationCircle, HASH_SIZE},
-        primitives::{contracts::StoredUserIdentity, RawUserName},
-    };
+    pub const USER_NAME_CAP: usize = 32;
+    pub type RawUserName = [u8; USER_NAME_CAP];
+    pub type CryptoHash = [u8; 32];
 
     #[derive(scale::Decode, scale::Encode)]
     #[cfg_attr(
         feature = "std",
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
     )]
-    struct Profile {
-        sign: [u8; HASH_SIZE],
-        enc: [u8; HASH_SIZE],
-    }
-
-    impl Profile {
-        fn from_bytes(bytes: Serialized<StoredUserIdentity>) -> Self {
-            let data = StoredUserIdentity::from_bytes(bytes);
-            Self {
-                sign: *data.sign,
-                enc: *data.enc,
-            }
-        }
-
-        fn to_bytes(&self) -> Serialized<StoredUserIdentity> {
-            StoredUserIdentity {
-                sign: self.sign.into(),
-                enc: self.enc.into(),
-            }
-            .into_bytes()
-        }
+    pub struct Profile {
+        pub sign: CryptoHash,
+        pub enc: CryptoHash,
     }
 
     #[ink(storage)]
     pub struct UserManager {
         username_to_owner: ink::storage::Mapping<RawUserName, AccountId>,
         owner_to_username: ink::storage::Mapping<AccountId, RawUserName>,
-        identity_to_username: ink::storage::Mapping<[u8; HASH_SIZE], RawUserName>,
+        identity_to_username: ink::storage::Mapping<CryptoHash, RawUserName>,
         identities: ink::storage::Mapping<AccountId, Profile>,
     }
 
@@ -61,19 +42,14 @@ mod user_manager {
         }
 
         #[ink(message)]
-        pub fn register_with_name(
-            &mut self,
-            name: RawUserName,
-            data: Serialized<StoredUserIdentity>,
-        ) {
+        pub fn register_with_name(&mut self, name: RawUserName, data: Profile) {
             self.register(data);
             self.pick_name(name);
         }
 
         #[ink(message)]
-        pub fn register(&mut self, data: Serialized<StoredUserIdentity>) {
-            self.identities
-                .insert(Self::env().caller(), &Profile::from_bytes(data));
+        pub fn register(&mut self, data: Profile) {
+            self.identities.insert(Self::env().caller(), &data);
         }
 
         #[ink(message)]
@@ -135,25 +111,19 @@ mod user_manager {
         }
 
         #[ink(message)]
-        pub fn get_profile(&self, account: AccountId) -> Option<Serialized<StoredUserIdentity>> {
-            self.identities
-                .get(account)
-                .map(|profile| profile.to_bytes())
+        pub fn get_profile(&self, account: AccountId) -> Option<Profile> {
+            self.identities.get(account)
         }
 
         #[ink(message)]
-        pub fn get_profile_by_name(
-            &self,
-            name: RawUserName,
-        ) -> Option<Serialized<StoredUserIdentity>> {
+        pub fn get_profile_by_name(&self, name: RawUserName) -> Option<Profile> {
             self.username_to_owner
                 .get(name)
                 .and_then(|account| self.identities.get(account))
-                .map(|profile| profile.to_bytes())
         }
 
         #[ink(message)]
-        pub fn get_username(&self, identity: [u8; HASH_SIZE]) -> Option<RawUserName> {
+        pub fn get_username(&self, identity: CryptoHash) -> Option<RawUserName> {
             self.identity_to_username.get(identity)
         }
     }

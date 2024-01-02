@@ -19,7 +19,6 @@ libp2p = { version = "0.53.0", features = ["noise", "macros", "yamux", "wasm-bin
 log = "0.4.20"
 mini-dht = { version = "0.1.0", path = "../../core/mini-dht" }
 onion = { version = "0.1.0", path = "../../core/onion", features = ["wasm"] }
-primitives = { version = "0.1.0", path = "../../core/primitives", features = ["std"] }
 rand = "0.8.5"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"

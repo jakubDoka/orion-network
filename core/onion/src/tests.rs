@@ -1,5 +1,6 @@
 use {
     crate::{EncryptedStream, PathId},
+    aes_gcm::aead::OsRng,
     component_utils::AsocStream,
     futures::{stream::SelectAll, FutureExt, StreamExt},
     libp2p::{
@@ -26,7 +27,7 @@ fn setup_nodes<const COUNT: usize>(
     ports.map(|port| {
         let keypair = Keypair::generate_ed25519();
         let peer_id = keypair.public().to_peer_id();
-        let secret = crate::KeyPair::default();
+        let secret = crate::KeyPair::new(OsRng);
         let transport = libp2p::tcp::tokio::Transport::default()
             .upgrade(Version::V1)
             .authenticate(libp2p::noise::Config::new(&keypair).unwrap())
@@ -249,7 +250,7 @@ async fn settle_down() {
         .enumerate()
         .map(|(i, kp)| {
             let peer_id = kp.public().to_peer_id();
-            let secret = crate::KeyPair::default();
+            let secret = crate::KeyPair::new(OsRng);
 
             let transport = libp2p::tcp::tokio::Transport::default()
                 .upgrade(Version::V1)

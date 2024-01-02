@@ -1,13 +1,12 @@
 pub use {chat::*, profile::*, replicated::*, retry::*};
 use {
     chat_logic::{Protocol, ProtocolResult, Subscribe},
-    component_utils::{codec, Codec, NoCodec},
+    component_utils::{codec, Codec},
     libp2p::PeerId,
     onion::PathId,
     rpc::CallId,
     std::{
         convert::Infallible,
-        marker::PhantomData,
         ops::{Deref, DerefMut},
     },
 };
@@ -99,16 +98,6 @@ mod populating;
 mod profile;
 mod replicated;
 mod retry;
-
-pub struct Provide<P: Protocol, C>(P, PhantomData<C>);
-
-impl<P: Protocol, C: 'static> Protocol for Provide<P, C> {
-    type Error = P::Error;
-    type Request<'a> = (NoCodec<&'a mut C>, P::Request<'a>);
-    type Response<'a> = P::Response<'a>;
-
-    const PREFIX: u8 = P::PREFIX;
-}
 
 impl SyncHandler for Subscribe {
     fn execute<'a>(mut sc: Scope<'a>, req: Self::Request<'_>) -> ProtocolResult<'a, Self> {
@@ -341,7 +330,7 @@ pub struct Request<'a> {
     pub body: &'a [u8],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Codec)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestOrigin {
     Client(PathId),
     Server(PeerId),

@@ -5,9 +5,7 @@ authors = ["[your_name] <[your_email]>"]
 edition = "2021"
 
 [dependencies]
-crypto = { version = "0.1.0", path = "../../core/crypto", default-features = false }
 ink = { version = "4.2.0", default-features = false }
-primitives = { version = "0.1.0", path = "../../core/primitives", default-features = false }
 
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
 scale-info = { version = "2.6", default-features = false, features = ["derive"], optional = true }

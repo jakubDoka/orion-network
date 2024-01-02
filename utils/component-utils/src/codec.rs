@@ -1,11 +1,6 @@
-#[cfg(feature = "std")]
-use libp2p::core::multihash::Multihash;
-#[cfg(feature = "std")]
-use libp2p::identity::PeerId;
 use {
     arrayvec::{ArrayString, ArrayVec},
-    core::{convert::Infallible, marker::PhantomData, ops::Deref},
-    crypto::HASH_SIZE,
+    core::{convert::Infallible, marker::PhantomData},
     std::{sync::Arc, u32, usize},
 };
 
@@ -20,19 +15,8 @@ pub fn decode_len(bytes: [u8; PACKET_LEN_WIDTH]) -> usize {
     PacketLen::from_be_bytes(bytes) as usize
 }
 
-impl<T> Codec<'_> for crypto::Hash<T> {
-    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
-        self.deref().encode(buffer)
-    }
-
-    fn decode(buffer: &mut &[u8]) -> Option<Self> {
-        let arr = <[u8; HASH_SIZE]>::decode(buffer)?;
-        Some(Self::from(arr))
-    }
-}
-
 pub struct WritableBuffer<'a, T> {
-    buffer: &'a mut T,
+    pub buffer: &'a mut T,
 }
 
 impl<'a, T: Buffer> std::io::Write for WritableBuffer<'a, T> {
@@ -120,7 +104,6 @@ impl Codec<'_> for Infallible {
     }
 }
 
-#[cfg(feature = "std")]
 impl<'a, T: Codec<'a>> Codec<'a> for std::collections::VecDeque<T> {
     fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
         self.len().encode(buffer)?;
@@ -177,9 +160,7 @@ impl<'a, R: Codec<'a>, E: Codec<'a>> Codec<'a> for Result<R, E> {
     }
 }
 
-#[cfg(feature = "futures")]
 use futures::{AsyncRead, AsyncReadExt};
-#[cfg(feature = "futures")]
 pub trait CodecExt: for<'a> Codec<'a> {
     #[allow(async_fn_in_trait)]
     async fn from_stream(mut stream: impl AsyncRead + Unpin) -> std::io::Result<Self> {
@@ -193,7 +174,6 @@ pub trait CodecExt: for<'a> Codec<'a> {
     }
 }
 
-#[cfg(feature = "futures")]
 impl<T: for<'a> Codec<'a>> CodecExt for T {}
 
 impl Codec<'_> for () {
@@ -467,21 +447,6 @@ impl<'a, T: Codec<'a>, const SIZE: usize> Codec<'a> for [T; SIZE] {
             return None;
         }
         Some(tries.map(|t| t.expect("to be some, since we checked")))
-    }
-}
-
-#[cfg(feature = "libp2p")]
-impl<'a> Codec<'a> for PeerId {
-    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
-        let mh = Multihash::from(*self);
-        mh.write(WritableBuffer { buffer }).ok()?;
-        Some(())
-    }
-
-    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-        Multihash::<64>::read(buffer)
-            .ok()
-            .and_then(|mh| PeerId::from_multihash(mh).ok())
     }
 }
 

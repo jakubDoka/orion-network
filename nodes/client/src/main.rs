@@ -13,7 +13,11 @@ use {
         protocol::SubsOwner,
     },
     anyhow::Context,
-    chat_logic::{ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, SetVault},
+    chain_api::{RawUserName, UserIdentity},
+    chat_logic::{
+        username_to_raw, ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, SetVault,
+        UserName,
+    },
     component_utils::{Codec, Reminder},
     crypto::{
         enc::{self, ChoosenCiphertext, Ciphertext},
@@ -23,10 +27,7 @@ use {
     leptos_router::*,
     libp2p::futures::{future::join_all, FutureExt},
     node::Vault,
-    primitives::{
-        contracts::{StoredUserIdentity, UserIdentity},
-        RawUserName, UserName,
-    },
+    rand::rngs::OsRng,
     std::{
         cmp::Ordering,
         fmt::Display,
@@ -75,9 +76,9 @@ struct UserKeys {
 
 impl UserKeys {
     pub fn new(name: UserName) -> Self {
-        let sign = sign::Keypair::new();
-        let enc = enc::Keypair::new();
-        let vault = crypto::new_secret();
+        let sign = sign::Keypair::new(OsRng);
+        let enc = enc::Keypair::new(OsRng);
+        let vault = crypto::new_secret(OsRng);
         Self {
             name,
             sign,
@@ -87,13 +88,13 @@ impl UserKeys {
     }
 
     pub fn identity_hash(&self) -> Identity {
-        crypto::Hash::new(&self.sign.public_key())
+        crypto::hash::new(&self.sign.public_key())
     }
 
     pub fn to_identity(&self) -> UserIdentity {
         UserIdentity {
-            sign: self.sign.public_key(),
-            enc: self.enc.public_key(),
+            sign: crypto::hash::new(&self.sign.public_key()),
+            enc: crypto::hash::new(&self.enc.public_key()),
         }
     }
 
@@ -198,7 +199,7 @@ fn App() -> impl IntoView {
     let timeout = store_value(None::<TimeoutHandle>);
     let save_vault = move |keys: UserKeys, mut ed: RequestDispatch| {
         let mut vault_bytes = serialized_vault.get_untracked();
-        crypto::encrypt(&mut vault_bytes, keys.vault);
+        crate::encrypt(&mut vault_bytes, keys.vault);
         let proof = state.next_profile_proof(&vault_bytes).expect("logged in");
         handled_spawn_local("saving vault", async move {
             ed.dispatch::<SetVault>((proof, Reminder(&vault_bytes)))
@@ -238,16 +239,15 @@ fn App() -> impl IntoView {
     ) -> anyhow::Result<(UserName, MemberMeta)> {
         let client = chain::node(my_name).await?;
         let identity_hashes = client
-            .get_profile_by_name(chain::user_contract(), name)
+            .get_profile_by_name(chain::user_contract(), username_to_raw(name))
             .await?
-            .map(StoredUserIdentity::from_bytes)
             .context("user not found")?;
         let pf = dispatch
             .dispatch::<FetchProfile>(identity_hashes.sign)
             .await
             .context("fetching profile")?;
 
-        let (cp, secret) = enc.encapsulate(&enc::PublicKey::from_bytes(pf.enc));
+        let (cp, secret) = enc.encapsulate(&enc::PublicKey::from_bytes(pf.enc), OsRng);
 
         let payload = JoinRequestPayload {
             chat: component_utils::arrstr_to_array(chat),
@@ -258,7 +258,12 @@ fn App() -> impl IntoView {
         let invite = Mail::HardenedJoinRequest {
             cp: cp.into_bytes(),
             payload: unsafe {
-                std::mem::transmute(FixedAesPayload::new(payload, secret, crypto::ASOC_DATA))
+                std::mem::transmute(FixedAesPayload::new(
+                    payload,
+                    secret,
+                    crypto::ASOC_DATA,
+                    OsRng,
+                ))
             },
         }
         .to_bytes();
@@ -311,6 +316,7 @@ fn App() -> impl IntoView {
                 } = payload
                     .decrypt(secret, crypto::ASOC_DATA)
                     .map(JoinRequestPayload::from_bytes)
+                    .ok()
                     .context("failed to decrypt join request payload")?;
 
                 let chat = component_utils::array_to_arrstr(chat).context("invalid chat name")?;
@@ -375,7 +381,7 @@ fn App() -> impl IntoView {
                     let Some((&chat, meta)) = v
                         .hardened_chats
                         .iter_mut()
-                        .find(|(c, _)| crypto::Hash::with_nonce(c.as_bytes(), nonce) == chat)
+                        .find(|(c, _)| crypto::hash::with_nonce(c.as_bytes(), nonce) == chat)
                     else {
                         log::warn!("received message for unknown chat");
                         return;
@@ -808,4 +814,9 @@ fn handled_spawn_local(
             errors.set(Some(e));
         }
     });
+}
+
+fn encrypt(data: &mut Vec<u8>, secret: crypto::SharedSecret) {
+    let arr = crypto::encrypt(data, secret, OsRng);
+    data.extend(arr);
 }

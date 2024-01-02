@@ -1,6 +1,7 @@
 use {
     super::*,
     libp2p::futures::{channel::mpsc, stream::FuturesUnordered, FutureExt},
+    rand_core::OsRng,
     std::fmt::Debug,
 };
 
@@ -177,8 +178,8 @@ struct Account {
 impl Account {
     fn new() -> Self {
         Self {
-            sign: crypto::sign::Keypair::new(),
-            enc: crypto::enc::Keypair::new(),
+            sign: crypto::sign::Keypair::new(OsRng),
+            enc: crypto::enc::Keypair::new(OsRng),
             nonce: 0,
         }
     }
@@ -192,7 +193,7 @@ impl Account {
     }
 
     fn identity(&self) -> Identity {
-        crypto::Hash::new(&self.sign.public_key())
+        crypto::hash::new(&self.sign.public_key())
     }
 }
 
@@ -222,7 +223,7 @@ fn create_nodes(count: usize) -> FuturesUnordered<Server> {
                 (IpAddr::from(Ipv4Addr::LOCALHOST), config.port).into(),
             )
         })
-        .collect::<Vec<_>>();
+        .collect::<Vec<(NodeData, NodeAddress)>>();
 
     node_data
         .into_iter()

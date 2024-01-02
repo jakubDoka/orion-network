@@ -18,7 +18,7 @@ libp2p = { version = "0.53.0", features = ["tcp", "noise", "macros", "tokio", "y
 log = "0.4.20"
 mini-dht = { version = "0.1.0", path = "../../core/mini-dht" }
 onion = { version = "0.1.0", path = "../../core/onion" }
-primitives = { version = "0.1.0", path = "../../core/primitives", features = ["std"] }
+rand_core = { version = "0.6.4", features = ["getrandom"] }
 rpc = { version = "0.1.0", path = "../../core/rpc" }
 smallvec = "1.11.1"
 thiserror = "1.0.50"

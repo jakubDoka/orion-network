@@ -3,7 +3,8 @@ use {
         packet::{self, CONFIRM_PACKET_SIZE},
         EncryptedStream, KeyPair, PathId, PublicKey, SharedSecret,
     },
-    crypto::TransmutationCircle,
+    aes_gcm::aead::OsRng,
+    crypto::{enc::Keypair, TransmutationCircle},
     futures::{AsyncReadExt, AsyncWriteExt, Future},
     libp2p::{
         core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo},
@@ -82,7 +83,10 @@ impl ConnectionHandler for Handler {
                     .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
                         protocol: libp2p::swarm::SubstreamProtocol::new(
                             OUpgrade {
-                                keypair: self.keypair.clone().unwrap_or_default(),
+                                keypair: self
+                                    .keypair
+                                    .clone()
+                                    .unwrap_or_else(|| Keypair::new(OsRng)),
                                 incoming,
                             },
                             info,

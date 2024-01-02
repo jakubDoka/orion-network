@@ -1,9 +1,10 @@
 use {
     crate::{protocol::*, BootPhase, UserKeys},
     anyhow::Context,
+    chain_api::RawUserName,
     chat_logic::{
-        CallId, ChatName, CreateProfile, FetchVault, Identity, Nonce, PossibleTopic, Proof,
-        RawChatName, Repl, REPLICATION_FACTOR,
+        username_to_raw, CallId, ChatName, CreateProfile, FetchVault, Identity, Nonce,
+        PossibleTopic, Proof, RawChatName, Repl, UserName, REPLICATION_FACTOR,
     },
     component_utils::{futures, Codec, FindAndRemove, LinearMap, Reminder},
     crypto::{
@@ -21,8 +22,7 @@ use {
     },
     mini_dht::Route,
     onion::{EncryptedStream, PathId, SharedSecret},
-    primitives::{contracts::StoredUserIdentity, RawUserName, UserName},
-    rand::seq::IteratorRandom,
+    rand::{rngs::OsRng, seq::IteratorRandom},
     std::{
         collections::{HashMap, HashSet},
         io,
@@ -65,7 +65,7 @@ pub struct HardenedChatMeta {
 #[derive(Clone, Copy, Codec)]
 pub struct MemberMeta {
     pub secret: crypto::SharedSecret,
-    pub identity: crypto::Hash<sign::PublicKey>,
+    pub identity: crypto::Hash,
 }
 
 #[derive(Codec)]
@@ -107,7 +107,7 @@ pub struct HardenedChatInvitePayload {
 
 impl ChatMeta {
     pub fn new() -> Self {
-        Self::from_secret(crypto::new_secret())
+        Self::from_secret(crypto::new_secret(OsRng))
     }
 
     pub fn from_secret(secret: SharedSecret) -> Self {
@@ -200,15 +200,14 @@ impl Node {
         let (mut request_dispatch, commands) = RequestDispatch::new();
         let chain_api = crate::chain::node(keys.name).await?;
         let node_request = chain_api.list(crate::chain::node_contract());
-        let profile_request =
-            chain_api.get_profile_by_name(crate::chain::user_contract(), keys.name);
+        let profile_request = chain_api
+            .get_profile_by_name(crate::chain::user_contract(), username_to_raw(keys.name));
         let (node_data, profile_hash) = futures::try_join!(node_request, profile_request)?;
         let profile_hash = profile_hash.context("profile not found")?;
-        let profile_hash = StoredUserIdentity::from_bytes(profile_hash);
         let profile = keys.to_identity();
 
         anyhow::ensure!(
-            profile_hash.verify(&profile),
+            profile_hash.sign == profile.sign && profile_hash.enc == profile.enc,
             "profile hash does not match our account"
         );
 
@@ -334,7 +333,7 @@ impl Node {
         };
         let vault = if vault.is_empty() && vault_nonce == 0 {
             set_state!(ProfileCreate);
-            let proof = Proof::for_mail(&keys.sign, &mut vault_nonce);
+            let proof = Proof::for_vault(&keys.sign, &mut vault_nonce, &[]);
             request_dispatch
                 .dispatch_direct::<Repl<CreateProfile>>(
                     &mut profile_stream,

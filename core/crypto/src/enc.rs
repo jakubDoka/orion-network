@@ -1,8 +1,7 @@
-use crate::{FixedAesPayload, SharedSecret, TransmutationCircle, ASOC_DATA, SHARED_SECRET_SIZE};
-#[cfg(feature = "getrandom")]
-use aes_gcm::aead::OsRng;
-#[cfg(feature = "std")]
-use thiserror::Error;
+use {
+    crate::{FixedAesPayload, SharedSecret, TransmutationCircle, ASOC_DATA, SHARED_SECRET_SIZE},
+    rand_core::CryptoRngCore,
+};
 
 impl_transmute! {
     Keypair,
@@ -45,22 +44,12 @@ impl PartialEq for Keypair {
 
 impl Eq for Keypair {}
 
-#[cfg(feature = "getrandom")]
-impl Default for Keypair {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Keypair {
-    #[cfg(feature = "getrandom")]
-    pub fn new() -> Self {
-        use aes_gcm::aead::rand_core::RngCore;
-
+    pub fn new(mut rng: impl CryptoRngCore) -> Self {
         let mut seed = [0; kyber::KEY_SEEDBYTES];
-        OsRng.fill_bytes(&mut seed);
+        rng.fill_bytes(&mut seed);
         let post = kyber::Keypair::new(&seed);
-        let pre = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let pre = x25519_dalek::StaticSecret::random_from_rng(rng);
         Self { post, pre }
     }
 
@@ -71,49 +60,45 @@ impl Keypair {
         }
     }
 
-    #[cfg(feature = "getrandom")]
-    pub fn encapsulate(&self, public_key: &PublicKey) -> (Ciphertext, SharedSecret) {
-        use aes_gcm::aead::rand_core::RngCore;
-
+    pub fn encapsulate(
+        &self,
+        public_key: &PublicKey,
+        mut rng: impl CryptoRngCore,
+    ) -> (Ciphertext, SharedSecret) {
         let mut seed = [0; kyber::ENC_SEEDBYTES];
-        OsRng.fill_bytes(&mut seed);
+        rng.fill_bytes(&mut seed);
         let (data, secret) = public_key.post.enc(&seed);
         let x_secret = self.pre.diffie_hellman(&public_key.pre);
         (
             Ciphertext {
-                pl: FixedAesPayload::new(data, x_secret.to_bytes(), ASOC_DATA),
+                pl: FixedAesPayload::new(data, x_secret.to_bytes(), ASOC_DATA, rng),
                 x: x25519_dalek::PublicKey::from(&self.pre),
             },
             secret,
         )
     }
 
-    #[cfg(feature = "getrandom")]
     pub fn encapsulate_choosen(
         &self,
         public_key: &PublicKey,
         secret: SharedSecret,
+        mut rng: impl CryptoRngCore,
     ) -> ChoosenCiphertext {
-        use aes_gcm::aead::rand_core::RngCore;
-
         let mut seed = [0; kyber::ENC_SEEDBYTES];
-        OsRng.fill_bytes(&mut seed);
+        rng.fill_bytes(&mut seed);
         let (kyb, ksecret) = public_key.post.enc(&seed);
         let x_secret = self.pre.diffie_hellman(&public_key.pre);
-        let key = EncriptedKey::new(secret, ksecret, ASOC_DATA);
+        let key = EncriptedKey::new(secret, ksecret, ASOC_DATA, &mut rng);
         let data = ChoosenPayload { key, kyb };
         ChoosenCiphertext {
-            pl: FixedAesPayload::new(data.into_bytes(), x_secret.to_bytes(), ASOC_DATA),
+            pl: FixedAesPayload::new(data.into_bytes(), x_secret.to_bytes(), ASOC_DATA, rng),
             x: x25519_dalek::PublicKey::from(&self.pre),
         }
     }
 
     pub fn decapsulate(&self, ciphertext: Ciphertext) -> Result<SharedSecret, DecapsulationError> {
         let x_secret = self.pre.diffie_hellman(&ciphertext.x);
-        let data = ciphertext
-            .pl
-            .decrypt(x_secret.to_bytes(), ASOC_DATA)
-            .map_err(DecapsulationError::Aes)?;
+        let data = ciphertext.pl.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
         self.post.dec(&data).ok_or(DecapsulationError::Kyber)
     }
 
@@ -122,35 +107,37 @@ impl Keypair {
         ciphertext: ChoosenCiphertext,
     ) -> Result<SharedSecret, DecapsulationError> {
         let x_secret = self.pre.diffie_hellman(&ciphertext.x);
-        let data = ciphertext
-            .pl
-            .decrypt(x_secret.to_bytes(), ASOC_DATA)
-            .map_err(DecapsulationError::Aes)?;
+        let data = ciphertext.pl.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
         let payload = ChoosenPayload::from_bytes(data);
         let secret = self
             .post
             .dec(&payload.kyb)
             .ok_or(DecapsulationError::Kyber)?;
-        payload
-            .key
-            .decrypt(secret, ASOC_DATA)
-            .map_err(DecapsulationError::Aes)
+        Ok(payload.key.decrypt(secret, ASOC_DATA)?)
     }
 }
 
-#[cfg(feature = "std")]
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum DecapsulationError {
-    #[error("kyber decapsulation failed")]
     Kyber,
-    #[error("aes decapsulation failed: {0}")]
-    Aes(aes_gcm::Error),
+    Aes,
 }
 
-#[cfg(not(feature = "std"))]
-pub enum DecapsulationError {
-    Kyber,
-    Aes(aes_gcm::Error),
+impl core::fmt::Display for DecapsulationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DecapsulationError::Kyber => write!(f, "kyber error"),
+            DecapsulationError::Aes => write!(f, "aes error"),
+        }
+    }
+}
+
+impl core::error::Error for DecapsulationError {}
+
+impl From<aes_gcm::Error> for DecapsulationError {
+    fn from(_: aes_gcm::Error) -> Self {
+        DecapsulationError::Aes
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -163,12 +150,14 @@ pub struct PublicKey {
 
 #[cfg(test)]
 mod tests {
+    use rand_core::OsRng;
+
     #[test]
     fn test_enc_dec() {
         use super::*;
-        let alice = Keypair::new();
-        let bob = Keypair::new();
-        let (ciphertext, secret) = alice.encapsulate(&bob.public_key());
+        let alice = Keypair::new(OsRng);
+        let bob = Keypair::new(OsRng);
+        let (ciphertext, secret) = alice.encapsulate(&bob.public_key(), OsRng);
         let dec = bob.decapsulate(ciphertext).unwrap();
         assert_eq!(secret, dec);
     }
@@ -176,10 +165,10 @@ mod tests {
     #[test]
     fn test_enc_dec_choosen() {
         use super::*;
-        let alice = Keypair::new();
-        let bob = Keypair::new();
+        let alice = Keypair::new(OsRng);
+        let bob = Keypair::new(OsRng);
         let secret = [42u8; SHARED_SECRET_SIZE];
-        let ciphertext = alice.encapsulate_choosen(&bob.public_key(), secret);
+        let ciphertext = alice.encapsulate_choosen(&bob.public_key(), secret, OsRng);
         let dec = bob.decapsulate_choosen(ciphertext).unwrap();
         assert_eq!(secret, dec);
     }

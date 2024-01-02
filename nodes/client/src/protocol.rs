@@ -102,11 +102,12 @@ impl RequestDispatch {
     ) -> Result<(Subscription<P>, SubsOwner<P>), RequestError<Infallible>> {
         let (tx, rx) = libp2p::futures::channel::mpsc::channel(0);
         let id = CallId::new();
+        let topic: PossibleTopic = topic.into();
         self.sink
             .try_send(RequestInit::Subscription(SubscriptionInit {
                 id,
                 payload: (<Subscribe as Protocol>::PREFIX, id, &topic).to_bytes(),
-                topic: topic.into(),
+                topic,
                 channel: tx,
             }))
             .map_err(|_| RequestError::ChannelClosed)?;
