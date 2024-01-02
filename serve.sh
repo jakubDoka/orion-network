@@ -61,9 +61,9 @@ rebuild_workspace
 
 # setup chain
 export NODE_CONTRACT=$(cd contracts/node_staker &&\
-  cargo contract instantiate --suri //Alice -x --skip-confirm --output-json | jq -r '.contract')
+  cargo contract instantiate --suri //Charlie -x --skip-confirm --output-json | jq -r '.contract')
 export USER_CONTRACT=$(cd contracts/user_manager &&\
-  cargo contract instantiate --suri //Alice -x --skip-confirm --output-json | jq -r '.contract')
+  cargo contract instantiate --suri //Charlie -x --skip-confirm --output-json | jq -r '.contract')
 echo "node contract: $NODE_CONTRACT"
 echo "user contract: $USER_CONTRACT"
 $TARGET_DIR/init-transfer || exit 1

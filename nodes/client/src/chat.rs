@@ -262,7 +262,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             }
 
             requests()
-                .dispatch::<CreateChat>((my_id, chat))
+                .dispatch::<CreateChat>((chat, my_id))
                 .await
                 .context("creating chat")?;
 
@@ -328,7 +328,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         let mut requests = requests();
         match requests
-            .dispatch::<AddUser>((invitee.sign, chat, proof))
+            .dispatch::<AddUser>((chat, invitee.sign, proof))
             .await
         {
             Err(RequestError::Handler(chat_logic::ReplError::Inner(
@@ -338,7 +338,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                     .next_chat_proof(chat, Some(nonce))
                     .expect("we checked we are part of the chat");
                 requests
-                    .dispatch::<AddUser>((invitee.sign, chat, proof))
+                    .dispatch::<AddUser>((chat, invitee.sign, proof))
                     .await
                     .context("recovering from invalid action")?;
             }

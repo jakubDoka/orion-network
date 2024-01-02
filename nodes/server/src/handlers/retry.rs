@@ -22,7 +22,7 @@ pub enum RetryBase<H, E> {
 impl<H, E> Handler for RetryBase<H, E>
 where
     H: Handler,
-    H::Protocol: TopicProtocol,
+    for<'a> <H::Protocol as Protocol>::Request<'a>: ToPossibleTopic,
     for<'a> &'a E: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
     H::Event: 'static,
 {
@@ -33,7 +33,7 @@ where
         sc: Scope<'a>,
         req: <Self::Protocol as Protocol>::Request<'_>,
     ) -> HandlerResult<'a, Self> {
-        let topic: PossibleTopic = <Self::Protocol as TopicProtocol>::extract_topic(&req).into();
+        let topic = req.to_possible_topic();
 
         crate::ensure!(sc.cx.is_valid_topic(topic), Ok(NotFoundError::NotFound));
 
@@ -132,14 +132,6 @@ impl<T: Protocol> Protocol for NotFound<T> {
     type Response<'a> = T::Response<'a>;
 
     const PREFIX: u8 = T::PREFIX;
-}
-
-impl<T: TopicProtocol> TopicProtocol for NotFound<T> {
-    type Topic = T::Topic;
-
-    fn extract_topic(request: &Self::Request<'_>) -> Self::Topic {
-        T::extract_topic(request)
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

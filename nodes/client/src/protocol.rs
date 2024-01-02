@@ -50,12 +50,15 @@ impl RequestDispatch {
         Self::parse_response::<P>(&self.buffer)
     }
 
-    pub async fn dispatch<P: Protocol + TopicProtocol>(
+    pub async fn dispatch<P: Protocol>(
         &mut self,
         request: <Repl<P> as Protocol>::Request<'_>,
-    ) -> Result<<Repl<P> as Protocol>::Response<'_>, RequestError<Repl<P>>> {
-        let topic = P::extract_topic(&request);
-        self.dispatch_low(Some(topic.into()), request).await
+    ) -> Result<<Repl<P> as Protocol>::Response<'_>, RequestError<Repl<P>>>
+    where
+        for<'a> P::Request<'a>: ToPossibleTopic,
+    {
+        let topic = request.to_possible_topic();
+        self.dispatch_low(Some(topic), request).await
     }
 
     pub async fn dispatch_mail(

@@ -211,7 +211,6 @@ impl Behaviour {
                 .push_back(TS::GenerateEvent(Event::OutboundStream(
                     Err(StreamUpgradeError::Apply(OUpgradeError::MissingPeer)),
                     r.path_id,
-                    r.path[0].1,
                 )));
         }
     }
@@ -322,7 +321,10 @@ impl NetworkBehaviour for Behaviour {
                     return;
                 }
                 self.events
-                    .push_back(TS::GenerateEvent(Event::OutboundStream(to, id, from)))
+                    .push_back(TS::GenerateEvent(Event::OutboundStream(
+                        to.map(|to| (to, from)),
+                        id,
+                    )))
             }
         }
     }
@@ -371,9 +373,8 @@ pub enum Event {
     ConnectRequest(PeerId),
     InboundStream(EncryptedStream, PathId),
     OutboundStream(
-        Result<EncryptedStream, StreamUpgradeError<OUpgradeError>>,
+        Result<(EncryptedStream, PeerId), StreamUpgradeError<OUpgradeError>>,
         PathId,
-        PeerId,
     ),
 }
 

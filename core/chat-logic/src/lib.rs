@@ -9,10 +9,7 @@
 #[macro_export]
 macro_rules! compose_protocols {
     ($(
-        fn $for:ident
-            <$lt:lifetime>
-            ($($req:ty),*) -> Result<$resp:ty, $error:ty>
-            $(where Topic($topic:ty): |$topic_arg:pat_param| $topic_extractor:expr)?;
+        fn $for:ident<$lt:lifetime>($($req:ty),*) -> Result<$resp:ty, $error:ty>;
     )*) => {$(
         #[allow(unused_parens)]
         pub enum $for {}
@@ -23,13 +20,6 @@ macro_rules! compose_protocols {
             type Request<$lt> = ($($req),*);
             type Response<$lt> = $resp;
         }
-
-        $(impl $crate::extractors::TopicProtocol for $for {
-            type Topic = $topic;
-            fn extract_topic($topic_arg: &Self::Request<'_>) -> Self::Topic {
-                $topic_extractor
-            }
-        })?
     )*};
 }
 

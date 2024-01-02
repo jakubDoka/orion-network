@@ -33,3 +33,6 @@ panic = "abort"
 
 [profile.dev.package.falcon]
 overflow-checks = false
+
+[profile.dev.package.argon2]
+opt-level = 3

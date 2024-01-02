@@ -2,6 +2,7 @@
 #![allow(non_snake_case)]
 #![feature(mem_copy_fn)]
 #![feature(macro_metavar_expr)]
+#![feature(slice_take)]
 
 use {
     self::{protocol::RequestDispatch, web_sys::wasm_bindgen::JsValue},
@@ -13,7 +14,8 @@ use {
         protocol::SubsOwner,
     },
     anyhow::Context,
-    chain_api::{RawUserName, UserIdentity},
+    argon2::Argon2,
+    chain_api::UserIdentity,
     chat_logic::{
         username_to_raw, ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, SetVault,
         UserName,
@@ -27,15 +29,8 @@ use {
     leptos_router::*,
     libp2p::futures::{future::join_all, FutureExt},
     node::Vault,
-    rand::rngs::OsRng,
-    std::{
-        cmp::Ordering,
-        fmt::Display,
-        future::Future,
-        rc::Rc,
-        task::{Poll, Waker},
-        time::Duration,
-    },
+    rand::{rngs::OsRng, CryptoRng, RngCore},
+    std::{cmp::Ordering, fmt::Display, future::Future, time::Duration, usize},
 };
 
 mod chain;
@@ -57,16 +52,6 @@ pub fn main() {
 }
 
 #[derive(Clone)]
-struct RawUserKeys {
-    name: RawUserName,
-    sign: sign::Keypair,
-    enc: enc::Keypair,
-    vault: crypto::SharedSecret,
-}
-
-crypto::impl_transmute!(RawUserKeys,);
-
-#[derive(Clone)]
 struct UserKeys {
     name: UserName,
     sign: sign::Keypair,
@@ -75,10 +60,43 @@ struct UserKeys {
 }
 
 impl UserKeys {
-    pub fn new(name: UserName) -> Self {
-        let sign = sign::Keypair::new(OsRng);
-        let enc = enc::Keypair::new(OsRng);
-        let vault = crypto::new_secret(OsRng);
+    pub fn new(name: UserName, password: &str) -> Self {
+        struct Entropy<'a>(&'a [u8]);
+
+        impl RngCore for Entropy<'_> {
+            fn next_u32(&mut self) -> u32 {
+                unimplemented!()
+            }
+
+            fn next_u64(&mut self) -> u64 {
+                unimplemented!()
+            }
+
+            fn fill_bytes(&mut self, dest: &mut [u8]) {
+                let data = self.0.take(..dest.len()).expect("not enough entropy");
+                dest.copy_from_slice(data);
+            }
+
+            fn try_fill_bytes(&mut self, _: &mut [u8]) -> Result<(), rand::Error> {
+                unimplemented!()
+            }
+        }
+
+        impl CryptoRng for Entropy<'_> {}
+
+        const VALUT: usize = 32;
+        const ENC: usize = 64 + 32;
+        const SIGN: usize = 32 + 48;
+        let mut bytes = [0; VALUT + ENC + SIGN];
+        Argon2::default()
+            .hash_password_into(password.as_bytes(), &username_to_raw(name), &mut bytes)
+            .unwrap();
+
+        let mut entropy = Entropy(&bytes);
+
+        let sign = sign::Keypair::new(&mut entropy);
+        let enc = enc::Keypair::new(&mut entropy);
+        let vault = crypto::new_secret(&mut entropy);
         Self {
             name,
             sign,
@@ -95,36 +113,6 @@ impl UserKeys {
         UserIdentity {
             sign: crypto::hash::new(&self.sign.public_key()),
             enc: crypto::hash::new(&self.enc.public_key()),
-        }
-    }
-
-    pub fn try_from_raw(raw: RawUserKeys) -> Option<Self> {
-        let RawUserKeys {
-            name,
-            sign,
-            enc,
-            vault,
-        } = raw;
-        Some(Self {
-            name: component_utils::array_to_arrstr(name)?,
-            sign,
-            enc,
-            vault,
-        })
-    }
-
-    pub fn into_raw(self) -> RawUserKeys {
-        let Self {
-            name,
-            sign,
-            enc,
-            vault,
-        } = self;
-        RawUserKeys {
-            name: component_utils::arrstr_to_array(name),
-            sign,
-            enc,
-            vault,
         }
     }
 }
@@ -654,71 +642,6 @@ fn Nav(my_name: UserName) -> impl IntoView {
     }
 }
 
-fn load_file(input: HtmlElement<Input>) -> Option<impl Future<Output = Result<Vec<u8>, JsValue>>> {
-    use {
-        self::web_sys::wasm_bindgen::prelude::Closure, std::cell::RefCell, wasm_bindgen::JsCast,
-        web_sys::*,
-    };
-
-    struct FileFutureInner {
-        loaded: Option<Result<Vec<u8>, JsValue>>,
-        waker: Option<Waker>,
-        closure: Option<Closure<dyn FnMut(Event)>>,
-    }
-
-    let file_list = input.files()?;
-    let file = file_list.get(0)?;
-
-    let filereader = FileReader::new().unwrap().dyn_into::<FileReader>().ok()?;
-    filereader.read_as_array_buffer(&file).ok()?;
-
-    let inner = Rc::new(RefCell::new(FileFutureInner {
-        loaded: None,
-        waker: None,
-        closure: None,
-    }));
-
-    let captured_inner = inner.clone();
-    let captured_reader = filereader.clone();
-    let closure = Closure::wrap(Box::new(move |_: Event| {
-        let mut inner = captured_inner.borrow_mut();
-        let data = match captured_reader.result() {
-            Ok(data) => data,
-            Err(error) => {
-                inner.loaded = Some(Err(error));
-                if let Some(waker) = inner.waker.take() {
-                    waker.wake();
-                }
-                return;
-            }
-        };
-
-        let data = data.dyn_into::<js_sys::ArrayBuffer>().unwrap();
-        let js_data = js_sys::Uint8Array::new(&data);
-        let data = js_data.to_vec();
-
-        inner.loaded = Some(Ok(data));
-        if let Some(waker) = inner.waker.take() {
-            waker.wake();
-        }
-    }) as Box<dyn FnMut(_)>);
-    filereader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
-    inner.borrow_mut().closure = Some(closure);
-
-    let inner = Rc::downgrade(&inner);
-    Some(std::future::poll_fn(move |cx| {
-        let Some(inner) = inner.upgrade() else {
-            return Poll::Ready(Err("fuck".into()));
-        };
-        let mut inner = inner.borrow_mut();
-        if let Some(loaded) = inner.loaded.take() {
-            return Poll::Ready(loaded);
-        }
-        inner.waker = Some(cx.waker().clone());
-        Poll::Pending
-    }))
-}
-
 fn report_validity(elem: NodeRef<Input>, message: impl Display) {
     elem.get_untracked()
         .unwrap()
@@ -781,21 +704,6 @@ fn handled_async_closure<F: Future<Output = anyhow::Result<()>> + 'static>(
     let Errors(errors) = use_context().unwrap();
     move || {
         let fut = f();
-        spawn_local(async move {
-            if let Err(e) = fut.await.context(context) {
-                errors.set(Some(e));
-            }
-        });
-    }
-}
-
-fn handled_async_callback<T, F: Future<Output = anyhow::Result<()>> + 'static>(
-    context: &'static str,
-    f: impl Fn(T) -> F + 'static + Copy,
-) -> impl Fn(T) + 'static + Copy {
-    let Errors(errors) = use_context().unwrap();
-    move |v| {
-        let fut = f(v);
         spawn_local(async move {
             if let Err(e) = fut.await.context(context) {
                 errors.set(Some(e));

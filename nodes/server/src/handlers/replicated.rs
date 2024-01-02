@@ -1,26 +1,13 @@
 use {
     super::{Handler, Sync, TryUnwrap},
     crate::REPLICATION_FACTOR,
-    chat_logic::{PossibleTopic, Protocol, ReplError, TopicProtocol},
+    chat_logic::{PossibleTopic, Protocol, ReplError, ToPossibleTopic},
     component_utils::{arrayvec::ArrayVec, Codec, FindAndRemove},
     rpc::CallId,
 };
 
 pub type SyncRepl<H> = ReplBase<Sync<H>, rpc::Event>;
 pub type Repl<H> = ReplBase<H, <H as Handler>::Event>;
-
-pub trait ProtocolTransform {
-    type From: Protocol;
-    type To: Protocol;
-
-    fn request(
-        request: <Self::From as Protocol>::Request<'_>,
-    ) -> <Self::To as Protocol>::Request<'_>;
-    fn response(
-        response: <Self::To as Protocol>::Response<'_>,
-    ) -> <Self::From as Protocol>::Response<'_>;
-    fn error(error: <Self::To as Protocol>::Error) -> <Self::From as Protocol>::Error;
-}
 
 pub enum ReplBase<H, E> {
     Resolving(H, PossibleTopic, Vec<u8>),
@@ -58,7 +45,7 @@ impl<H, E> ReplBase<H, E> {
 impl<H, E> Handler for ReplBase<H, E>
 where
     H: Handler,
-    H::Protocol: TopicProtocol,
+    for<'a> <H::Protocol as Protocol>::Request<'a>: ToPossibleTopic,
     for<'a> &'a E: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
 {
     type Event = E;
@@ -68,7 +55,7 @@ where
         mut scope: super::Scope<'a>,
         req: <Self::Protocol as chat_logic::Protocol>::Request<'_>,
     ) -> super::HandlerResult<'a, Self> {
-        let topic: PossibleTopic = <H::Protocol as TopicProtocol>::extract_topic(&req).into();
+        let topic: PossibleTopic = req.to_possible_topic();
 
         if !scope.is_valid_topic(topic) {
             return Ok(Err(ReplError::InvalidTopic));

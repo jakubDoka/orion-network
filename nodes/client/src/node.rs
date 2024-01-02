@@ -313,12 +313,11 @@ impl Node {
         let pick = members.choose(&mut rand::thread_rng()).unwrap().peer_id();
         let route = pick_route(&swarm.behaviour_mut().key_share.keys, pick);
         let pid = swarm.behaviour_mut().onion.open_path(route);
-        let (mut profile_stream, profile_stream_id, profile_stream_peer) = loop {
+        let ((mut profile_stream, ..), profile_stream_id, profile_stream_peer) = loop {
             match swarm.select_next_some().await {
                 SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                     stream,
                     id,
-                    _,
                 ))) if id == pid => break (stream.context("opening profile route")?, id, pick),
                 e => log::debug!("{:?}", e),
             }
@@ -407,27 +406,27 @@ impl Node {
         let mut subscriptions = futures::stream::SelectAll::new();
         subscriptions.push(profile_sub);
         while !awaiting.is_empty() {
-            let (stream, subs, peer_id, id) =
-                loop {
-                    match swarm.select_next_some().await {
-                        SwarmEvent::Behaviour(BehaviourEvent::Onion(
-                            onion::Event::OutboundStream(stream, id, pid),
-                        )) => {
-                            if let Some((.., peer_id, subs)) =
-                                awaiting.find_and_remove(|&(i, ..)| i == id)
-                            {
-                                debug_assert!(peer_id == pid);
-                                break (
-                                    stream.context("opening chat subscription route")?,
-                                    subs,
-                                    peer_id,
-                                    id,
-                                );
-                            }
+            let ((stream, got_peer_id), subs, peer_id, id) = loop {
+                match swarm.select_next_some().await {
+                    SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
+                        stream,
+                        id,
+                    ))) => {
+                        if let Some((.., peer_id, subs)) =
+                            awaiting.find_and_remove(|&(i, ..)| i == id)
+                        {
+                            break (
+                                stream.context("opening chat subscription route")?,
+                                subs,
+                                peer_id,
+                                id,
+                            );
                         }
-                        e => log::debug!("{:?}", e),
                     }
-                };
+                    e => log::debug!("{:?}", e),
+                }
+            };
+            debug_assert!(peer_id == got_peer_id);
 
             subscriptions.push(Subscription {
                 id,
@@ -563,15 +562,15 @@ impl Node {
             SwarmEvent::Behaviour(BehaviourEvent::Onion(onion::Event::OutboundStream(
                 stream,
                 id,
-                peer_id,
             ))) => {
                 if let Some(req) = self.pending_topic_search.remove(&id) {
+                    let (stream, peer_id) = stream.expect("TODO: somehow report this error");
                     self.subscriptions.push(Subscription {
                         id,
                         peer_id,
                         topics: [req[0].topic().to_owned()].into(),
                         subscriptions: Default::default(),
-                        stream: stream.expect("TODO: somehow report this error"),
+                        stream,
                     });
                     req.into_iter().for_each(|r| self.handle_command(r));
                 }

@@ -7,7 +7,7 @@ const MESSAGE_FETCH_LIMIT: usize = 20;
 impl SyncHandler for CreateChat {
     fn execute<'a>(
         mut cx: Scope<'a>,
-        (identity, name): Self::Request<'_>,
+        (name, identity): Self::Request<'_>,
     ) -> ProtocolResult<'a, Self> {
         let chat_entry = cx.storage.chats.entry(name);
         crate::ensure!(
@@ -24,7 +24,7 @@ impl SyncHandler for CreateChat {
 impl SyncHandler for AddUser {
     fn execute<'a>(
         mut cx: Scope<'a>,
-        (identiy, name, proof): Self::Request<'_>,
+        (name, identiy, proof): Self::Request<'_>,
     ) -> ProtocolResult<'a, Self> {
         ensure!(proof.verify_chat(name), AddUserError::InvalidProof);
 

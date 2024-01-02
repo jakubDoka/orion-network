@@ -22,11 +22,6 @@ impl Protocol for Infallible {
     const PREFIX: u8 = u8::MAX / 2;
 }
 
-pub trait TopicProtocol: Protocol {
-    type Topic: Topic;
-    fn extract_topic(req: &Self::Request<'_>) -> Self::Topic;
-}
-
 pub trait Topic: for<'a> Codec<'a> + std::hash::Hash + Eq + 'static + Into<PossibleTopic> {
     type Event<'a>: Codec<'a>;
     type Record;

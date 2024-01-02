@@ -481,10 +481,9 @@ impl Server {
         };
 
         log::info!(
-            "received message from client: {:?} {:?} {:?}",
+            "received message from client: {:?} {:?}",
             req.id,
             req.prefix,
-            req.body.0,
         );
 
         let req = handlers::Request {

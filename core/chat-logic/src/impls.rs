@@ -1,5 +1,5 @@
 use {
-    crate::{Protocol, TopicProtocol},
+    crate::Protocol,
     component_utils::{Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
     rand_core::OsRng,
@@ -19,29 +19,18 @@ mod profile;
 crate::compose_protocols! {
     fn Subscribe<'a>(PossibleTopic) -> Result<(), Infallible>;
 
-    fn CreateChat<'a>(Identity, ChatName) -> Result<(), CreateChatError>
-        where Topic(ChatName): |&(.., c)| c;
-    fn AddUser<'a>(Identity, ChatName, Proof) -> Result<(), AddUserError>
-        where Topic(ChatName): |&(_, c, ..)| c;
-    fn SendMessage<'a>(ChatName, Proof, Reminder<'a>) -> Result<(), SendMessageError>
-        where Topic(ChatName): |&(c, ..)| c;
-    fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Vec<u8>, Cursor), FetchMessagesError>
-        where Topic(ChatName): |&(c, ..)| c;
+    fn CreateChat<'a>(ChatName, Identity) -> Result<(), CreateChatError>;
+    fn AddUser<'a>(ChatName, Identity, Proof) -> Result<(), AddUserError>;
+    fn SendMessage<'a>(ChatName, Proof, Reminder<'a>) -> Result<(), SendMessageError>;
+    fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Vec<u8>, Cursor), FetchMessagesError>;
 
-    fn CreateProfile<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>
-        where Topic(Identity): |(p, ..)| crypto::hash::from_raw(&p.pk);
-    fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>
-        where Topic(Identity): |(p, ..)| crypto::hash::from_raw(&p.pk);
-    fn FetchVault<'a>(Identity) -> Result<(Nonce, Nonce, Reminder<'a>), FetchVaultError>
-        where Topic(Identity): |&i| i;
-    fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>
-        where Topic(Identity): |p| crypto::hash::from_raw(&p.pk);
-    fn SendMail<'a>(Identity, Reminder<'a>) -> Result<(), SendMailError>
-        where Topic(Identity): |&(i, ..)| i;
-    fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>
-        where Topic(Identity): |&i| i;
-    fn FetchFullProfile<'a>(Identity) -> Result<BorrowedProfile<'a>, FetchProfileError>
-        where Topic(Identity): |&i| i;
+    fn CreateProfile<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>;
+    fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>;
+    fn FetchVault<'a>(Identity) -> Result<(Nonce, Nonce, Reminder<'a>), FetchVaultError>;
+    fn ReadMail<'a>(Proof) -> Result<Reminder<'a>, ReadMailError>;
+    fn SendMail<'a>(Identity, Reminder<'a>) -> Result<(), SendMailError>;
+    fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>;
+    fn FetchFullProfile<'a>(Identity) -> Result<BorrowedProfile<'a>, FetchProfileError>;
 }
 
 pub struct Repl<T: Protocol>(T);
@@ -52,14 +41,6 @@ impl<T: Protocol> Protocol for Repl<T> {
     type Response<'a> = T::Response<'a>;
 
     const PREFIX: u8 = T::PREFIX;
-}
-
-impl<T: TopicProtocol> TopicProtocol for Repl<T> {
-    type Topic = T::Topic;
-
-    fn extract_topic(request: &Self::Request<'_>) -> Self::Topic {
-        T::extract_topic(request)
-    }
 }
 
 #[derive(Debug, thiserror::Error, Codec)]
@@ -86,6 +67,46 @@ impl PossibleTopic {
             Self::Profile(i) => i.as_ref(),
             Self::Chat(c) => c.as_bytes(),
         }
+    }
+}
+
+pub trait ToPossibleTopic {
+    fn to_possible_topic(&self) -> PossibleTopic;
+}
+
+impl ToPossibleTopic for Identity {
+    fn to_possible_topic(&self) -> PossibleTopic {
+        PossibleTopic::Profile(*self)
+    }
+}
+
+impl ToPossibleTopic for Proof {
+    fn to_possible_topic(&self) -> PossibleTopic {
+        PossibleTopic::Profile(crypto::hash::from_raw(&self.pk))
+    }
+}
+
+impl ToPossibleTopic for ChatName {
+    fn to_possible_topic(&self) -> PossibleTopic {
+        PossibleTopic::Chat(*self)
+    }
+}
+
+impl<A, B> ToPossibleTopic for (A, B)
+where
+    A: ToPossibleTopic,
+{
+    fn to_possible_topic(&self) -> PossibleTopic {
+        self.0.to_possible_topic()
+    }
+}
+
+impl<A, B, C> ToPossibleTopic for (A, B, C)
+where
+    A: ToPossibleTopic,
+{
+    fn to_possible_topic(&self) -> PossibleTopic {
+        self.0.to_possible_topic()
     }
 }
 
