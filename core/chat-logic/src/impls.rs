@@ -16,7 +16,23 @@ pub type Identity = crypto::Hash;
 mod chat;
 mod profile;
 
-crate::compose_protocols! {
+macro_rules! compose_protocols {
+    ($(
+        fn $for:ident<$lt:lifetime>($($req:ty),*) -> Result<$resp:ty, $error:ty>;
+    )*) => {$(
+        #[allow(unused_parens)]
+        pub enum $for {}
+        impl $crate::extractors::Protocol for $for {
+            const PREFIX: u8 = ${index(0)};
+            type Error = $error;
+            #[allow(unused_parens)]
+            type Request<$lt> = ($($req),*);
+            type Response<$lt> = $resp;
+        }
+    )*};
+}
+
+compose_protocols! {
     fn Subscribe<'a>(PossibleTopic) -> Result<(), Infallible>;
 
     fn CreateChat<'a>(ChatName, Identity) -> Result<(), CreateChatError>;

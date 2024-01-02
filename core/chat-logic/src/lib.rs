@@ -6,23 +6,6 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(extract_if)]
 
-#[macro_export]
-macro_rules! compose_protocols {
-    ($(
-        fn $for:ident<$lt:lifetime>($($req:ty),*) -> Result<$resp:ty, $error:ty>;
-    )*) => {$(
-        #[allow(unused_parens)]
-        pub enum $for {}
-        impl $crate::extractors::Protocol for $for {
-            const PREFIX: u8 = ${index(0)};
-            type Error = $error;
-            #[allow(unused_parens)]
-            type Request<$lt> = ($($req),*);
-            type Response<$lt> = $resp;
-        }
-    )*};
-}
-
 mod extractors;
 mod impls;
 
