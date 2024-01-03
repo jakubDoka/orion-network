@@ -2,7 +2,7 @@ use {
     super::*,
     libp2p::futures::{channel::mpsc, stream::FuturesUnordered, FutureExt},
     rand_core::OsRng,
-    std::fmt::Debug,
+    std::{fmt::Debug, usize},
 };
 
 #[tokio::test]
@@ -61,7 +61,11 @@ async fn direct_messaging() {
         .await;
 
     stream2
-        .test_req::<chat_logic::ReadMail>(&mut nodes, user2.mail_proof(), Ok(Reminder(&[0, 1, 1])))
+        .test_req::<chat_logic::ReadMail>(
+            &mut nodes,
+            user2.proof(chat_logic::Mail),
+            Ok(Reminder(&[0, 1, 1])),
+        )
         .await;
 
     stream2
@@ -101,7 +105,6 @@ async fn message_block_finalization() {
     let mut user2 = Account::new();
     let [mut stream1, used] = Stream::new_test();
     let [mut stream2, used2] = Stream::new_test();
-    let mut user_chat_nonce = 1;
 
     nodes.iter_mut().next().unwrap().clients.push(used);
     nodes.iter_mut().last().unwrap().clients.push(used2);
@@ -116,25 +119,21 @@ async fn message_block_finalization() {
     stream1
         .test_req::<PerformChatAction>(
             &mut nodes,
-            (
-                chat,
-                user.chat_proof(chat, &mut user_chat_nonce),
-                ChatAction::AddUser(user2.identity()),
-            ),
+            (user.proof(chat), ChatAction::AddUser(user2.identity())),
             Ok(()),
         )
         .await;
 
-    for i in 0..12 {
+    const MESSAGE_SIZE: usize = 900;
+    const MULTIPLIER: usize = 1;
+
+    for i in 0..12 * MULTIPLIER {
         println!("i: {}", i);
+        let cons = [i as u8; MESSAGE_SIZE / MULTIPLIER];
         stream1
             .test_req::<PerformChatAction>(
                 &mut nodes,
-                (
-                    chat,
-                    user.chat_proof(chat, &mut user_chat_nonce),
-                    ChatAction::SendMessage(Reminder(&[0; 1022])),
-                ),
+                (user.proof(chat), ChatAction::SendMessage(Reminder(&cons))),
                 Ok(()),
             )
             .await;
@@ -145,30 +144,22 @@ async fn message_block_finalization() {
         s.storage.chats.get(&chat).unwrap().block_number == 2
     });
 
-    for i in 0..6 {
+    for i in 0..6 * MULTIPLIER {
         // futures::future::select(
         //     nodes.next(),
-        //     std::pin::pin!(tokio::time::sleep(Duration::from_millis(100))),
+        //     std::pin::pin!(tokio::time::sleep(Duration::from_millis(10))),
         // )
         // .await;
 
         println!("i: {}", i);
-        let msg = [i; 1022];
-        let body = (
-            chat,
-            user.chat_proof(chat, &mut user_chat_nonce),
-            ChatAction::SendMessage(Reminder(&msg)),
-        );
+        let msg = [i as u8; MESSAGE_SIZE / MULTIPLIER];
+        let body = (user.proof(chat), ChatAction::SendMessage(Reminder(&msg)));
         stream1
             .inner
             .write((PerformChatAction::PREFIX, CallId::whatever(), body))
             .unwrap();
-        let msg = [i * 2; 1022];
-        let body = (
-            chat,
-            user2.chat_proof(chat, &mut user_chat_nonce),
-            ChatAction::SendMessage(Reminder(&msg)),
-        );
+        let msg = [i as u8 * 2; MESSAGE_SIZE / MULTIPLIER];
+        let body = (user2.proof(chat), ChatAction::SendMessage(Reminder(&msg)));
         stream2
             .inner
             .write((PerformChatAction::PREFIX, CallId::whatever(), body))
@@ -203,11 +194,7 @@ impl Stream {
     async fn create_user(&mut self, nodes: &mut FuturesUnordered<Server>, user: &mut Account) {
         self.test_req::<CreateProfile>(
             nodes,
-            (
-                user.valult_proof(&[]),
-                user.enc.public_key().into_bytes(),
-                Reminder(&[]),
-            ),
+            (user.proof(&[]), user.enc.public_key().into_bytes()),
             Ok(()),
         )
         .await;
@@ -277,16 +264,8 @@ impl Account {
         }
     }
 
-    fn valult_proof(&mut self, value: &[u8]) -> Proof {
-        Proof::for_vault(&self.sign, &mut self.nonce, value)
-    }
-
-    fn mail_proof(&mut self) -> Proof {
-        Proof::for_mail(&self.sign, &mut self.nonce)
-    }
-
-    fn chat_proof(&mut self, chat: ChatName, nonce: &mut u64) -> Proof {
-        Proof::for_chat(&self.sign, nonce, chat)
+    fn proof<T: ToProofContext>(&mut self, context: T) -> Proof<T> {
+        Proof::new(&self.sign, &mut self.nonce, context)
     }
 
     fn identity(&self) -> Identity {

@@ -69,8 +69,9 @@ impl<'a> BorrowedProfile<'a> {
             pk: self.sign,
             signature: self.last_sig,
             nonce: self.vault_version,
+            context: self.vault,
         }
-        .verify_vault(self.vault)
+        .verify()
     }
 }
 

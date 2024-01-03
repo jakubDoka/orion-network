@@ -333,11 +333,11 @@ impl Node {
         };
         let vault = if vault.is_empty() && vault_nonce == 0 {
             set_state!(ProfileCreate);
-            let proof = Proof::for_vault(&keys.sign, &mut vault_nonce, &[]);
+            let proof = Proof::new(&keys.sign, &mut vault_nonce, &[][..]);
             request_dispatch
                 .dispatch_direct::<Repl<CreateProfile>>(
                     &mut profile_stream,
-                    &(proof, keys.enc.public_key().into_bytes(), Reminder(&[])),
+                    &(proof, keys.enc.public_key().into_bytes()),
                 )
                 .await
                 .context("creating account")?;

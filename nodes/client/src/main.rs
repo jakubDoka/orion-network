@@ -132,26 +132,26 @@ impl State {
         self,
         chat_name: ChatName,
         nonce: Option<Nonce>,
-    ) -> Option<chat_logic::Proof> {
+    ) -> Option<chat_logic::Proof<ChatName>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
                 self.vault.try_update(|vault| {
                     let chat = vault.chats.get_mut(&chat_name)?;
                     chat.action_no = nonce.map_or(chat.action_no, |n| n + 1);
-                    Some(Proof::for_chat(&keys.sign, &mut chat.action_no, chat_name))
+                    Some(Proof::new(&keys.sign, &mut chat.action_no, chat_name))
                 })
             })
             .flatten()
             .flatten()
     }
 
-    pub fn next_profile_proof(self, vault: &[u8]) -> Option<chat_logic::Proof> {
+    pub fn next_profile_proof(self, vault: &[u8]) -> Option<chat_logic::Proof<Reminder>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
                 self.vault_version
-                    .try_update_value(|nonce| Some(Proof::for_vault(&keys.sign, nonce, vault)))
+                    .try_update_value(|nonce| Some(Proof::new(&keys.sign, nonce, Reminder(vault))))
             })
             .flatten()
             .flatten()
@@ -162,12 +162,12 @@ impl State {
             .with_untracked(|vault| vault.chats.get(&chat_name).map(|c| c.secret))
     }
 
-    fn next_mail_proof(&self) -> Option<chat_logic::Proof> {
+    fn next_mail_proof(&self) -> Option<chat_logic::Proof<chat_logic::Mail>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
                 self.mail_action
-                    .try_update_value(|nonce| Some(Proof::for_mail(&keys.sign, nonce)))
+                    .try_update_value(|nonce| Some(Proof::new(&keys.sign, nonce, chat_logic::Mail)))
             })
             .flatten()
             .flatten()
@@ -188,9 +188,9 @@ fn App() -> impl IntoView {
     let save_vault = move |keys: UserKeys, mut ed: RequestDispatch| {
         let mut vault_bytes = serialized_vault.get_untracked();
         crate::encrypt(&mut vault_bytes, keys.vault);
-        let proof = state.next_profile_proof(&vault_bytes).expect("logged in");
         handled_spawn_local("saving vault", async move {
-            ed.dispatch::<SetVault>((proof, Reminder(&vault_bytes)))
+            let proof = state.next_profile_proof(&vault_bytes).expect("logged in");
+            ed.dispatch::<SetVault>(proof)
                 .await
                 .context("setting vault")?;
             log::debug!("saved vault");

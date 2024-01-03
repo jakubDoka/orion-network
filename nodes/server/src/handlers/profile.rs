@@ -29,11 +29,8 @@ impl SyncHandler for FetchFullProfile {
 }
 
 impl SyncHandler for CreateProfile {
-    fn execute<'a>(
-        mut cx: Scope<'a>,
-        (proof, enc, Reminder(vault)): Self::Request<'_>,
-    ) -> ProtocolResult<'a, Self> {
-        crate::ensure!(proof.verify_vault(vault), CreateAccountError::InvalidProof);
+    fn execute<'a>(mut cx: Scope<'a>, (proof, enc): Self::Request<'_>) -> ProtocolResult<'a, Self> {
+        crate::ensure!(proof.verify(), CreateAccountError::InvalidProof);
 
         let user_id = crypto::hash::from_raw(&proof.pk);
         let entry = cx.storage.profiles.entry(user_id);
@@ -46,7 +43,7 @@ impl SyncHandler for CreateProfile {
                     last_sig: proof.signature,
                     vault_version: proof.nonce,
                     mail_action: proof.nonce,
-                    vault: vault.to_vec(),
+                    vault: proof.context.to_vec(),
                     mail: Vec::new(),
                 });
                 Ok(())
@@ -56,7 +53,7 @@ impl SyncHandler for CreateProfile {
                 account.vault_version = proof.nonce;
                 account.last_sig = proof.signature;
                 account.vault.clear();
-                account.vault.extend(vault);
+                account.vault.extend(proof.context);
                 Ok(())
             }
             _ => Err(CreateAccountError::AlreadyExists),
@@ -65,11 +62,8 @@ impl SyncHandler for CreateProfile {
 }
 
 impl SyncHandler for SetVault {
-    fn execute<'a>(
-        mut cx: Scope<'a>,
-        (proof, Reminder(content)): Self::Request<'_>,
-    ) -> ProtocolResult<'a, Self> {
-        crate::ensure!(proof.verify_vault(content), SetVaultError::InvalidProof);
+    fn execute<'a>(mut cx: Scope<'a>, proof: Self::Request<'_>) -> ProtocolResult<'a, Self> {
+        crate::ensure!(proof.verify(), SetVaultError::InvalidProof);
 
         let identity = crypto::hash::from_raw(&proof.pk);
         let profile = cx.storage.profiles.get_mut(&identity);
@@ -83,7 +77,7 @@ impl SyncHandler for SetVault {
         profile.last_sig = proof.signature;
 
         profile.vault.clear();
-        profile.vault.extend_from_slice(content.as_ref());
+        profile.vault.extend_from_slice(proof.context.0);
 
         Ok(())
     }
@@ -103,7 +97,7 @@ impl SyncHandler for FetchVault {
 
 impl SyncHandler for ReadMail {
     fn execute<'a>(sc: Scope<'a>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
-        crate::ensure!(request.verify_mail(), ReadMailError::InvalidProof);
+        crate::ensure!(request.verify(), ReadMailError::InvalidProof);
         let store = sc.cx.storage;
         let identity = crypto::hash::from_raw(&request.pk);
         let profile = store.profiles.get_mut(&identity);

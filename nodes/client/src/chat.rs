@@ -138,8 +138,18 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                     requests.dispatch::<FetchMessages>((chat, cursor)).await?;
                 let secret = state.chat_secret(chat).context("getting chat secret")?;
                 for message in chat_logic::unpack_messages(messages.to_vec().as_mut_slice()) {
-                    let Some(decrypted) = crypto::decrypt(message, secret) else {
-                        log::error!("failed to decrypt fetched message");
+                    let Some(chat_logic::Message {
+                        content: Reminder(content),
+                        ..
+                    }) = <_>::decode(&mut &*message)
+                    else {
+                        log::error!("server gave us undecodable message");
+                        continue;
+                    };
+
+                    let mut message = content.to_vec();
+                    let Some(decrypted) = crypto::decrypt(&mut message, secret) else {
+                        log::error!("message from server is corrupted");
                         continue;
                     };
                     let Some(RawChatMessage { sender, content }) =
@@ -187,7 +197,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             log::info!("subscribed to chat: {:?}", chat);
             subscription_owner.set_value(Some(owner)); // drop old subscription
             while let Some(ChatEvent::Message(proof, Reminder(message))) = sub.next().await {
-                if !proof.verify_chat(chat) {
+                if !proof.verify() {
                     log::warn!("received message with invalid proof");
                     continue;
                 }

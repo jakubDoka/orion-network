@@ -1,22 +1,29 @@
 use {
     super::Nonce,
-    crate::{Identity, Proof, Topic},
+    crate::{BlockNumber, Identity, Proof, Topic},
     component_utils::{arrayvec::ArrayString, Codec, Reminder},
     std::convert::Infallible,
 };
 
 pub const CHAT_NAME_CAP: usize = 32;
 
+#[derive(Clone, Copy, Codec)]
+pub struct Message<'a> {
+    pub identiy: Identity,
+    pub nonce: Nonce,
+    pub content: Reminder<'a>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Codec)]
 pub struct Cursor {
-    pub block: usize,
+    pub block: BlockNumber,
     pub offset: usize,
 }
 
 impl Cursor {
     pub const INIT: Self = Self {
-        block: usize::MAX,
-        offset: usize::MAX,
+        block: u64::MAX,
+        offset: 0,
     };
 }
 
@@ -30,7 +37,7 @@ impl Topic for ChatName {
 
 #[derive(Codec)]
 pub enum ChatEvent<'a> {
-    Message(Proof, Reminder<'a>),
+    Message(Proof<ChatName>, Reminder<'a>),
 }
 
 #[derive(Codec)]
@@ -102,8 +109,20 @@ pub enum ProposeMsgBlockError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
 pub enum SendBlockError {
+    #[error("not a replicator")]
+    NoReplicator,
     #[error("chat not found")]
     ChatNotFound,
-    #[error("invalid block")]
-    InvalidBlock,
+    #[error("invalid block: {0}")]
+    InvalidBlock(InvalidBlockReason),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum InvalidBlockReason {
+    #[error("does not match majority")]
+    MajorityMismatch,
+    #[error("is uotdated for us")]
+    Outdated,
+    #[error("not expected at this point")]
+    NotExpected,
 }

@@ -74,9 +74,7 @@ impl RequestDispatch {
             .context("extracting chat proof")?;
         let Err(RequestError::Handler(ReplError::Inner(ChatActionError::InvalidAction(
             correct_nonce,
-        )))) = self
-            .dispatch::<PerformChatAction>((chat, proof, action))
-            .await
+        )))) = self.dispatch::<PerformChatAction>((proof, action)).await
         else {
             return Ok(());
         };
@@ -84,7 +82,7 @@ impl RequestDispatch {
         let proof = state
             .next_chat_proof(chat, Some(correct_nonce))
             .context("extracting chat proof")?;
-        self.dispatch::<PerformChatAction>((chat, proof, action))
+        self.dispatch::<PerformChatAction>((proof, action))
             .await
             .map_err(Into::into)
     }
