@@ -423,10 +423,10 @@ fn App() -> impl IntoView {
             handled_spawn_local("reading mail", async move {
                 let proof = state.next_mail_proof().unwrap();
                 let inner_dispatch = dispatch_clone.clone();
-                let list = dispatch_clone.dispatch::<ReadMail>(proof).await?;
+                let Reminder(list) = dispatch_clone.dispatch::<ReadMail>(proof).await?;
 
                 let mut new_messages = Vec::new();
-                for mail in chat_logic::unpack_messages_ref(list.0) {
+                for mail in chat_logic::unpack_mail(list) {
                     handle_error(
                         handle_mail(
                             mail,

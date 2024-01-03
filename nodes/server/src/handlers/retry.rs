@@ -5,7 +5,7 @@ use {
     std::{collections::hash_map::Entry, marker::PhantomData},
 };
 
-pub type SyncRetry<H> = RetryBase<Sync<H>, rpc::Event>;
+pub type SyncRetry<H> = RetryBase<H, rpc::Event>;
 pub type Retry<H> = RetryBase<H, <H as Handler>::Event>;
 
 pub struct Restoring {

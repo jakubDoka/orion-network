@@ -322,6 +322,7 @@ impl Node {
                 e => log::debug!("{:?}", e),
             }
         };
+
         set_state!(VaultLoad);
         let (mut vault_nonce, mail_action, Reminder(vault)) = match request_dispatch
             .dispatch_direct::<FetchVault>(&mut profile_stream, &profile_hash.sign)
@@ -378,8 +379,6 @@ impl Node {
 
             topology.entry(peer).or_default().insert(chat);
         }
-
-        set_state!(ChatLoad);
 
         let mut topology = topology.into_iter().collect::<Vec<_>>();
         topology.sort_by_key(|(_, v)| v.len());

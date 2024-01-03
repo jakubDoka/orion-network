@@ -12,6 +12,10 @@ pub trait Protocol {
     type Request<'a>: Codec<'a>;
     type Response<'a>: Codec<'a>;
     type Error: for<'a> Codec<'a> + std::error::Error;
+
+    fn rpc(request: Self::Request<'_>) -> (u8, Self::Request<'_>) {
+        (Self::PREFIX, request)
+    }
 }
 
 impl Protocol for Infallible {

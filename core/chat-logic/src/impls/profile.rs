@@ -1,7 +1,7 @@
 use {
     crate::{Identity, Nonce, Proof, Topic},
     chain_api::{RawUserName, USER_NAME_CAP},
-    component_utils::{arrayvec::ArrayString, Codec, Reminder},
+    component_utils::{arrayvec::ArrayString, encode_len, Codec, Reminder},
     crypto::{enc, sign, Serialized},
 };
 
@@ -44,7 +44,7 @@ impl Profile {
     }
 
     pub fn push_mail(&mut self, content: &[u8]) {
-        self.mail.extend((content.len() as u16).to_be_bytes());
+        self.mail.extend(encode_len(content.len()));
         self.mail.extend_from_slice(content);
     }
 }

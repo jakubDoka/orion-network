@@ -1,25 +1,21 @@
 use {
-    super::{Handler, Sync, TryUnwrap},
+    super::{Handler, TryUnwrap},
     crate::REPLICATION_FACTOR,
     chat_logic::{PossibleTopic, Protocol, ReplError, ToPossibleTopic},
     component_utils::{arrayvec::ArrayVec, Codec, FindAndRemove},
     rpc::CallId,
 };
 
-pub type SyncRepl<H> = ReplBase<Sync<H>, rpc::Event>;
-pub type Repl<H> = ReplBase<H, <H as Handler>::Event>;
-
-pub enum ReplBase<H, E> {
+pub enum Repl<H> {
     Resolving(H, PossibleTopic, Vec<u8>),
     Replicating {
         response: Vec<u8>,
         ongoing: ArrayVec<CallId, { REPLICATION_FACTOR.get() }>,
         matched: usize,
-        phantom: std::marker::PhantomData<fn(E)>,
     },
 }
 
-impl<H, E> ReplBase<H, E> {
+impl<H> Repl<H> {
     pub fn new_replicating(
         response: Vec<u8>,
         request: Vec<u8>,
@@ -36,19 +32,18 @@ impl<H, E> ReplBase<H, E> {
             response,
             ongoing,
             matched: 0,
-            phantom: std::marker::PhantomData,
         }
     }
 }
 
 // TODO: This doesnt actually consider that only we are the minority and willing to reconfigure
-impl<H, E> Handler for ReplBase<H, E>
+impl<H> Handler for Repl<H>
 where
     H: Handler,
     for<'a> <H::Protocol as Protocol>::Request<'a>: ToPossibleTopic,
-    for<'a> &'a E: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
+    for<'a> &'a H::Event: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
 {
-    type Event = E;
+    type Event = H::Event;
     type Protocol = chat_logic::Repl<H::Protocol>;
 
     fn execute<'a>(
@@ -77,7 +72,7 @@ where
         event: &'a Self::Event,
     ) -> super::HandlerResult<'a, Self> {
         let (response, ongoing, matched) = match self {
-            ReplBase::Resolving(handler, topic, request) => {
+            Repl::Resolving(handler, topic, request) => {
                 let response = match handler.resume(
                     cx.reborrow(),
                     event
@@ -92,7 +87,7 @@ where
 
                 return Err(Self::new_replicating(response, request, topic, cx.cx));
             }
-            ReplBase::Replicating {
+            Repl::Replicating {
                 ref response,
                 ref mut ongoing,
                 ref mut matched,

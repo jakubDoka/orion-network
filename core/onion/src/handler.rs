@@ -4,6 +4,7 @@ use {
         EncryptedStream, KeyPair, PathId, PublicKey, SharedSecret,
     },
     aes_gcm::aead::OsRng,
+    component_utils::encode_len,
     crypto::{enc::Keypair, TransmutationCircle},
     futures::{AsyncReadExt, AsyncWriteExt, Future},
     libp2p::{
@@ -362,7 +363,7 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
             };
 
             stream
-                .write_all(&(buffer.len() as u16).to_be_bytes())
+                .write_all(&encode_len(buffer.len()))
                 .await
                 .map_err(OUpgradeError::WritePacketLength)?;
             log::debug!("wrote packet length: {}", buffer.len());

@@ -28,7 +28,7 @@ async fn repopulate_account() {
         node.storage
             .profiles
             .values()
-            .any(|p| unpack_messages_ref(&p.mail).next().unwrap() == [0xff])
+            .any(|p| unpack_mail(&p.mail).next().unwrap() == [0xff])
     });
 
     let target = nodes.iter_mut().next().unwrap();
@@ -91,6 +91,99 @@ async fn direct_messaging() {
         .await;
 }
 
+#[tokio::test]
+async fn message_block_finalization() {
+    _ = env_logger::builder().is_test(true).try_init();
+
+    let mut nodes = create_nodes(REPLICATION_FACTOR.get() + 1);
+
+    let mut user = Account::new();
+    let mut user2 = Account::new();
+    let [mut stream1, used] = Stream::new_test();
+    let [mut stream2, used2] = Stream::new_test();
+    let mut user_chat_nonce = 1;
+
+    nodes.iter_mut().next().unwrap().clients.push(used);
+    nodes.iter_mut().last().unwrap().clients.push(used2);
+    stream1.create_user(&mut nodes, &mut user).await;
+    stream2.create_user(&mut nodes, &mut user2).await;
+
+    let chat = ChatName::from("foo").unwrap();
+
+    stream1
+        .test_req::<CreateChat>(&mut nodes, (chat, user.identity()), Ok(()))
+        .await;
+    stream1
+        .test_req::<PerformChatAction>(
+            &mut nodes,
+            (
+                chat,
+                user.chat_proof(chat, &mut user_chat_nonce),
+                ChatAction::AddUser(user2.identity()),
+            ),
+            Ok(()),
+        )
+        .await;
+
+    for i in 0..12 {
+        println!("i: {}", i);
+        stream1
+            .test_req::<PerformChatAction>(
+                &mut nodes,
+                (
+                    chat,
+                    user.chat_proof(chat, &mut user_chat_nonce),
+                    ChatAction::SendMessage(Reminder(&[0; 1022])),
+                ),
+                Ok(()),
+            )
+            .await;
+    }
+
+    assert_nodes(&nodes, |s| {
+        println!("{:?}", s.storage.chats.get(&chat).unwrap().block_number);
+        s.storage.chats.get(&chat).unwrap().block_number == 2
+    });
+
+    for i in 0..6 {
+        // futures::future::select(
+        //     nodes.next(),
+        //     std::pin::pin!(tokio::time::sleep(Duration::from_millis(100))),
+        // )
+        // .await;
+
+        println!("i: {}", i);
+        let msg = [i; 1022];
+        let body = (
+            chat,
+            user.chat_proof(chat, &mut user_chat_nonce),
+            ChatAction::SendMessage(Reminder(&msg)),
+        );
+        stream1
+            .inner
+            .write((PerformChatAction::PREFIX, CallId::whatever(), body))
+            .unwrap();
+        let msg = [i * 2; 1022];
+        let body = (
+            chat,
+            user2.chat_proof(chat, &mut user_chat_nonce),
+            ChatAction::SendMessage(Reminder(&msg)),
+        );
+        stream2
+            .inner
+            .write((PerformChatAction::PREFIX, CallId::whatever(), body))
+            .unwrap();
+
+        response::<PerformChatAction>(&mut nodes, &mut stream1, 1000, Ok(())).await;
+        response::<PerformChatAction>(&mut nodes, &mut stream2, 1000, Ok(())).await;
+    }
+
+    assert_nodes(&nodes, |s| {
+        println!("{:?}", s.storage.chats.get(&chat).unwrap().block_number);
+        s.storage.chats.get(&chat).unwrap().block_number == 5
+    });
+}
+
 impl Stream {
     async fn test_req<P: Protocol>(
         &mut self,
@@ -98,7 +191,7 @@ impl Stream {
         body: P::Request<'_>,
         expected: ProtocolResult<'_, P>,
     ) where
-        for<'a> ProtocolResult<'a, P>: PartialEq + Debug,
+        for<'a> ProtocolResult<'a, chat_logic::Repl<P>>: PartialEq + Debug,
     {
         self.inner
             .write((P::PREFIX, CallId::whatever(), body))
@@ -147,15 +240,15 @@ async fn response<P: Protocol>(
     tiemout_milis: u64,
     expected: ProtocolResult<'_, P>,
 ) where
-    for<'a> ProtocolResult<'a, P>: PartialEq + Debug,
+    for<'a> ProtocolResult<'a, chat_logic::Repl<P>>: PartialEq + Debug,
 {
     futures::select! {
         _ = nodes.select_next_some() => unreachable!(),
         res = stream.next().fuse() => {
             let res = res.unwrap().1.unwrap();
             {
-                let (_, resp) = <(CallId, ProtocolResult<P>)>::decode(&mut unsafe { std::mem::transmute(res.as_slice()) }).unwrap();
-                assert_eq!(resp, expected);
+                let (_, resp) = <(CallId, ProtocolResult<chat_logic::Repl<P>>)>::decode(&mut unsafe { std::mem::transmute(res.as_slice()) }).unwrap();
+                assert_eq!(resp, expected.map_err(chat_logic::ReplError::Inner));
             }
         }
         _ = tokio::time::sleep(Duration::from_millis(tiemout_milis)).fuse() => {
@@ -190,6 +283,10 @@ impl Account {
 
     fn mail_proof(&mut self) -> Proof {
         Proof::for_mail(&self.sign, &mut self.nonce)
+    }
+
+    fn chat_proof(&mut self, chat: ChatName, nonce: &mut u64) -> Proof {
+        Proof::for_chat(&self.sign, nonce, chat)
     }
 
     fn identity(&self) -> Identity {

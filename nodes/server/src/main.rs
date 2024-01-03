@@ -1,4 +1,5 @@
 #![feature(iter_advance_by)]
+#![feature(iter_collect_into)]
 #![feature(let_chains)]
 #![feature(entry_insert)]
 #![feature(iter_next_chunk)]
@@ -16,7 +17,7 @@ use {
     chat_logic::*,
     component_utils::{Codec, LinearMap, Reminder},
     crypto::{enc, sign, TransmutationCircle},
-    handlers::{Repl, SendMail, SyncRepl, *},
+    handlers::{Repl, SendMail, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
         futures::{self, stream::SelectAll, SinkExt, StreamExt},
@@ -57,32 +58,32 @@ type SyncReplRetry<T> = Repl<SyncRetry<T>>;
 
 compose_handlers! {
     InternalServer {
-        Sync<CreateProfile>,
+        CreateProfile,
         SyncRetry<SetVault>,
         Retry<SendMail>,
         SyncRetry<ReadMail>,
         SyncRetry<FetchProfile>,
-        Sync<FetchFullProfile>,
+        FetchFullProfile,
 
-        Sync<CreateChat>,
-        Sync<AddUser>,
-        Sync<SendMessage>,
+        CreateChat,
+        PerformChatAction,
+        ProposeMsgBlock,
+        SendBlock,
     }
 
     ExternalServer {
-        Sync<Subscribe>,
+        Subscribe,
 
-        SyncRepl<CreateProfile>,
+        Repl<CreateProfile>,
         SyncReplRetry<SetVault>,
         Repl<Retry<SendMail>>,
         SyncReplRetry<ReadMail>,
         SyncReplRetry<FetchProfile>,
         SyncRetry<FetchVault>,
 
-        SyncRepl<CreateChat>,
-        SyncRepl<AddUser>,
-        SyncRepl<SendMessage>,
-        Sync<FetchMessages>,
+        Repl<CreateChat>,
+        Repl<PerformChatAction>,
+        FetchMessages,
     }
 }
 
@@ -609,21 +610,39 @@ impl Context<'_> {
         replicators_for(&self.swarm.behaviour().dht.table, topic)
             .any(|peer| peer == *self.swarm.local_peer_id())
     }
+
+    fn _replicators_for(
+        &self,
+        topic: impl Into<PossibleTopic>,
+    ) -> impl Iterator<Item = PeerId> + '_ {
+        replicators_for(&self.swarm.behaviour().dht.table, topic.into())
+    }
+
+    fn other_replicators_for(
+        &self,
+        topic: impl Into<PossibleTopic>,
+    ) -> impl Iterator<Item = PeerId> + '_ {
+        other_replicators_for(
+            &self.swarm.behaviour().dht.table,
+            topic.into(),
+            *self.swarm.local_peer_id(),
+        )
+    }
 }
 
 fn replicators_for(
     table: &mini_dht::RoutingTable,
-    topic: PossibleTopic,
+    topic: impl Into<PossibleTopic>,
 ) -> impl Iterator<Item = PeerId> + '_ {
     table
-        .closest(topic.as_bytes())
+        .closest(topic.into().as_bytes())
         .take(REPLICATION_FACTOR.get() + 1)
         .map(Route::peer_id)
 }
 
 fn other_replicators_for(
     table: &mini_dht::RoutingTable,
-    topic: PossibleTopic,
+    topic: impl Into<PossibleTopic>,
     us: PeerId,
 ) -> impl Iterator<Item = PeerId> + '_ {
     replicators_for(table, topic).filter(move |&p| p != us)

@@ -160,7 +160,10 @@ impl<'a, R: Codec<'a>, E: Codec<'a>> Codec<'a> for Result<R, E> {
     }
 }
 
-use futures::{AsyncRead, AsyncReadExt};
+use {
+    futures::{AsyncRead, AsyncReadExt},
+    std::hash::BuildHasher,
+};
 pub trait CodecExt: for<'a> Codec<'a> {
     #[allow(async_fn_in_trait)]
     async fn from_stream(mut stream: impl AsyncRead + Unpin) -> std::io::Result<Self> {
@@ -450,6 +453,16 @@ impl<'a, T: Codec<'a>, const SIZE: usize> Codec<'a> for [T; SIZE] {
     }
 }
 
+impl<'a> Codec<'a> for Box<[u8]> {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.as_ref().encode(buffer)
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        Some(<&[u8]>::decode(buffer)?.into())
+    }
+}
+
 impl<'a, T: Codec<'a>> Codec<'a> for Option<T> {
     fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
         match self {
@@ -468,6 +481,33 @@ impl<'a, T: Codec<'a>> Codec<'a> for Option<T> {
         } else {
             None
         })
+    }
+}
+
+impl<'a, K: Codec<'a> + Eq + std::hash::Hash, V: Codec<'a>, H: BuildHasher + Default> Codec<'a>
+    for std::collections::HashMap<K, V, H>
+{
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.len().encode(buffer)?;
+        for (k, v) in self {
+            k.encode(buffer)?;
+            v.encode(buffer)?;
+        }
+        Some(())
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        let len = usize::decode(buffer)?;
+        if len * 2 > buffer.len() {
+            return None;
+        }
+        let mut s = Self::with_capacity_and_hasher(len, H::default());
+        for _ in 0..len {
+            let k = K::decode(buffer)?;
+            let v = V::decode(buffer)?;
+            s.insert(k, v);
+        }
+        Some(s)
     }
 }
 

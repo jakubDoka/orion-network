@@ -2,12 +2,11 @@ use {
     crate::{
         db, handled_async_closure, handled_callback, handled_spawn_local,
         node::{self, HardenedChatInvitePayload, Mail, MessageContent, RawChatMessage},
-        protocol::{RequestError, SubsOwner},
+        protocol::SubsOwner,
     },
     anyhow::Context,
     chat_logic::{
-        username_to_raw, AddUser, AddUserError, ChatEvent, ChatName, CreateChat, FetchMessages,
-        FetchProfile, SendMessage, SendMessageError, UserName,
+        username_to_raw, ChatEvent, ChatName, CreateChat, FetchMessages, FetchProfile, UserName,
     },
     component_utils::{Codec, DropFn, Reminder},
     crypto::{
@@ -79,7 +78,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
     let (show_chat, set_show_chat) = create_signal(false);
     let (is_hardened, set_is_hardened) = create_signal(false);
     let messages = create_node_ref::<leptos::html::Div>();
-    let (cursor, set_cursor) = create_signal(Cursor::Normal(chat_logic::NO_CURSOR));
+    let (cursor, set_cursor) = create_signal(Cursor::Normal(chat_logic::Cursor::INIT));
     let (red_all_messages, set_red_all_messages) = create_signal(false);
 
     let hide_chat = move |_| set_show_chat(false);
@@ -116,6 +115,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         }
         DropFn::new(|| FETCH_LOCK.store(false, Ordering::Relaxed));
 
+        let mut requests = requests();
+
         let Some(chat) = current_chat.get_untracked() else {
             return Ok(());
         };
@@ -133,10 +134,10 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         match cursor.get_untracked() {
             Cursor::Normal(cursor) => {
-                let (mut messages, new_cursor) =
-                    requests().dispatch::<FetchMessages>((chat, cursor)).await?;
+                let (new_cursor, Reminder(messages)) =
+                    requests.dispatch::<FetchMessages>((chat, cursor)).await?;
                 let secret = state.chat_secret(chat).context("getting chat secret")?;
-                for message in chat_logic::unpack_messages(messages.as_mut_slice()) {
+                for message in chat_logic::unpack_messages(messages.to_vec().as_mut_slice()) {
                     let Some(decrypted) = crypto::decrypt(message, secret) else {
                         log::error!("failed to decrypt fetched message");
                         continue;
@@ -149,7 +150,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                     };
                     prepend_message(sender, content.into());
                 }
-                set_red_all_messages(new_cursor == chat_logic::NO_CURSOR);
+                set_red_all_messages(new_cursor == chat_logic::Cursor::INIT);
                 set_cursor(Cursor::Normal(new_cursor));
             }
             Cursor::Hardened(cursor) => {
@@ -232,7 +233,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let select_chat = move |_| {
             set_show_chat(true);
             set_red_all_messages(false);
-            set_cursor(Cursor::Normal(chat_logic::NO_CURSOR));
+            set_cursor(Cursor::Normal(chat_logic::Cursor::INIT));
             set_current_chat(Some(chat));
             set_is_hardened(hardened);
             crate::navigate_to(format_args!("/chat/{chat}"));
@@ -322,28 +323,11 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             Err(e) => anyhow::bail!("failed to fetch user: {e}"),
         };
 
-        let Some(proof) = state.next_chat_proof(chat, None) else {
-            anyhow::bail!("we are not part of this chat");
-        };
-
         let mut requests = requests();
-        match requests
-            .dispatch::<AddUser>((chat, invitee.sign, proof))
+        requests
+            .dispatch_chat_action(state, chat, invitee.sign)
             .await
-        {
-            Err(RequestError::Handler(chat_logic::ReplError::Inner(
-                AddUserError::InvalidAction(nonce),
-            ))) => {
-                let proof = state
-                    .next_chat_proof(chat, Some(nonce))
-                    .expect("we checked we are part of the chat");
-                requests
-                    .dispatch::<AddUser>((chat, invitee.sign, proof))
-                    .await
-                    .context("recovering from invalid action")?;
-            }
-            e => e.context("adding user")?,
-        };
+            .context("adding user")?;
 
         let user_data = requests
             .dispatch::<FetchProfile>(invitee.sign)
@@ -481,22 +465,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
         handled_spawn_local("sending normal message", async move {
             let mut req = requests();
-            match req
-                .dispatch::<SendMessage>((chat, proof, Reminder(&content)))
-                .await
-            {
-                Err(RequestError::Handler(chat_logic::ReplError::Inner(
-                    SendMessageError::InvalidAction(nonce),
-                ))) => {
-                    let proof = state
-                        .next_chat_proof(chat, Some(nonce))
-                        .expect("we checked we are part of the chat");
-                    req.dispatch::<SendMessage>((chat, proof, Reminder(&content)))
-                        .await
-                        .context("recovering from invalid action")?;
-                }
-                e => e?,
-            };
+            req.dispatch_chat_action(state, chat, Reminder(&content))
+                .await?;
             message_input.get_untracked().unwrap().set_value("");
             resize_input();
             Ok(())

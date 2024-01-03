@@ -172,11 +172,18 @@ impl PacketReader {
     }
 }
 
-struct NoCapOverflow<'a> {
-    vec: &'a mut Vec<u8>,
+#[repr(transparent)]
+pub struct NoCapOverflow {
+    vec: Vec<u8>,
 }
 
-impl Buffer for NoCapOverflow<'_> {
+impl NoCapOverflow {
+    pub fn new(vec: &mut Vec<u8>) -> &mut Self {
+        unsafe { std::mem::transmute(vec) }
+    }
+}
+
+impl Buffer for NoCapOverflow {
     fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()> {
         if self.vec.len() + slice.len() > self.vec.capacity() {
             return None;
@@ -194,7 +201,7 @@ impl Buffer for NoCapOverflow<'_> {
     }
 }
 
-impl AsMut<[u8]> for NoCapOverflow<'_> {
+impl AsMut<[u8]> for NoCapOverflow {
     fn as_mut(&mut self) -> &mut [u8] {
         self.vec.as_mut()
     }

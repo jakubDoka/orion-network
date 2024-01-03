@@ -10,6 +10,7 @@ pub use {chat::*, profile::*};
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(4) };
 
 pub type Nonce = u64;
+pub type BlockNumber = usize;
 pub type ProofContext = [u8; CHAT_NAME_CAP];
 pub type Identity = crypto::Hash;
 
@@ -20,7 +21,6 @@ macro_rules! compose_protocols {
     ($(
         fn $for:ident<$lt:lifetime>($($req:ty),*) -> Result<$resp:ty, $error:ty>;
     )*) => {$(
-        #[allow(unused_parens)]
         pub enum $for {}
         impl $crate::extractors::Protocol for $for {
             const PREFIX: u8 = ${index(0)};
@@ -36,9 +36,10 @@ compose_protocols! {
     fn Subscribe<'a>(PossibleTopic) -> Result<(), Infallible>;
 
     fn CreateChat<'a>(ChatName, Identity) -> Result<(), CreateChatError>;
-    fn AddUser<'a>(ChatName, Identity, Proof) -> Result<(), AddUserError>;
-    fn SendMessage<'a>(ChatName, Proof, Reminder<'a>) -> Result<(), SendMessageError>;
-    fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Vec<u8>, Cursor), FetchMessagesError>;
+    fn PerformChatAction<'a>(ChatName, Proof, ChatAction<'a>) -> Result<(), ChatActionError>;
+    fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Cursor, Reminder<'a>), FetchMessagesError>;
+    fn ProposeMsgBlock<'a>(ChatName, BlockNumber, crypto::Hash) -> Result<(), ProposeMsgBlockError>;
+    fn SendBlock<'a>(ChatName, BlockNumber, Reminder<'a>) -> Result<(), SendBlockError>;
 
     fn CreateProfile<'a>(Proof, Serialized<enc::PublicKey>, Reminder<'a>) -> Result<(), CreateAccountError>;
     fn SetVault<'a>(Proof, Reminder<'a>) -> Result<(), SetVaultError>;
@@ -59,7 +60,7 @@ impl<T: Protocol> Protocol for Repl<T> {
     const PREFIX: u8 = T::PREFIX;
 }
 
-#[derive(Debug, thiserror::Error, Codec)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, Codec)]
 pub enum ReplError<T> {
     #[error("no majority")]
     NoMajority,
@@ -158,47 +159,19 @@ pub fn advance_nonce(current: &mut Nonce, new: Nonce) -> bool {
     valid
 }
 
-pub fn unpack_messages(buffer: &mut [u8]) -> impl Iterator<Item = &mut [u8]> {
-    let mut iter = buffer.iter_mut();
+pub fn unpack_messages(mut buffer: &mut [u8]) -> impl Iterator<Item = &mut [u8]> {
     iter::from_fn(move || {
-        let len = iter
-            .by_ref()
-            .map(|b| *b)
-            .next_chunk()
-            .map(u16::from_be_bytes)
-            .ok()?;
-
-        if len > iter.as_slice().len() as u16 {
-            return None;
-        }
-
-        let (slice, rest) = std::mem::take(&mut iter)
-            .into_slice()
-            .split_at_mut(len as usize);
-        iter = rest.iter_mut();
-
-        Some(slice)
+        let len = buffer.take_mut(buffer.len().wrapping_sub(2)..)?;
+        let len = u16::from_be_bytes(len.try_into().unwrap());
+        buffer.take_mut(buffer.len().wrapping_sub(len as usize)..)
     })
 }
 
-pub fn unpack_messages_ref(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
-    let mut iter = buffer.iter();
+pub fn unpack_mail(mut buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
     iter::from_fn(move || {
-        let len = iter
-            .by_ref()
-            .copied()
-            .next_chunk()
-            .map(u16::from_be_bytes)
-            .ok()?;
-
-        if len > iter.as_slice().len() as u16 {
-            return None;
-        }
-
-        let (slice, rest) = iter.as_slice().split_at(len as usize);
-        iter = rest.iter();
-
-        Some(slice)
+        let len = buffer.take(..2)?;
+        let len = u16::from_be_bytes(len.try_into().unwrap());
+        buffer.take(..len as usize)
     })
 }
 

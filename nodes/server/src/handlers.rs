@@ -5,10 +5,7 @@ use {
     libp2p::PeerId,
     onion::PathId,
     rpc::CallId,
-    std::{
-        convert::Infallible,
-        ops::{Deref, DerefMut},
-    },
+    std::ops::{Deref, DerefMut},
 };
 
 #[macro_export]
@@ -150,10 +147,10 @@ pub trait SyncHandler: Protocol {
     fn execute<'a>(cx: Scope<'a>, req: Self::Request<'_>) -> ProtocolResult<'a, Self>;
 }
 
-pub struct Sync<T>(T);
+//pub struct Sync<T>(T);
 
-impl<H: SyncHandler> Handler for Sync<H> {
-    type Event = Infallible;
+impl<H: SyncHandler> Handler for H {
+    type Event = rpc::Event;
     type Protocol = H;
 
     fn execute<'a>(
@@ -163,10 +160,8 @@ impl<H: SyncHandler> Handler for Sync<H> {
         Ok(H::execute(cx, req))
     }
 
-    fn resume<'a>(self, _: Scope<'a>, e: &'a Self::Event) -> HandlerResult<'a, Self> {
-        match e {
-            &i => match i {},
-        }
+    fn resume<'a>(self, _: Scope<'a>, _: &'a Self::Event) -> HandlerResult<'a, Self> {
+        Err(self)
     }
 }
 

@@ -1,6 +1,6 @@
 use {
-    chat_logic::*, component_utils::Codec, libp2p::futures::StreamExt, onion::EncryptedStream,
-    std::convert::Infallible,
+    anyhow::Context, chat_logic::*, component_utils::Codec, libp2p::futures::StreamExt,
+    onion::EncryptedStream, std::convert::Infallible,
 };
 
 pub struct RequestDispatch {
@@ -59,6 +59,34 @@ impl RequestDispatch {
     {
         let topic = request.to_possible_topic();
         self.dispatch_low(Some(topic), request).await
+    }
+
+    pub async fn dispatch_chat_action(
+        &mut self,
+        state: crate::State,
+        chat: ChatName,
+        action: impl Into<ChatAction<'_>>,
+    ) -> anyhow::Result<()> {
+        let action = action.into();
+
+        let proof = state
+            .next_chat_proof(chat, None)
+            .context("extracting chat proof")?;
+        let Err(RequestError::Handler(ReplError::Inner(ChatActionError::InvalidAction(
+            correct_nonce,
+        )))) = self
+            .dispatch::<PerformChatAction>((chat, proof, action))
+            .await
+        else {
+            return Ok(());
+        };
+
+        let proof = state
+            .next_chat_proof(chat, Some(correct_nonce))
+            .context("extracting chat proof")?;
+        self.dispatch::<PerformChatAction>((chat, proof, action))
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn dispatch_mail(
