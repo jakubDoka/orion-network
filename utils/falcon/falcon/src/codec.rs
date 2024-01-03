@@ -34,8 +34,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_modq_encode(
         u = u.wrapping_add(1);
         u;
     }
-    out_len = (n * 14 as size_t).wrapping_add(7 as size_t)
-        >> 3;
+    out_len = (n * 14 as size_t).wrapping_add(7 as size_t) >> 3;
     if out.is_null() {
         return out_len;
     }
@@ -77,8 +76,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_modq_decode(
     let mut acc: u32 = 0;
     let mut acc_len: libc::c_int = 0;
     n = (1 as size_t) << logn;
-    in_len = (n * 14 as size_t).wrapping_add(7 as size_t)
-        >> 3;
+    in_len = (n * 14 as size_t).wrapping_add(7 as size_t) >> 3;
     if in_len > max_in_len {
         return 0 as size_t;
     }
@@ -103,10 +101,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_modq_decode(
             *x.offset(fresh2 as isize) = w as uint16_t;
         }
     }
-    if acc
-        & ((1 as u32) << acc_len)
-            .wrapping_sub(1 as u32) != 0 as u32
-    {
+    if acc & ((1 as u32) << acc_len).wrapping_sub(1 as u32) != 0 as u32 {
         return 0 as size_t;
     }
     return in_len;
@@ -129,8 +124,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i16_encode(
     let mut mask: u32 = 0;
     let mut acc_len: libc::c_uint = 0;
     n = (1 as size_t) << logn;
-    maxv = ((1) << bits.wrapping_sub(1 as libc::c_uint))
-        - 1;
+    maxv = ((1) << bits.wrapping_sub(1 as libc::c_uint)) - 1;
     minv = -maxv;
     u = 0 as size_t;
     while u < n {
@@ -142,8 +136,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i16_encode(
         u = u.wrapping_add(1);
         u;
     }
-    out_len = (n * bits as size_t).wrapping_add(7 as size_t)
-        >> 3;
+    out_len = (n * bits as size_t).wrapping_add(7 as size_t) >> 3;
     if out.is_null() {
         return out_len;
     }
@@ -153,8 +146,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i16_encode(
     buf = out as *mut uint8_t;
     acc = 0 as u32;
     acc_len = 0 as libc::c_uint;
-    mask = ((1 as u32) << bits)
-        .wrapping_sub(1 as u32);
+    mask = ((1 as u32) << bits).wrapping_sub(1 as u32);
     u = 0 as size_t;
     while u < n {
         acc = acc << bits | *x.offset(u as isize) as uint16_t as u32 & mask;
@@ -171,8 +163,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i16_encode(
     if acc_len > 0 as libc::c_uint {
         let fresh4 = buf;
         buf = buf.offset(1);
-        *fresh4 = (acc << (8 as libc::c_uint).wrapping_sub(acc_len))
-            as uint8_t;
+        *fresh4 = (acc << (8 as libc::c_uint).wrapping_sub(acc_len)) as uint8_t;
     }
     return out_len;
 }
@@ -193,8 +184,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i16_decode(
     let mut mask2: u32 = 0;
     let mut acc_len: libc::c_uint = 0;
     n = (1 as size_t) << logn;
-    in_len = (n * bits as size_t).wrapping_add(7 as size_t)
-        >> 3;
+    in_len = (n * bits as size_t).wrapping_add(7 as size_t) >> 3;
     if in_len > max_in_len {
         return 0 as size_t;
     }
@@ -202,10 +192,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i16_decode(
     u = 0 as size_t;
     acc = 0 as u32;
     acc_len = 0 as libc::c_uint;
-    mask1 = ((1 as u32) << bits)
-        .wrapping_sub(1 as u32);
-    mask2 = (1 as u32)
-        << bits.wrapping_sub(1 as libc::c_uint);
+    mask1 = ((1 as u32) << bits).wrapping_sub(1 as u32);
+    mask2 = (1 as u32) << bits.wrapping_sub(1 as libc::c_uint);
     while u < n {
         let fresh5 = buf;
         buf = buf.offset(1);
@@ -222,16 +210,10 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i16_decode(
             w |= (w & mask2).wrapping_neg();
             let fresh6 = u;
             u = u.wrapping_add(1);
-            *x
-                .offset(
-                    fresh6 as isize,
-                ) = *(&mut w as *mut u32 as *mut int32_t) as int16_t;
+            *x.offset(fresh6 as isize) = *(&mut w as *mut u32 as *mut int32_t) as int16_t;
         }
     }
-    if acc
-        & ((1 as u32) << acc_len)
-            .wrapping_sub(1 as u32) != 0 as u32
-    {
+    if acc & ((1 as u32) << acc_len).wrapping_sub(1 as u32) != 0 as u32 {
         return 0 as size_t;
     }
     return in_len;
@@ -254,8 +236,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i8_encode(
     let mut mask: u32 = 0;
     let mut acc_len: libc::c_uint = 0;
     n = (1 as size_t) << logn;
-    maxv = ((1) << bits.wrapping_sub(1 as libc::c_uint))
-        - 1;
+    maxv = ((1) << bits.wrapping_sub(1 as libc::c_uint)) - 1;
     minv = -maxv;
     u = 0 as size_t;
     while u < n {
@@ -267,8 +248,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i8_encode(
         u = u.wrapping_add(1);
         u;
     }
-    out_len = (n * bits as size_t).wrapping_add(7 as size_t)
-        >> 3;
+    out_len = (n * bits as size_t).wrapping_add(7 as size_t) >> 3;
     if out.is_null() {
         return out_len;
     }
@@ -278,8 +258,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i8_encode(
     buf = out as *mut uint8_t;
     acc = 0 as u32;
     acc_len = 0 as libc::c_uint;
-    mask = ((1 as u32) << bits)
-        .wrapping_sub(1 as u32);
+    mask = ((1 as u32) << bits).wrapping_sub(1 as u32);
     u = 0 as size_t;
     while u < n {
         acc = acc << bits | *x.offset(u as isize) as uint8_t as u32 & mask;
@@ -296,8 +275,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i8_encode(
     if acc_len > 0 as libc::c_uint {
         let fresh8 = buf;
         buf = buf.offset(1);
-        *fresh8 = (acc << (8 as libc::c_uint).wrapping_sub(acc_len))
-            as uint8_t;
+        *fresh8 = (acc << (8 as libc::c_uint).wrapping_sub(acc_len)) as uint8_t;
     }
     return out_len;
 }
@@ -318,8 +296,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
     let mut mask2: u32 = 0;
     let mut acc_len: libc::c_uint = 0;
     n = (1 as size_t) << logn;
-    in_len = (n * bits as size_t).wrapping_add(7 as size_t)
-        >> 3;
+    in_len = (n * bits as size_t).wrapping_add(7 as size_t) >> 3;
     if in_len > max_in_len {
         return 0 as size_t;
     }
@@ -327,10 +304,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
     u = 0 as size_t;
     acc = 0 as u32;
     acc_len = 0 as libc::c_uint;
-    mask1 = ((1 as u32) << bits)
-        .wrapping_sub(1 as u32);
-    mask2 = (1 as u32)
-        << bits.wrapping_sub(1 as libc::c_uint);
+    mask1 = ((1 as u32) << bits).wrapping_sub(1 as u32);
+    mask2 = (1 as u32) << bits.wrapping_sub(1 as libc::c_uint);
     while u < n {
         let fresh9 = buf;
         buf = buf.offset(1);
@@ -346,16 +321,10 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
             }
             let fresh10 = u;
             u = u.wrapping_add(1);
-            *x
-                .offset(
-                    fresh10 as isize,
-                ) = *(&mut w as *mut u32 as *mut int32_t) as int8_t;
+            *x.offset(fresh10 as isize) = *(&mut w as *mut u32 as *mut int32_t) as int8_t;
         }
     }
-    if acc
-        & ((1 as u32) << acc_len)
-            .wrapping_sub(1 as u32) != 0 as u32
-    {
+    if acc & ((1 as u32) << acc_len).wrapping_sub(1 as u32) != 0 as u32 {
         return 0 as size_t;
     }
     return in_len;
@@ -425,11 +394,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_comp_encode(
             if v >= max_out_len {
                 return 0 as size_t;
             }
-            *buf
-                .offset(
-                    v as isize,
-                ) = (acc << (8 as libc::c_uint).wrapping_sub(acc_len))
-                as uint8_t;
+            *buf.offset(v as isize) = (acc << (8 as libc::c_uint).wrapping_sub(acc_len)) as uint8_t;
         }
         v = v.wrapping_add(1);
         v;
@@ -475,15 +440,12 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_comp_decode(
                 }
                 let fresh12 = v;
                 v = v.wrapping_add(1);
-                acc = acc << 8
-                    | *buf.offset(fresh12 as isize) as u32;
+                acc = acc << 8 | *buf.offset(fresh12 as isize) as u32;
                 acc_len = 8 as libc::c_uint;
             }
             acc_len = acc_len.wrapping_sub(1);
             acc_len;
-            if acc >> acc_len & 1 as u32
-                != 0 as u32
-            {
+            if acc >> acc_len & 1 as u32 != 0 as u32 {
                 break;
             }
             m = m.wrapping_add(128 as libc::c_uint);
@@ -502,9 +464,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_comp_decode(
         u = u.wrapping_add(1);
         u;
     }
-    if acc & ((1 as libc::c_uint) << acc_len).wrapping_sub(1 as libc::c_uint)
-        != 0 as libc::c_uint
-    {
+    if acc & ((1 as libc::c_uint) << acc_len).wrapping_sub(1 as libc::c_uint) != 0 as libc::c_uint {
         return 0 as size_t;
     }
     return v;

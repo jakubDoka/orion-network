@@ -2075,39 +2075,26 @@ static mut iGMb: [uint16_t; 1024] = [
 unsafe extern "C" fn mq_conv_small(mut x: libc::c_int) -> u32 {
     let mut y: u32 = 0;
     y = x as u32;
-    y = y
-        .wrapping_add(
-            12289 as u32 & (y >> 31).wrapping_neg(),
-        );
+    y = y.wrapping_add(12289 as u32 & (y >> 31).wrapping_neg());
     return y;
 }
 #[inline]
 unsafe extern "C" fn mq_add(mut x: u32, mut y: u32) -> u32 {
     let mut d: u32 = 0;
     d = x.wrapping_add(y).wrapping_sub(12289 as u32);
-    d = d
-        .wrapping_add(
-            12289 as u32 & (d >> 31).wrapping_neg(),
-        );
+    d = d.wrapping_add(12289 as u32 & (d >> 31).wrapping_neg());
     return d;
 }
 #[inline]
 unsafe extern "C" fn mq_sub(mut x: u32, mut y: u32) -> u32 {
     let mut d: u32 = 0;
     d = x.wrapping_sub(y);
-    d = d
-        .wrapping_add(
-            12289 as u32 & (d >> 31).wrapping_neg(),
-        );
+    d = d.wrapping_add(12289 as u32 & (d >> 31).wrapping_neg());
     return d;
 }
 #[inline]
 unsafe extern "C" fn mq_rshift1(mut x: u32) -> u32 {
-    x = x
-        .wrapping_add(
-            12289 as u32
-                & (x & 1 as u32).wrapping_neg(),
-        );
+    x = x.wrapping_add(12289 as u32 & (x & 1 as u32).wrapping_neg());
     return x >> 1;
 }
 #[inline]
@@ -2115,14 +2102,10 @@ unsafe extern "C" fn mq_montymul(mut x: u32, mut y: u32) -> u32 {
     let mut z: u32 = 0;
     let mut w: u32 = 0;
     z = x * y;
-    w = (z * 12287 as u32 & 0xffff as u32)
-        * 12289 as u32;
+    w = (z * 12287 as u32 & 0xffff as u32) * 12289 as u32;
     z = z.wrapping_add(w) >> 16;
     z = z.wrapping_sub(12289 as u32);
-    z = z
-        .wrapping_add(
-            12289 as u32 & (z >> 31).wrapping_neg(),
-        );
+    z = z.wrapping_add(12289 as u32 & (z >> 31).wrapping_neg());
     return z;
 }
 #[inline]
@@ -2261,10 +2244,7 @@ unsafe extern "C" fn mq_iNTT(mut a: *mut uint16_t, mut logn: libc::c_uint) {
     }
     m = 0 as size_t;
     while m < n {
-        *a
-            .offset(
-                m as isize,
-            ) = mq_montymul(*a.offset(m as isize) as u32, ni) as uint16_t;
+        *a.offset(m as isize) = mq_montymul(*a.offset(m as isize) as u32, ni) as uint16_t;
         m = m.wrapping_add(1);
         m;
     }
@@ -2275,13 +2255,7 @@ unsafe extern "C" fn mq_poly_tomonty(mut f: *mut uint16_t, mut logn: libc::c_uin
     n = (1 as size_t) << logn;
     u = 0 as size_t;
     while u < n {
-        *f
-            .offset(
-                u as isize,
-            ) = mq_montymul(
-            *f.offset(u as isize) as u32,
-            10952 as u32,
-        ) as uint16_t;
+        *f.offset(u as isize) = mq_montymul(*f.offset(u as isize) as u32, 10952 as u32) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2296,13 +2270,8 @@ unsafe extern "C" fn mq_poly_montymul_ntt(
     n = (1 as size_t) << logn;
     u = 0 as size_t;
     while u < n {
-        *f
-            .offset(
-                u as isize,
-            ) = mq_montymul(
-            *f.offset(u as isize) as u32,
-            *g.offset(u as isize) as u32,
-        ) as uint16_t;
+        *f.offset(u as isize) =
+            mq_montymul(*f.offset(u as isize) as u32, *g.offset(u as isize) as u32) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2317,13 +2286,8 @@ unsafe extern "C" fn mq_poly_sub(
     n = (1 as size_t) << logn;
     u = 0 as size_t;
     while u < n {
-        *f
-            .offset(
-                u as isize,
-            ) = mq_sub(
-            *f.offset(u as isize) as u32,
-            *g.offset(u as isize) as u32,
-        ) as uint16_t;
+        *f.offset(u as isize) =
+            mq_sub(*f.offset(u as isize) as u32, *g.offset(u as isize) as u32) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2353,11 +2317,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_verify_raw(
     while u < n {
         let mut w: u32 = 0;
         w = *s2.offset(u as isize) as u32;
-        w = w
-            .wrapping_add(
-                12289 as u32
-                    & (w >> 31).wrapping_neg(),
-            );
+        w = w.wrapping_add(12289 as u32 & (w >> 31).wrapping_neg());
         *tt.offset(u as isize) = w as uint16_t;
         u = u.wrapping_add(1);
         u;
@@ -2370,11 +2330,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_verify_raw(
     while u < n {
         let mut w_0: int32_t = 0;
         w_0 = *tt.offset(u as isize) as int32_t;
-        w_0
-            -= (12289 as u32
-                & (((12289 >> 1) as u32)
-                    .wrapping_sub(w_0 as u32) >> 31)
-                    .wrapping_neg()) as int32_t;
+        w_0 -= (12289 as u32
+            & (((12289 >> 1) as u32).wrapping_sub(w_0 as u32) >> 31).wrapping_neg())
+            as int32_t;
         *(tt as *mut int16_t).offset(u as isize) = w_0 as int16_t;
         u = u.wrapping_add(1);
         u;
@@ -2396,14 +2354,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_compute_public(
     tt = tmp as *mut uint16_t;
     u = 0 as size_t;
     while u < n {
-        *tt
-            .offset(
-                u as isize,
-            ) = mq_conv_small(*f.offset(u as isize) as libc::c_int) as uint16_t;
-        *h
-            .offset(
-                u as isize,
-            ) = mq_conv_small(*g.offset(u as isize) as libc::c_int) as uint16_t;
+        *tt.offset(u as isize) = mq_conv_small(*f.offset(u as isize) as libc::c_int) as uint16_t;
+        *h.offset(u as isize) = mq_conv_small(*g.offset(u as isize) as libc::c_int) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2414,13 +2366,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_compute_public(
         if *tt.offset(u as isize) as libc::c_int == 0 {
             return 0;
         }
-        *h
-            .offset(
-                u as isize,
-            ) = mq_div_12289(
-            *h.offset(u as isize) as u32,
-            *tt.offset(u as isize) as u32,
-        ) as uint16_t;
+        *h.offset(u as isize) =
+            mq_div_12289(*h.offset(u as isize) as u32, *tt.offset(u as isize) as u32) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2445,14 +2392,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_complete_private(
     t2 = t1.offset(n as isize);
     u = 0 as size_t;
     while u < n {
-        *t1
-            .offset(
-                u as isize,
-            ) = mq_conv_small(*g.offset(u as isize) as libc::c_int) as uint16_t;
-        *t2
-            .offset(
-                u as isize,
-            ) = mq_conv_small(*F.offset(u as isize) as libc::c_int) as uint16_t;
+        *t1.offset(u as isize) = mq_conv_small(*g.offset(u as isize) as libc::c_int) as uint16_t;
+        *t2.offset(u as isize) = mq_conv_small(*F.offset(u as isize) as libc::c_int) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2462,10 +2403,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_complete_private(
     mq_poly_montymul_ntt(t1, t2, logn);
     u = 0 as size_t;
     while u < n {
-        *t2
-            .offset(
-                u as isize,
-            ) = mq_conv_small(*f.offset(u as isize) as libc::c_int) as uint16_t;
+        *t2.offset(u as isize) = mq_conv_small(*f.offset(u as isize) as libc::c_int) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2475,13 +2413,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_complete_private(
         if *t2.offset(u as isize) as libc::c_int == 0 {
             return 0;
         }
-        *t1
-            .offset(
-                u as isize,
-            ) = mq_div_12289(
-            *t1.offset(u as isize) as u32,
-            *t2.offset(u as isize) as u32,
-        ) as uint16_t;
+        *t1.offset(u as isize) =
+            mq_div_12289(*t1.offset(u as isize) as u32, *t2.offset(u as isize) as u32) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2491,15 +2424,9 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_complete_private(
         let mut w: u32 = 0;
         let mut gi: int32_t = 0;
         w = *t1.offset(u as isize) as u32;
-        w = w
-            .wrapping_sub(
-                12289 as u32
-                    & !(w
-                        .wrapping_sub(
-                            (12289 >> 1) as u32,
-                        ) >> 31)
-                        .wrapping_neg(),
-            );
+        w = w.wrapping_sub(
+            12289 as u32 & !(w.wrapping_sub((12289 >> 1) as u32) >> 31).wrapping_neg(),
+        );
         gi = *(&mut w as *mut u32 as *mut int32_t);
         if gi < -(127) || gi > 127 {
             return 0;
@@ -2526,11 +2453,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_is_invertible(
     while u < n {
         let mut w: u32 = 0;
         w = *s2.offset(u as isize) as u32;
-        w = w
-            .wrapping_add(
-                12289 as u32
-                    & (w >> 31).wrapping_neg(),
-            );
+        w = w.wrapping_add(12289 as u32 & (w >> 31).wrapping_neg());
         *tt.offset(u as isize) = w as uint16_t;
         u = u.wrapping_add(1);
         u;
@@ -2564,18 +2487,10 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_verify_recover(
     while u < n {
         let mut w: u32 = 0;
         w = *s2.offset(u as isize) as u32;
-        w = w
-            .wrapping_add(
-                12289 as u32
-                    & (w >> 31).wrapping_neg(),
-            );
+        w = w.wrapping_add(12289 as u32 & (w >> 31).wrapping_neg());
         *tt.offset(u as isize) = w as uint16_t;
         w = *s1.offset(u as isize) as u32;
-        w = w
-            .wrapping_add(
-                12289 as u32
-                    & (w >> 31).wrapping_neg(),
-            );
+        w = w.wrapping_add(12289 as u32 & (w >> 31).wrapping_neg());
         w = mq_sub(*c0.offset(u as isize) as u32, w);
         *h.offset(u as isize) = w as uint16_t;
         u = u.wrapping_add(1);
@@ -2587,13 +2502,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_verify_recover(
     u = 0 as size_t;
     while u < n {
         r |= (*tt.offset(u as isize) as libc::c_int - 1) as u32;
-        *h
-            .offset(
-                u as isize,
-            ) = mq_div_12289(
-            *h.offset(u as isize) as u32,
-            *tt.offset(u as isize) as u32,
-        ) as uint16_t;
+        *h.offset(u as isize) =
+            mq_div_12289(*h.offset(u as isize) as u32, *tt.offset(u as isize) as u32) as uint16_t;
         u = u.wrapping_add(1);
         u;
     }
@@ -2617,11 +2527,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_count_nttzero(
     while u < n {
         let mut w: u32 = 0;
         w = *sig.offset(u as isize) as u32;
-        w = w
-            .wrapping_add(
-                12289 as u32
-                    & (w >> 31).wrapping_neg(),
-            );
+        w = w.wrapping_add(12289 as u32 & (w >> 31).wrapping_neg());
         *s2.offset(u as isize) = w as uint16_t;
         u = u.wrapping_add(1);
         u;

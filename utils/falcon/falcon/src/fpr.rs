@@ -3,29 +3,19 @@ pub type __u32 = libc::c_uint;
 pub type __i64 = libc::c_long;
 pub type __u64 = libc::c_ulong;
 
-
-
 pub type fpr = u64;
 #[inline]
 unsafe extern "C" fn fpr_ursh(mut x: u64, mut n: libc::c_int) -> u64 {
-    x
-        ^= (x ^ x >> 32)
-            & ((n >> 5) as u64).wrapping_neg();
+    x ^= (x ^ x >> 32) & ((n >> 5) as u64).wrapping_neg();
     return x >> (n & 31);
 }
 #[inline]
 unsafe extern "C" fn fpr_ulsh(mut x: u64, mut n: libc::c_int) -> u64 {
-    x
-        ^= (x ^ x << 32)
-            & ((n >> 5) as u64).wrapping_neg();
+    x ^= (x ^ x << 32) & ((n >> 5) as u64).wrapping_neg();
     return x << (n & 31);
 }
 #[inline]
-unsafe extern "C" fn FPR(
-    mut s: libc::c_int,
-    mut e: libc::c_int,
-    mut m: u64,
-) -> fpr {
+unsafe extern "C" fn FPR(mut s: libc::c_int, mut e: libc::c_int, mut m: u64) -> fpr {
     let mut x: fpr = 0;
     let mut t: u32 = 0;
     let mut f: libc::c_uint = 0;
@@ -34,13 +24,9 @@ unsafe extern "C" fn FPR(
     m &= (t as u64).wrapping_sub(1 as u64);
     t = (m >> 54) as u32;
     e &= -(t as libc::c_int);
-    x = ((s as u64) << 63 | m >> 2)
-        .wrapping_add((e as u32 as u64) << 52);
+    x = ((s as u64) << 63 | m >> 2).wrapping_add((e as u32 as u64) << 52);
     f = m as libc::c_uint & 7 as libc::c_uint;
-    x = x
-        .wrapping_add(
-            (0xc8 as libc::c_uint >> f & 1 as libc::c_uint) as fpr,
-        );
+    x = x.wrapping_add((0xc8 as libc::c_uint >> f & 1 as libc::c_uint) as fpr);
     return x;
 }
 static mut fpr_ptwo63: fpr = 4890909195324358656 as fpr;
@@ -51,14 +37,10 @@ unsafe extern "C" fn fpr_trunc(mut x: fpr) -> i64 {
     let mut e: libc::c_int = 0;
     let mut cc: libc::c_int = 0;
     e = (x >> 52) as libc::c_int & 0x7ff;
-    xu = (x << 10 | (1 as u64) << 62)
-        & ((1 as u64) << 63)
-            .wrapping_sub(1 as u64);
+    xu = (x << 10 | (1 as u64) << 62) & ((1 as u64) << 63).wrapping_sub(1 as u64);
     cc = 1085 - e;
     xu = fpr_ursh(xu, cc & 63);
-    xu
-        &= (((cc - 64) as u32 >> 31) as u64)
-            .wrapping_neg();
+    xu &= (((cc - 64) as u32 >> 31) as u64).wrapping_neg();
     t = x >> 63;
     xu = (xu ^ t.wrapping_neg()).wrapping_add(t);
     return *(&mut xu as *mut u64 as *mut i64);
@@ -81,42 +63,28 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_scaled(
     e -= 63;
     nt = (m >> 32) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    m
-        ^= (m ^ m << 32)
-            & (nt as u64).wrapping_sub(1 as u64);
+    m ^= (m ^ m << 32) & (nt as u64).wrapping_sub(1 as u64);
     e += (nt << 5) as libc::c_int;
     nt = (m >> 48) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    m
-        ^= (m ^ m << 16)
-            & (nt as u64).wrapping_sub(1 as u64);
+    m ^= (m ^ m << 16) & (nt as u64).wrapping_sub(1 as u64);
     e += (nt << 4) as libc::c_int;
     nt = (m >> 56) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    m
-        ^= (m ^ m << 8)
-            & (nt as u64).wrapping_sub(1 as u64);
+    m ^= (m ^ m << 8) & (nt as u64).wrapping_sub(1 as u64);
     e += (nt << 3) as libc::c_int;
     nt = (m >> 60) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    m
-        ^= (m ^ m << 4)
-            & (nt as u64).wrapping_sub(1 as u64);
+    m ^= (m ^ m << 4) & (nt as u64).wrapping_sub(1 as u64);
     e += (nt << 2) as libc::c_int;
     nt = (m >> 62) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    m
-        ^= (m ^ m << 2)
-            & (nt as u64).wrapping_sub(1 as u64);
+    m ^= (m ^ m << 2) & (nt as u64).wrapping_sub(1 as u64);
     e += (nt << 1) as libc::c_int;
     nt = (m >> 63) as u32;
-    m
-        ^= (m ^ m << 1)
-            & (nt as u64).wrapping_sub(1 as u64);
+    m ^= (m ^ m << 1) & (nt as u64).wrapping_sub(1 as u64);
     e += nt as libc::c_int;
-    m
-        |= (m as u32 & 0x1ff as u32)
-            .wrapping_add(0x1ff as u32) as u64;
+    m |= (m as u32 & 0x1ff as u32).wrapping_add(0x1ff as u32) as u64;
     m >>= 9;
     t = ((i | -i) as u64 >> 63) as u32;
     m &= (t as u64).wrapping_neg();
@@ -135,90 +103,58 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_add(mut x: fpr, mut y: fpr)
     let mut sx: libc::c_int = 0;
     let mut sy: libc::c_int = 0;
     let mut cc: libc::c_int = 0;
-    m = ((1 as u64) << 63)
-        .wrapping_sub(1 as u64);
+    m = ((1 as u64) << 63).wrapping_sub(1 as u64);
     za = (x & m).wrapping_sub(y & m);
     cs = (za >> 63) as u32
-        | (1 as libc::c_uint)
-            .wrapping_sub((za.wrapping_neg() >> 63) as u32)
-            & (x >> 63) as u32;
+        | (1 as libc::c_uint).wrapping_sub((za.wrapping_neg() >> 63) as u32) & (x >> 63) as u32;
     m = (x ^ y) & (cs as u64).wrapping_neg();
     x ^= m;
     y ^= m;
     ex = (x >> 52) as libc::c_int;
     sx = ex >> 11;
     ex &= 0x7ff;
-    m = ((ex + 0x7ff >> 11) as u32 as u64)
-        << 52;
-    xu = (x
-        & ((1 as u64) << 52)
-            .wrapping_sub(1 as u64) | m) << 3;
+    m = ((ex + 0x7ff >> 11) as u32 as u64) << 52;
+    xu = (x & ((1 as u64) << 52).wrapping_sub(1 as u64) | m) << 3;
     ex -= 1078;
     ey = (y >> 52) as libc::c_int;
     sy = ey >> 11;
     ey &= 0x7ff;
-    m = ((ey + 0x7ff >> 11) as u32 as u64)
-        << 52;
-    yu = (y
-        & ((1 as u64) << 52)
-            .wrapping_sub(1 as u64) | m) << 3;
+    m = ((ey + 0x7ff >> 11) as u32 as u64) << 52;
+    yu = (y & ((1 as u64) << 52).wrapping_sub(1 as u64) | m) << 3;
     ey -= 1078;
     cc = ex - ey;
-    yu
-        &= (((cc - 60) as u32 >> 31) as u64)
-            .wrapping_neg();
+    yu &= (((cc - 60) as u32 >> 31) as u64).wrapping_neg();
     cc &= 63;
-    m = (fpr_ulsh(1 as u64, cc))
-        .wrapping_sub(1 as u64);
+    m = (fpr_ulsh(1 as u64, cc)).wrapping_sub(1 as u64);
     yu |= (yu & m).wrapping_add(m);
     yu = fpr_ursh(yu, cc);
-    xu = xu
-        .wrapping_add(
-            yu
-                .wrapping_sub(
-                    yu << 1 & ((sx ^ sy) as u64).wrapping_neg(),
-                ),
-        );
+    xu = xu.wrapping_add(yu.wrapping_sub(yu << 1 & ((sx ^ sy) as u64).wrapping_neg()));
     let mut nt: u32 = 0;
     ex -= 63;
     nt = (xu >> 32) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    xu
-        ^= (xu ^ xu << 32)
-            & (nt as u64).wrapping_sub(1 as u64);
+    xu ^= (xu ^ xu << 32) & (nt as u64).wrapping_sub(1 as u64);
     ex += (nt << 5) as libc::c_int;
     nt = (xu >> 48) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    xu
-        ^= (xu ^ xu << 16)
-            & (nt as u64).wrapping_sub(1 as u64);
+    xu ^= (xu ^ xu << 16) & (nt as u64).wrapping_sub(1 as u64);
     ex += (nt << 4) as libc::c_int;
     nt = (xu >> 56) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    xu
-        ^= (xu ^ xu << 8)
-            & (nt as u64).wrapping_sub(1 as u64);
+    xu ^= (xu ^ xu << 8) & (nt as u64).wrapping_sub(1 as u64);
     ex += (nt << 3) as libc::c_int;
     nt = (xu >> 60) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    xu
-        ^= (xu ^ xu << 4)
-            & (nt as u64).wrapping_sub(1 as u64);
+    xu ^= (xu ^ xu << 4) & (nt as u64).wrapping_sub(1 as u64);
     ex += (nt << 2) as libc::c_int;
     nt = (xu >> 62) as u32;
     nt = (nt | nt.wrapping_neg()) >> 31;
-    xu
-        ^= (xu ^ xu << 2)
-            & (nt as u64).wrapping_sub(1 as u64);
+    xu ^= (xu ^ xu << 2) & (nt as u64).wrapping_sub(1 as u64);
     ex += (nt << 1) as libc::c_int;
     nt = (xu >> 63) as u32;
-    xu
-        ^= (xu ^ xu << 1)
-            & (nt as u64).wrapping_sub(1 as u64);
+    xu ^= (xu ^ xu << 1) & (nt as u64).wrapping_sub(1 as u64);
     ex += nt as libc::c_int;
-    xu
-        |= (xu as u32 & 0x1ff as u32)
-            .wrapping_add(0x1ff as u32) as u64;
+    xu |= (xu as u32 & 0x1ff as u32).wrapping_add(0x1ff as u32) as u64;
     xu >>= 9;
     ex += 9;
     return FPR(sx, ex, xu);
@@ -242,14 +178,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_mul(mut x: fpr, mut y: fpr)
     let mut d: libc::c_int = 0;
     let mut e: libc::c_int = 0;
     let mut s: libc::c_int = 0;
-    xu = x
-        & ((1 as u64) << 52)
-            .wrapping_sub(1 as u64)
-        | (1 as u64) << 52;
-    yu = y
-        & ((1 as u64) << 52)
-            .wrapping_sub(1 as u64)
-        | (1 as u64) << 52;
+    xu = x & ((1 as u64) << 52).wrapping_sub(1 as u64) | (1 as u64) << 52;
+    yu = y & ((1 as u64) << 52).wrapping_sub(1 as u64) | (1 as u64) << 52;
     x0 = xu as u32 & 0x1ffffff as u32;
     x1 = (xu >> 25) as u32;
     y0 = yu as u32 & 0x1ffffff as u32;
@@ -267,9 +197,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_mul(mut x: fpr, mut y: fpr)
     z2 = z2.wrapping_add(z1 >> 25);
     z1 &= 0x1ffffff as u32;
     zu = zu.wrapping_add(z2 as u64);
-    zu
-        |= ((z0 | z1).wrapping_add(0x1ffffff as u32)
-            >> 25) as u64;
+    zu |= ((z0 | z1).wrapping_add(0x1ffffff as u32) >> 25) as u64;
     zv = zu >> 1 | zu & 1 as u64;
     w = zu >> 55;
     zu ^= (zu ^ zv) & w.wrapping_neg();
@@ -294,20 +222,13 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_div(mut x: fpr, mut y: fpr)
     let mut e: libc::c_int = 0;
     let mut d: libc::c_int = 0;
     let mut s: libc::c_int = 0;
-    xu = x
-        & ((1 as u64) << 52)
-            .wrapping_sub(1 as u64)
-        | (1 as u64) << 52;
-    yu = y
-        & ((1 as u64) << 52)
-            .wrapping_sub(1 as u64)
-        | (1 as u64) << 52;
+    xu = x & ((1 as u64) << 52).wrapping_sub(1 as u64) | (1 as u64) << 52;
+    yu = y & ((1 as u64) << 52).wrapping_sub(1 as u64) | (1 as u64) << 52;
     q = 0 as u64;
     i = 0;
     while i < 55 {
         let mut b: u64 = 0;
-        b = (xu.wrapping_sub(yu) >> 63)
-            .wrapping_sub(1 as u64);
+        b = (xu.wrapping_sub(yu) >> 63).wrapping_sub(1 as u64);
         xu = xu.wrapping_sub(b & yu);
         q |= b & 1 as u64;
         xu <<= 1;
@@ -337,10 +258,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_sqrt(mut x: fpr) -> fpr {
     let mut r: u64 = 0;
     let mut ex: libc::c_int = 0;
     let mut e: libc::c_int = 0;
-    xu = x
-        & ((1 as u64) << 52)
-            .wrapping_sub(1 as u64)
-        | (1 as u64) << 52;
+    xu = x & ((1 as u64) << 52).wrapping_sub(1 as u64) | (1 as u64) << 52;
     ex = (x >> 52 & 0x7ff as fpr) as libc::c_int;
     e = ex - 1023;
     xu = xu.wrapping_add(xu & ((e & 1) as u64).wrapping_neg());
@@ -354,8 +272,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_sqrt(mut x: fpr) -> fpr {
         let mut t: u64 = 0;
         let mut b: u64 = 0;
         t = s.wrapping_add(r);
-        b = (xu.wrapping_sub(t) >> 63)
-            .wrapping_sub(1 as u64);
+        b = (xu.wrapping_sub(t) >> 63).wrapping_sub(1 as u64);
         s = s.wrapping_add(r << 1 & b);
         xu = xu.wrapping_sub(t & b);
         q = q.wrapping_add(r & b);
@@ -371,10 +288,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_sqrt(mut x: fpr) -> fpr {
     return FPR(0, e, q);
 }
 #[no_mangle]
-pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_expm_p63(
-    mut x: fpr,
-    mut ccs: fpr,
-) -> u64 {
+pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_expm_p63(mut x: fpr, mut ccs: fpr) -> u64 {
     static mut C: [u64; 13] = [
         0x4741183a3,
         0x36548cfc06,
@@ -400,8 +314,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_expm_p63(
     let mut a: u64 = 0;
     let mut b: u64 = 0;
     y = C[0 as usize];
-    z = (fpr_trunc(PQCLEAN_FALCON512_CLEAN_fpr_mul(x, fpr_ptwo63)) as u64)
-        << 1;
+    z = (fpr_trunc(PQCLEAN_FALCON512_CLEAN_fpr_mul(x, fpr_ptwo63)) as u64) << 1;
     u = 1 as libc::c_uint;
     while (u as libc::c_ulong)
         < (::core::mem::size_of::<[u64; 13]>() as libc::c_ulong)
@@ -412,35 +325,24 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_fpr_expm_p63(
         z1 = (z >> 32) as u32;
         y0 = y as u32;
         y1 = (y >> 32) as u32;
-        a = (z0 as u64 * y1 as u64)
-            .wrapping_add(z0 as u64 * y0 as u64 >> 32);
+        a = (z0 as u64 * y1 as u64).wrapping_add(z0 as u64 * y0 as u64 >> 32);
         b = z1 as u64 * y0 as u64;
         c = (a >> 32).wrapping_add(b >> 32);
-        c = c
-            .wrapping_add(
-                (a as u32 as u64).wrapping_add(b as u32 as u64)
-                    >> 32,
-            );
+        c = c.wrapping_add((a as u32 as u64).wrapping_add(b as u32 as u64) >> 32);
         c = c.wrapping_add(z1 as u64 * y1 as u64);
         y = (C[u as usize]).wrapping_sub(c);
         u = u.wrapping_add(1);
         u;
     }
-    z = (fpr_trunc(PQCLEAN_FALCON512_CLEAN_fpr_mul(ccs, fpr_ptwo63)) as u64)
-        << 1;
+    z = (fpr_trunc(PQCLEAN_FALCON512_CLEAN_fpr_mul(ccs, fpr_ptwo63)) as u64) << 1;
     z0 = z as u32;
     z1 = (z >> 32) as u32;
     y0 = y as u32;
     y1 = (y >> 32) as u32;
-    a = (z0 as u64 * y1 as u64)
-        .wrapping_add(z0 as u64 * y0 as u64 >> 32);
+    a = (z0 as u64 * y1 as u64).wrapping_add(z0 as u64 * y0 as u64 >> 32);
     b = z1 as u64 * y0 as u64;
     y = (a >> 32).wrapping_add(b >> 32);
-    y = y
-        .wrapping_add(
-            (a as u32 as u64).wrapping_add(b as u32 as u64)
-                >> 32,
-        );
+    y = y.wrapping_add((a as u32 as u64).wrapping_add(b as u32 as u64) >> 32);
     y = y.wrapping_add(z1 as u64 * y1 as u64);
     return y;
 }

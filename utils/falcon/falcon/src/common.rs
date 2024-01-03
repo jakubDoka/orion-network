@@ -1,10 +1,6 @@
 use crate::libc;
 extern "C" {
-    fn shake256_inc_squeeze(
-        output: *mut uint8_t,
-        outlen: size_t,
-        state: *mut shake256incctx,
-    );
+    fn shake256_inc_squeeze(output: *mut uint8_t, outlen: size_t, state: *mut shake256incctx);
 }
 pub type __uint8_t = libc::c_uchar;
 pub type __int16_t = libc::c_short;
@@ -16,7 +12,6 @@ pub type int16_t = __int16_t;
 pub type int32_t = __int32_t;
 pub type uint8_t = __uint8_t;
 pub type uint16_t = __uint16_t;
-
 
 pub type size_t = libc::c_ulong;
 #[derive()]
@@ -40,8 +35,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_vartime(
             ::core::mem::size_of::<[uint8_t; 2]>() as libc::c_ulong,
             sc,
         );
-        w = (buf[0 as usize] as libc::c_uint) << 8
-            | buf[1 as usize] as libc::c_uint;
+        w = (buf[0 as usize] as libc::c_uint) << 8 | buf[1 as usize] as libc::c_uint;
         if w < 61445 as u32 {
             while w >= 12289 as u32 {
                 w = w.wrapping_sub(12289 as u32);
@@ -97,32 +91,17 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
             ::core::mem::size_of::<[uint8_t; 2]>() as libc::c_ulong,
             sc,
         );
-        w = (buf[0 as usize] as u32) << 8
-            | buf[1 as usize] as u32;
-        wr = w
-            .wrapping_sub(
-                24578 as u32
-                    & (w.wrapping_sub(24578 as u32)
-                        >> 31)
-                        .wrapping_sub(1 as u32),
-            );
-        wr = wr
-            .wrapping_sub(
-                24578 as u32
-                    & (wr.wrapping_sub(24578 as u32)
-                        >> 31)
-                        .wrapping_sub(1 as u32),
-            );
-        wr = wr
-            .wrapping_sub(
-                12289 as u32
-                    & (wr.wrapping_sub(12289 as u32)
-                        >> 31)
-                        .wrapping_sub(1 as u32),
-            );
-        wr
-            |= (w.wrapping_sub(61445 as u32) >> 31)
-                .wrapping_sub(1 as u32);
+        w = (buf[0 as usize] as u32) << 8 | buf[1 as usize] as u32;
+        wr = w.wrapping_sub(
+            24578 as u32 & (w.wrapping_sub(24578 as u32) >> 31).wrapping_sub(1 as u32),
+        );
+        wr = wr.wrapping_sub(
+            24578 as u32 & (wr.wrapping_sub(24578 as u32) >> 31).wrapping_sub(1 as u32),
+        );
+        wr = wr.wrapping_sub(
+            12289 as u32 & (wr.wrapping_sub(12289 as u32) >> 31).wrapping_sub(1 as u32),
+        );
+        wr |= (w.wrapping_sub(61445 as u32) >> 31).wrapping_sub(1 as u32);
         if u < n {
             *x.offset(u as isize) = wr as uint16_t;
         } else if u < n2 {
@@ -150,8 +129,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
             } else if u < n2 {
                 s = &mut *tt1.offset(u.wrapping_sub(n) as isize) as *mut uint16_t;
             } else {
-                s = &mut *tt2.as_mut_ptr().offset(u.wrapping_sub(n2) as isize)
-                    as *mut uint16_t;
+                s = &mut *tt2.as_mut_ptr().offset(u.wrapping_sub(n2) as isize) as *mut uint16_t;
             }
             sv = *s as libc::c_uint;
             j = u.wrapping_sub(v);
@@ -170,10 +148,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
                         as *mut uint16_t;
                 }
                 dv = *d as libc::c_uint;
-                mk
-                    &= ((j & p).wrapping_add(0x1ff as libc::c_uint)
-                        >> 9)
-                        .wrapping_neg();
+                mk &= ((j & p).wrapping_add(0x1ff as libc::c_uint) >> 9).wrapping_neg();
                 *s = (sv ^ mk & (sv ^ dv)) as uint16_t;
                 *d = (dv ^ mk & (sv ^ dv)) as uint16_t;
             }

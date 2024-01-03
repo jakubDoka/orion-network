@@ -46,6 +46,7 @@ macro_rules! extract_ctx {
             swarm: &mut $self.swarm,
             clients: &mut $self.clients,
             storage: &mut $self.storage,
+            res: &mut $self.res,
         }
     };
 }
@@ -161,6 +162,7 @@ struct Server {
     internal: InternalServer,
     external: ExternalServer,
     stake_events: StakeEvents,
+    res: TempRes,
 }
 
 fn unpack_node_id(id: sign::Ed) -> anyhow::Result<ed25519::PublicKey> {
@@ -364,6 +366,7 @@ impl Server {
             storage: Default::default(),
             internal: Default::default(),
             external: Default::default(),
+            res: Default::default(),
         })
     }
 
@@ -587,10 +590,16 @@ impl Future for Server {
     }
 }
 
+#[derive(Default)]
+pub struct TempRes {
+    pub hashes: Vec<crypto::Hash>,
+}
+
 pub struct Context<'a> {
     swarm: &'a mut libp2p::swarm::Swarm<Behaviour>,
     clients: &'a mut SelectAll<Stream>,
     storage: &'a mut Storage,
+    res: &'a mut TempRes,
 }
 
 impl Context<'_> {

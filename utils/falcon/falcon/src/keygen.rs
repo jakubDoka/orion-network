@@ -1,20 +1,8 @@
 use crate::libc;
 extern "C" {
-    fn shake256_inc_squeeze(
-        output: *mut uint8_t,
-        outlen: size_t,
-        state: *mut shake256incctx,
-    );
-    fn PQCLEAN_FALCON512_CLEAN_poly_div_autoadj_fft(
-        a: *mut fpr,
-        b: *const fpr,
-        logn: libc::c_uint,
-    );
-    fn PQCLEAN_FALCON512_CLEAN_poly_mul_autoadj_fft(
-        a: *mut fpr,
-        b: *const fpr,
-        logn: libc::c_uint,
-    );
+    fn shake256_inc_squeeze(output: *mut uint8_t, outlen: size_t, state: *mut shake256incctx);
+    fn PQCLEAN_FALCON512_CLEAN_poly_div_autoadj_fft(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
+    fn PQCLEAN_FALCON512_CLEAN_poly_mul_autoadj_fft(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
     fn PQCLEAN_FALCON512_CLEAN_poly_add_muladj_fft(
         d: *mut fpr,
         F: *const fpr,
@@ -40,16 +28,8 @@ extern "C" {
         _: *const libc::c_void,
         _: libc::c_ulong,
     ) -> *mut libc::c_void;
-    fn rust_memset(
-        _: *mut libc::c_void,
-        _: libc::c_int,
-        _: libc::c_ulong,
-    ) -> *mut libc::c_void;
-    fn PQCLEAN_FALCON512_CLEAN_poly_mul_fft(
-        a: *mut fpr,
-        b: *const fpr,
-        logn: libc::c_uint,
-    );
+    fn rust_memset(_: *mut libc::c_void, _: libc::c_int, _: libc::c_ulong) -> *mut libc::c_void;
+    fn PQCLEAN_FALCON512_CLEAN_poly_mul_fft(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
     fn PQCLEAN_FALCON512_CLEAN_poly_adj_fft(a: *mut fpr, logn: libc::c_uint);
     fn PQCLEAN_FALCON512_CLEAN_poly_sub(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
     fn PQCLEAN_FALCON512_CLEAN_poly_add(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
@@ -80,7 +60,6 @@ pub type int32_t = __int32_t;
 
 pub type uint8_t = __uint8_t;
 pub type uint16_t = __uint16_t;
-
 
 pub type size_t = libc::c_ulong;
 #[derive()]
@@ -117,16 +96,12 @@ unsafe extern "C" fn fpr_lt(mut x: fpr, mut y: fpr) -> libc::c_int {
 }
 #[inline]
 unsafe extern "C" fn fpr_ursh(mut x: u64, mut n: libc::c_int) -> u64 {
-    x
-        ^= (x ^ x >> 32)
-            & ((n >> 5) as u64).wrapping_neg();
+    x ^= (x ^ x >> 32) & ((n >> 5) as u64).wrapping_neg();
     return x >> (n & 31);
 }
 #[inline]
 unsafe extern "C" fn fpr_ulsh(mut x: u64, mut n: libc::c_int) -> u64 {
-    x
-        ^= (x ^ x << 32)
-            & ((n >> 5) as u64).wrapping_neg();
+    x ^= (x ^ x << 32) & ((n >> 5) as u64).wrapping_neg();
     return x << (n & 31);
 }
 #[inline]
@@ -152,22 +127,14 @@ unsafe extern "C" fn fpr_rint(mut x: fpr) -> i64 {
     let mut s: u32 = 0;
     let mut dd: u32 = 0;
     let mut f: u32 = 0;
-    m = (x << 10 | (1 as u64) << 62)
-        & ((1 as u64) << 63)
-            .wrapping_sub(1 as u64);
-    e = 1085
-        - ((x >> 52) as libc::c_int & 0x7ff);
-    m
-        &= (((e - 64) as u32 >> 31) as u64)
-            .wrapping_neg();
+    m = (x << 10 | (1 as u64) << 62) & ((1 as u64) << 63).wrapping_sub(1 as u64);
+    e = 1085 - ((x >> 52) as libc::c_int & 0x7ff);
+    m &= (((e - 64) as u32 >> 31) as u64).wrapping_neg();
     e &= 63;
     d = fpr_ulsh(m, 63 - e);
-    dd = d as u32
-        | (d >> 32) as u32 & 0x1fffffff as u32;
-    f = (d >> 61) as u32
-        | (dd | dd.wrapping_neg()) >> 31;
-    m = (fpr_ursh(m, e))
-        .wrapping_add((0xc8 as libc::c_uint >> f & 1 as libc::c_uint) as u64);
+    dd = d as u32 | (d >> 32) as u32 & 0x1fffffff as u32;
+    f = (d >> 61) as u32 | (dd | dd.wrapping_neg()) >> 31;
+    m = (fpr_ursh(m, e)).wrapping_add((0xc8 as libc::c_uint >> f & 1 as libc::c_uint) as u64);
     s = (x >> 63) as u32;
     return (m as i64 ^ -(s as i64)) + s as i64;
 }
@@ -4362,15 +4329,9 @@ unsafe extern "C" fn modp_set(mut x: int32_t, mut p: u32) -> u32 {
 }
 #[inline]
 unsafe extern "C" fn modp_norm(mut x: u32, mut p: u32) -> int32_t {
-    return x
-        .wrapping_sub(
-            p
-                & (x
-                    .wrapping_sub(
-                        p.wrapping_add(1 as u32) >> 1,
-                    ) >> 31)
-                    .wrapping_sub(1 as u32),
-        ) as int32_t;
+    return x.wrapping_sub(
+        p & (x.wrapping_sub(p.wrapping_add(1 as u32) >> 1) >> 31).wrapping_sub(1 as u32),
+    ) as int32_t;
 }
 unsafe extern "C" fn modp_ninv31(mut p: u32) -> u32 {
     let mut y: u32 = 0;
@@ -4386,34 +4347,21 @@ unsafe extern "C" fn modp_R(mut p: u32) -> u32 {
     return ((1 as u32) << 31).wrapping_sub(p);
 }
 #[inline]
-unsafe extern "C" fn modp_add(
-    mut a: u32,
-    mut b: u32,
-    mut p: u32,
-) -> u32 {
+unsafe extern "C" fn modp_add(mut a: u32, mut b: u32, mut p: u32) -> u32 {
     let mut d: u32 = 0;
     d = a.wrapping_add(b).wrapping_sub(p);
     d = d.wrapping_add(p & (d >> 31).wrapping_neg());
     return d;
 }
 #[inline]
-unsafe extern "C" fn modp_sub(
-    mut a: u32,
-    mut b: u32,
-    mut p: u32,
-) -> u32 {
+unsafe extern "C" fn modp_sub(mut a: u32, mut b: u32, mut p: u32) -> u32 {
     let mut d: u32 = 0;
     d = a.wrapping_sub(b);
     d = d.wrapping_add(p & (d >> 31).wrapping_neg());
     return d;
 }
 #[inline]
-unsafe extern "C" fn modp_montymul(
-    mut a: u32,
-    mut b: u32,
-    mut p: u32,
-    mut p0i: u32,
-) -> u32 {
+unsafe extern "C" fn modp_montymul(mut a: u32, mut b: u32, mut p: u32, mut p0i: u32) -> u32 {
     let mut z: u64 = 0;
     let mut w: u64 = 0;
     let mut d: u32 = 0;
@@ -4432,17 +4380,11 @@ unsafe extern "C" fn modp_R2(mut p: u32, mut p0i: u32) -> u32 {
     z = modp_montymul(z, z, p, p0i);
     z = modp_montymul(z, z, p, p0i);
     z = modp_montymul(z, z, p, p0i);
-    z = z.wrapping_add(p & (z & 1 as u32).wrapping_neg())
-        >> 1;
+    z = z.wrapping_add(p & (z & 1 as u32).wrapping_neg()) >> 1;
     return z;
 }
 #[inline]
-unsafe extern "C" fn modp_Rx(
-    mut x: libc::c_uint,
-    mut p: u32,
-    mut p0i: u32,
-    mut R2: u32,
-) -> u32 {
+unsafe extern "C" fn modp_Rx(mut x: libc::c_uint, mut p: u32, mut p0i: u32, mut R2: u32) -> u32 {
     let mut i: libc::c_int = 0;
     let mut r: u32 = 0;
     let mut z: u32 = 0;
@@ -4461,13 +4403,7 @@ unsafe extern "C" fn modp_Rx(
     }
     return z;
 }
-unsafe extern "C" fn modp_div(
-    mut a: u32,
-    mut b: u32,
-    mut p: u32,
-    mut p0i: u32,
-    mut R: u32,
-) -> u32 {
+unsafe extern "C" fn modp_div(mut a: u32, mut b: u32, mut p: u32, mut p0i: u32, mut R: u32) -> u32 {
     let mut z: u32 = 0;
     let mut e: u32 = 0;
     let mut i: libc::c_int = 0;
@@ -5661,8 +5597,7 @@ unsafe extern "C" fn modp_iNTT2_ext(
         t = dt;
         m >>= 1;
     }
-    ni = (1 as u32)
-        << (31 as libc::c_uint).wrapping_sub(logn);
+    ni = (1 as u32) << (31 as libc::c_uint).wrapping_sub(logn);
     k = 0 as size_t;
     r = a;
     while k < n {
@@ -5681,20 +5616,13 @@ unsafe extern "C" fn modp_poly_rec_res(
 ) {
     let mut hn: size_t = 0;
     let mut u: size_t = 0;
-    hn = (1 as size_t)
-        << logn.wrapping_sub(1 as libc::c_uint);
+    hn = (1 as size_t) << logn.wrapping_sub(1 as libc::c_uint);
     u = 0 as size_t;
     while u < hn {
         let mut w0: u32 = 0;
         let mut w1: u32 = 0;
-        w0 = *f
-            .offset(
-                (u << 1).wrapping_add(0 as size_t) as isize,
-            );
-        w1 = *f
-            .offset(
-                (u << 1).wrapping_add(1 as size_t) as isize,
-            );
+        w0 = *f.offset((u << 1).wrapping_add(0 as size_t) as isize);
+        w1 = *f.offset((u << 1).wrapping_add(1 as size_t) as isize);
         *f.offset(u as isize) = modp_montymul(modp_montymul(w0, w1, p, p0i), R2, p, p0i);
         u = u.wrapping_add(1);
         u;
@@ -5725,19 +5653,14 @@ unsafe extern "C" fn zint_sub(
     }
     return cc;
 }
-unsafe extern "C" fn zint_mul_small(
-    mut m: *mut u32,
-    mut mlen: size_t,
-    mut x: u32,
-) -> u32 {
+unsafe extern "C" fn zint_mul_small(mut m: *mut u32, mut mlen: size_t, mut x: u32) -> u32 {
     let mut u: size_t = 0;
     let mut cc: u32 = 0;
     cc = 0 as u32;
     u = 0 as size_t;
     while u < mlen {
         let mut z: u64 = 0;
-        z = (*m.offset(u as isize) as u64 * x as u64)
-            .wrapping_add(cc as u64);
+        z = (*m.offset(u as isize) as u64 * x as u64).wrapping_add(cc as u64);
         *m.offset(u as isize) = z as u32 & 0x7fffffff as u32;
         cc = (z >> 31) as u32;
         u = u.wrapping_add(1);
@@ -5785,10 +5708,7 @@ unsafe extern "C" fn zint_mod_small_signed(
     z = zint_mod_small_unsigned(d, dlen, p, p0i, R2);
     z = modp_sub(
         z,
-        Rx
-            & (*d.offset(dlen.wrapping_sub(1 as size_t) as isize)
-                >> 30)
-                .wrapping_neg(),
+        Rx & (*d.offset(dlen.wrapping_sub(1 as size_t) as isize) >> 30).wrapping_neg(),
         p,
     );
     return z;
@@ -5819,11 +5739,7 @@ unsafe extern "C" fn zint_add_mul_small(
     }
     *x.offset(len as isize) = cc;
 }
-unsafe extern "C" fn zint_norm_zero(
-    mut x: *mut u32,
-    mut p: *const u32,
-    mut len: size_t,
-) {
+unsafe extern "C" fn zint_norm_zero(mut x: *mut u32, mut p: *const u32, mut len: size_t) {
     let mut u: size_t = 0;
     let mut r: u32 = 0;
     let mut bb: u32 = 0;
@@ -5843,12 +5759,8 @@ unsafe extern "C" fn zint_norm_zero(
         wp = *p.offset(u as isize) >> 1 | bb << 30;
         bb = *p.offset(u as isize) & 1 as u32;
         cc = wp.wrapping_sub(wx);
-        cc = cc.wrapping_neg() >> 31
-            | (cc >> 31).wrapping_neg();
-        r
-            |= cc
-                & (r & 1 as u32)
-                    .wrapping_sub(1 as u32);
+        cc = cc.wrapping_neg() >> 31 | (cc >> 31).wrapping_neg();
+        r |= cc & (r & 1 as u32).wrapping_sub(1 as u32);
     }
     zint_sub(x, p, len, r >> 31);
 }
@@ -5863,10 +5775,7 @@ unsafe extern "C" fn zint_rebuild_CRT(
 ) {
     let mut u: size_t = 0;
     let mut x: *mut u32 = 0 as *mut u32;
-    *tmp
-        .offset(
-            0 as isize,
-        ) = (*primes.offset(0 as isize)).p;
+    *tmp.offset(0 as isize) = (*primes.offset(0 as isize)).p;
     u = 1 as size_t;
     while u < xlen {
         let mut p: u32 = 0;
@@ -5907,11 +5816,7 @@ unsafe extern "C" fn zint_rebuild_CRT(
         }
     }
 }
-unsafe extern "C" fn zint_negate(
-    mut a: *mut u32,
-    mut len: size_t,
-    mut ctl: u32,
-) {
+unsafe extern "C" fn zint_negate(mut a: *mut u32, mut len: size_t, mut ctl: u32) {
     let mut u: size_t = 0;
     let mut cc: u32 = 0;
     let mut m: u32 = 0;
@@ -5959,14 +5864,8 @@ unsafe extern "C" fn zint_co_reduce(
             .wrapping_add(wb as u64 * yb as u64)
             .wrapping_add(ccb as u64);
         if u > 0 as size_t {
-            *a
-                .offset(
-                    u.wrapping_sub(1 as size_t) as isize,
-                ) = za as u32 & 0x7fffffff as u32;
-            *b
-                .offset(
-                    u.wrapping_sub(1 as size_t) as isize,
-                ) = zb as u32 & 0x7fffffff as u32;
+            *a.offset(u.wrapping_sub(1 as size_t) as isize) = za as u32 & 0x7fffffff as u32;
+            *b.offset(u.wrapping_sub(1 as size_t) as isize) = zb as u32 & 0x7fffffff as u32;
         }
         cca = *(&mut za as *mut u64 as *mut i64) >> 31;
         ccb = *(&mut zb as *mut u64 as *mut i64) >> 31;
@@ -5994,7 +5893,9 @@ unsafe extern "C" fn zint_finish_mod(
     cc = 0 as u32;
     u = 0 as size_t;
     while u < len {
-        cc = (*a.offset(u as isize)).wrapping_sub(*m.offset(u as isize)).wrapping_sub(cc)
+        cc = (*a.offset(u as isize))
+            .wrapping_sub(*m.offset(u as isize))
+            .wrapping_sub(cc)
             >> 31;
         u = u.wrapping_add(1);
         u;
@@ -6033,11 +5934,9 @@ unsafe extern "C" fn zint_co_reduce_mod(
     let mut fb: u32 = 0;
     cca = 0 as i64;
     ccb = 0 as i64;
-    fa = (*a.offset(0 as isize) * xa as u32)
-        .wrapping_add(*b.offset(0 as isize) * xb as u32) * m0i
+    fa = (*a.offset(0 as isize) * xa as u32).wrapping_add(*b.offset(0 as isize) * xb as u32) * m0i
         & 0x7fffffff as u32;
-    fb = (*a.offset(0 as isize) * ya as u32)
-        .wrapping_add(*b.offset(0 as isize) * yb as u32) * m0i
+    fb = (*a.offset(0 as isize) * ya as u32).wrapping_add(*b.offset(0 as isize) * yb as u32) * m0i
         & 0x7fffffff as u32;
     u = 0 as size_t;
     while u < len {
@@ -6056,14 +5955,8 @@ unsafe extern "C" fn zint_co_reduce_mod(
             .wrapping_add(*m.offset(u as isize) as u64 * fb as u64)
             .wrapping_add(ccb as u64);
         if u > 0 as size_t {
-            *a
-                .offset(
-                    u.wrapping_sub(1 as size_t) as isize,
-                ) = za as u32 & 0x7fffffff as u32;
-            *b
-                .offset(
-                    u.wrapping_sub(1 as size_t) as isize,
-                ) = zb as u32 & 0x7fffffff as u32;
+            *a.offset(u.wrapping_sub(1 as size_t) as isize) = za as u32 & 0x7fffffff as u32;
+            *b.offset(u.wrapping_sub(1 as size_t) as isize) = zb as u32 & 0x7fffffff as u32;
         }
         cca = *(&mut za as *mut u64 as *mut i64) >> 31;
         ccb = *(&mut zb as *mut u64 as *mut i64) >> 31;
@@ -6119,8 +6012,7 @@ unsafe extern "C" fn zint_bezout(
     rust_memset(
         u0.offset(1 as isize) as *mut libc::c_void,
         0,
-        len
-            .wrapping_sub(1 as size_t)
+        len.wrapping_sub(1 as size_t)
             .wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
     );
     rust_memset(
@@ -6141,8 +6033,7 @@ unsafe extern "C" fn zint_bezout(
     let ref mut fresh2 = *v1.offset(0 as isize);
     *fresh2 = (*fresh2).wrapping_sub(1);
     *fresh2;
-    num = (62 as u32 * len as u32)
-        .wrapping_add(30 as u32);
+    num = (62 as u32 * len as u32).wrapping_add(30 as u32);
     while num >= 30 as u32 {
         let mut c0: u32 = 0;
         let mut c1: u32 = 0;
@@ -6182,10 +6073,7 @@ unsafe extern "C" fn zint_bezout(
             b0 ^= (b0 ^ bw) & c0;
             b1 ^= (b1 ^ bw) & c1;
             c1 = c0;
-            c0
-                &= ((aw | bw).wrapping_add(0x7fffffff as u32)
-                    >> 31)
-                    .wrapping_sub(1 as u32);
+            c0 &= ((aw | bw).wrapping_add(0x7fffffff as u32) >> 31).wrapping_sub(1 as u32);
         }
         a1 |= a0 & c1;
         a0 &= !c1;
@@ -6223,17 +6111,14 @@ unsafe extern "C" fn zint_bezout(
             b_hi = b_hi.wrapping_sub(a_hi & (cBA as u64).wrapping_neg());
             qa -= pa & -(cBA as i64);
             qb -= pb & -(cBA as i64);
-            a_lo = a_lo
-                .wrapping_add(a_lo & cA.wrapping_sub(1 as u32));
+            a_lo = a_lo.wrapping_add(a_lo & cA.wrapping_sub(1 as u32));
             pa += pa & cA as i64 - 1 as i64;
             pb += pb & cA as i64 - 1 as i64;
             a_hi ^= (a_hi ^ a_hi >> 1) & (cA as u64).wrapping_neg();
             b_lo = b_lo.wrapping_add(b_lo & cA.wrapping_neg());
             qa += qa & -(cA as i64);
             qb += qb & -(cA as i64);
-            b_hi
-                ^= (b_hi ^ b_hi >> 1)
-                    & (cA as u64).wrapping_sub(1 as u64);
+            b_hi ^= (b_hi ^ b_hi >> 1) & (cA as u64).wrapping_sub(1 as u64);
             i += 1;
             i;
         }
@@ -6253,10 +6138,9 @@ unsafe extern "C" fn zint_bezout(
         j = j.wrapping_add(1);
         j;
     }
-    return ((1 as u32)
-        .wrapping_sub((rc | rc.wrapping_neg()) >> 31)
-        & *x.offset(0 as isize) & *y.offset(0 as isize))
-        as libc::c_int;
+    return ((1 as u32).wrapping_sub((rc | rc.wrapping_neg()) >> 31)
+        & *x.offset(0 as isize)
+        & *y.offset(0 as isize)) as libc::c_int;
 }
 unsafe extern "C" fn zint_add_scaled_mul_small(
     mut x: *mut u32,
@@ -6274,9 +6158,7 @@ unsafe extern "C" fn zint_add_scaled_mul_small(
     if ylen == 0 as size_t {
         return;
     }
-    ysign = (*y.offset(ylen.wrapping_sub(1 as size_t) as isize)
-        >> 30)
-        .wrapping_neg() >> 1;
+    ysign = (*y.offset(ylen.wrapping_sub(1 as size_t) as isize) >> 30).wrapping_neg() >> 1;
     tw = 0 as u32;
     cc = 0;
     u = sch as size_t;
@@ -6294,8 +6176,7 @@ unsafe extern "C" fn zint_add_scaled_mul_small(
         }
         wys = wy << scl & 0x7fffffff as u32 | tw;
         tw = wy >> (31 as u32).wrapping_sub(scl);
-        z = (wys as i64 * k as i64 + *x.offset(u as isize) as i64
-            + cc as i64) as u64;
+        z = (wys as i64 * k as i64 + *x.offset(u as isize) as i64 + cc as i64) as u64;
         *x.offset(u as isize) = z as u32 & 0x7fffffff as u32;
         ccu = (z >> 31) as u32;
         cc = *(&mut ccu as *mut u32 as *mut int32_t);
@@ -6318,9 +6199,7 @@ unsafe extern "C" fn zint_sub_scaled(
     if ylen == 0 as size_t {
         return;
     }
-    ysign = (*y.offset(ylen.wrapping_sub(1 as size_t) as isize)
-        >> 30)
-        .wrapping_neg() >> 1;
+    ysign = (*y.offset(ylen.wrapping_sub(1 as size_t) as isize) >> 30).wrapping_neg() >> 1;
     tw = 0 as u32;
     cc = 0 as u32;
     u = sch as size_t;
@@ -6378,9 +6257,7 @@ unsafe extern "C" fn poly_big_to_fp(
         let mut xm: u32 = 0;
         let mut x: fpr = 0;
         let mut fsc: fpr = 0;
-        neg = (*f.offset(flen.wrapping_sub(1 as size_t) as isize)
-            >> 30)
-            .wrapping_neg();
+        neg = (*f.offset(flen.wrapping_sub(1 as size_t) as isize) >> 30).wrapping_neg();
         xm = neg >> 1;
         cc = neg & 1 as u32;
         x = fpr_zero;
@@ -6607,10 +6484,7 @@ static mut gauss_1024_12289: [u64; 27] = [
     4 as libc::c_uint as u64,
     0 as libc::c_uint as u64,
 ];
-unsafe extern "C" fn mkgauss(
-    mut rng: *mut shake256incctx,
-    mut logn: libc::c_uint,
-) -> libc::c_int {
+unsafe extern "C" fn mkgauss(mut rng: *mut shake256incctx, mut logn: libc::c_uint) -> libc::c_int {
     let mut u: libc::c_uint = 0;
     let mut g: libc::c_uint = 0;
     let mut val: libc::c_int = 0;
@@ -6626,8 +6500,7 @@ unsafe extern "C" fn mkgauss(
         r = get_rng_u64(rng);
         neg = (r >> 63) as u32;
         r &= !((1 as u64) << 63);
-        f = (r.wrapping_sub(gauss_1024_12289[0 as usize])
-            >> 63) as u32;
+        f = (r.wrapping_sub(gauss_1024_12289[0 as usize]) >> 63) as u32;
         v = 0 as u32;
         r = get_rng_u64(rng);
         r &= !((1 as u64) << 63);
@@ -6637,8 +6510,7 @@ unsafe extern "C" fn mkgauss(
                 .wrapping_div(::core::mem::size_of::<u64>() as libc::c_ulong)
         {
             let mut t: u32 = 0;
-            t = (r.wrapping_sub(gauss_1024_12289[k as usize]) >> 63)
-                as u32 ^ 1 as u32;
+            t = (r.wrapping_sub(gauss_1024_12289[k as usize]) >> 63) as u32 ^ 1 as u32;
             v |= k & (t & (f ^ 1 as u32)).wrapping_neg();
             f |= t;
             k = k.wrapping_add(1);
@@ -6678,87 +6550,51 @@ static mut MAX_BL_LARGE: [size_t; 10] = [
 ];
 static mut BITLENGTH: [C2RustUnnamed; 11] = [
     {
-        let mut init = C2RustUnnamed {
-            avg: 4,
-            std: 0,
-        };
+        let mut init = C2RustUnnamed { avg: 4, std: 0 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 11,
-            std: 1,
-        };
+        let mut init = C2RustUnnamed { avg: 11, std: 1 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 24,
-            std: 1,
-        };
+        let mut init = C2RustUnnamed { avg: 24, std: 1 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 50,
-            std: 1,
-        };
+        let mut init = C2RustUnnamed { avg: 50, std: 1 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 102,
-            std: 1,
-        };
+        let mut init = C2RustUnnamed { avg: 102, std: 1 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 202,
-            std: 2,
-        };
+        let mut init = C2RustUnnamed { avg: 202, std: 2 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 401,
-            std: 4,
-        };
+        let mut init = C2RustUnnamed { avg: 401, std: 4 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 794,
-            std: 5,
-        };
+        let mut init = C2RustUnnamed { avg: 794, std: 5 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 1577,
-            std: 8,
-        };
+        let mut init = C2RustUnnamed { avg: 1577, std: 8 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 3138,
-            std: 13,
-        };
+        let mut init = C2RustUnnamed { avg: 3138, std: 13 };
         init
     },
     {
-        let mut init = C2RustUnnamed {
-            avg: 6308,
-            std: 25,
-        };
+        let mut init = C2RustUnnamed { avg: 6308, std: 25 };
         init
     },
 ];
-unsafe extern "C" fn poly_small_sqnorm(
-    mut f: *const int8_t,
-    mut logn: libc::c_uint,
-) -> u32 {
+unsafe extern "C" fn poly_small_sqnorm(mut f: *const int8_t, mut logn: libc::c_uint) -> u32 {
     let mut n: size_t = 0;
     let mut u: size_t = 0;
     let mut s: u32 = 0;
@@ -6791,9 +6627,8 @@ unsafe extern "C" fn align_fpr(
     km = k.wrapping_rem(::core::mem::size_of::<fpr>() as libc::c_ulong);
     if km != 0 {
         k = (k as libc::c_ulong)
-            .wrapping_add(
-                (::core::mem::size_of::<fpr>() as libc::c_ulong).wrapping_sub(km),
-            ) as size_t as size_t;
+            .wrapping_add((::core::mem::size_of::<fpr>() as libc::c_ulong).wrapping_sub(km))
+            as size_t as size_t;
     }
     return cb.offset(k as isize) as *mut fpr;
 }
@@ -6811,9 +6646,8 @@ unsafe extern "C" fn align_u32(
     km = k.wrapping_rem(::core::mem::size_of::<u32>() as libc::c_ulong);
     if km != 0 {
         k = (k as libc::c_ulong)
-            .wrapping_add(
-                (::core::mem::size_of::<u32>() as libc::c_ulong).wrapping_sub(km),
-            ) as size_t as size_t;
+            .wrapping_add((::core::mem::size_of::<u32>() as libc::c_ulong).wrapping_sub(km))
+            as size_t as size_t;
     }
     return cb.offset(k as isize) as *mut u32;
 }
@@ -6867,8 +6701,7 @@ unsafe extern "C" fn make_fg_step(
     rust_memmove(
         fs as *mut libc::c_void,
         data as *const libc::c_void,
-        (2 as size_t * n * slen)
-            .wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
+        (2 as size_t * n * slen).wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
     );
     u = 0 as size_t;
     while u < slen {
@@ -6897,16 +6730,8 @@ unsafe extern "C" fn make_fg_step(
         while v < hn {
             let mut w0: u32 = 0;
             let mut w1: u32 = 0;
-            w0 = *t1
-                .offset(
-                    (v << 1).wrapping_add(0 as size_t)
-                        as isize,
-                );
-            w1 = *t1
-                .offset(
-                    (v << 1).wrapping_add(1 as size_t)
-                        as isize,
-                );
+            w0 = *t1.offset((v << 1).wrapping_add(0 as size_t) as isize);
+            w1 = *t1.offset((v << 1).wrapping_add(1 as size_t) as isize);
             *x = modp_montymul(modp_montymul(w0, w1, p, p0i), R2, p, p0i);
             v = v.wrapping_add(1);
             v;
@@ -6931,16 +6756,8 @@ unsafe extern "C" fn make_fg_step(
         while v < hn {
             let mut w0_0: u32 = 0;
             let mut w1_0: u32 = 0;
-            w0_0 = *t1
-                .offset(
-                    (v << 1).wrapping_add(0 as size_t)
-                        as isize,
-                );
-            w1_0 = *t1
-                .offset(
-                    (v << 1).wrapping_add(1 as size_t)
-                        as isize,
-                );
+            w0_0 = *t1.offset((v << 1).wrapping_add(0 as size_t) as isize);
+            w1_0 = *t1.offset((v << 1).wrapping_add(1 as size_t) as isize);
             *x = modp_montymul(modp_montymul(w0_0, w1_0, p, p0i), R2, p, p0i);
             v = v.wrapping_add(1);
             v;
@@ -6988,10 +6805,7 @@ unsafe extern "C" fn make_fg_step(
         v_0 = 0 as size_t;
         x_0 = fs;
         while v_0 < n {
-            *t1
-                .offset(
-                    v_0 as isize,
-                ) = zint_mod_small_signed(x_0, slen, p_0, p0i_0, R2_0, Rx);
+            *t1.offset(v_0 as isize) = zint_mod_small_signed(x_0, slen, p_0, p0i_0, R2_0, Rx);
             v_0 = v_0.wrapping_add(1);
             v_0;
             x_0 = x_0.offset(slen as isize);
@@ -7002,22 +6816,9 @@ unsafe extern "C" fn make_fg_step(
         while v_0 < hn {
             let mut w0_1: u32 = 0;
             let mut w1_1: u32 = 0;
-            w0_1 = *t1
-                .offset(
-                    (v_0 << 1).wrapping_add(0 as size_t)
-                        as isize,
-                );
-            w1_1 = *t1
-                .offset(
-                    (v_0 << 1).wrapping_add(1 as size_t)
-                        as isize,
-                );
-            *x_0 = modp_montymul(
-                modp_montymul(w0_1, w1_1, p_0, p0i_0),
-                R2_0,
-                p_0,
-                p0i_0,
-            );
+            w0_1 = *t1.offset((v_0 << 1).wrapping_add(0 as size_t) as isize);
+            w1_1 = *t1.offset((v_0 << 1).wrapping_add(1 as size_t) as isize);
+            *x_0 = modp_montymul(modp_montymul(w0_1, w1_1, p_0, p0i_0), R2_0, p_0, p0i_0);
             v_0 = v_0.wrapping_add(1);
             v_0;
             x_0 = x_0.offset(tlen as isize);
@@ -7025,10 +6826,7 @@ unsafe extern "C" fn make_fg_step(
         v_0 = 0 as size_t;
         x_0 = gs;
         while v_0 < n {
-            *t1
-                .offset(
-                    v_0 as isize,
-                ) = zint_mod_small_signed(x_0, slen, p_0, p0i_0, R2_0, Rx);
+            *t1.offset(v_0 as isize) = zint_mod_small_signed(x_0, slen, p_0, p0i_0, R2_0, Rx);
             v_0 = v_0.wrapping_add(1);
             v_0;
             x_0 = x_0.offset(slen as isize);
@@ -7039,22 +6837,9 @@ unsafe extern "C" fn make_fg_step(
         while v_0 < hn {
             let mut w0_2: u32 = 0;
             let mut w1_2: u32 = 0;
-            w0_2 = *t1
-                .offset(
-                    (v_0 << 1).wrapping_add(0 as size_t)
-                        as isize,
-                );
-            w1_2 = *t1
-                .offset(
-                    (v_0 << 1).wrapping_add(1 as size_t)
-                        as isize,
-                );
-            *x_0 = modp_montymul(
-                modp_montymul(w0_2, w1_2, p_0, p0i_0),
-                R2_0,
-                p_0,
-                p0i_0,
-            );
+            w0_2 = *t1.offset((v_0 << 1).wrapping_add(0 as size_t) as isize);
+            w1_2 = *t1.offset((v_0 << 1).wrapping_add(1 as size_t) as isize);
+            *x_0 = modp_montymul(modp_montymul(w0_2, w1_2, p_0, p0i_0), R2_0, p_0, p0i_0);
             v_0 = v_0.wrapping_add(1);
             v_0;
             x_0 = x_0.offset(tlen as isize);
@@ -7126,22 +6911,10 @@ unsafe extern "C" fn make_fg(
         return;
     }
     if depth == 1 as libc::c_uint {
-        make_fg_step(
-            data,
-            logn,
-            0 as libc::c_uint,
-            0,
-            out_ntt,
-        );
+        make_fg_step(data, logn, 0 as libc::c_uint, 0, out_ntt);
         return;
     }
-    make_fg_step(
-        data,
-        logn,
-        0 as libc::c_uint,
-        0,
-        1,
-    );
+    make_fg_step(data, logn, 0 as libc::c_uint, 0, 1);
     d = 1 as libc::c_uint;
     while d.wrapping_add(1 as libc::c_uint) < depth {
         make_fg_step(data, logn.wrapping_sub(d), d, 1, 1);
@@ -7178,22 +6951,12 @@ unsafe extern "C" fn solve_NTRU_deepest(
     gp = fp.offset(len as isize);
     t1 = gp.offset(len as isize);
     make_fg(fp, f, g, logn_top, logn_top, 0);
-    zint_rebuild_CRT(
-        fp,
-        len,
-        len,
-        2 as size_t,
-        primes,
-        0,
-        t1,
-    );
+    zint_rebuild_CRT(fp, len, len, 2 as size_t, primes, 0, t1);
     if zint_bezout(Gp, Fp, fp, gp, len, t1) == 0 {
         return 0;
     }
     q = 12289 as u32;
-    if zint_mul_small(Fp, len, q) != 0 as u32
-        || zint_mul_small(Gp, len, q) != 0 as u32
-    {
+    if zint_mul_small(Fp, len, q) != 0 as u32 || zint_mul_small(Gp, len, q) != 0 as u32 {
         return 0;
     }
     return 1;
@@ -7252,8 +7015,7 @@ unsafe extern "C" fn solve_NTRU_intermediate(
     rust_memmove(
         t1 as *mut libc::c_void,
         ft as *const libc::c_void,
-        (2 as size_t * n * slen)
-            .wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
+        (2 as size_t * n * slen).wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
     );
     ft = t1;
     gt = ft.offset((slen * n) as isize);
@@ -7261,8 +7023,7 @@ unsafe extern "C" fn solve_NTRU_intermediate(
     rust_memmove(
         t1 as *mut libc::c_void,
         Fd as *const libc::c_void,
-        (2 as size_t * hn * dlen)
-            .wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
+        (2 as size_t * hn * dlen).wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
     );
     Fd = t1;
     Gd = Fd.offset((hn * dlen) as isize);
@@ -7344,14 +7105,8 @@ unsafe extern "C" fn solve_NTRU_intermediate(
             x = ft;
             y = gt;
             while v_0 < n {
-                *fx
-                    .offset(
-                        v_0 as isize,
-                    ) = zint_mod_small_signed(x, slen, p_0, p0i_0, R2_0, Rx_0);
-                *gx
-                    .offset(
-                        v_0 as isize,
-                    ) = zint_mod_small_signed(y, slen, p_0, p0i_0, R2_0, Rx_0);
+                *fx.offset(v_0 as isize) = zint_mod_small_signed(x, slen, p_0, p0i_0, R2_0, Rx_0);
+                *gx.offset(v_0 as isize) = zint_mod_small_signed(y, slen, p_0, p0i_0, R2_0, Rx_0);
                 v_0 = v_0.wrapping_add(1);
                 v_0;
                 x = x.offset(slen as isize);
@@ -7399,26 +7154,10 @@ unsafe extern "C" fn solve_NTRU_intermediate(
             let mut gtB: u32 = 0;
             let mut mFp: u32 = 0;
             let mut mGp: u32 = 0;
-            ftA = *fx
-                .offset(
-                    (v_0 << 1).wrapping_add(0 as size_t)
-                        as isize,
-                );
-            ftB = *fx
-                .offset(
-                    (v_0 << 1).wrapping_add(1 as size_t)
-                        as isize,
-                );
-            gtA = *gx
-                .offset(
-                    (v_0 << 1).wrapping_add(0 as size_t)
-                        as isize,
-                );
-            gtB = *gx
-                .offset(
-                    (v_0 << 1).wrapping_add(1 as size_t)
-                        as isize,
-                );
+            ftA = *fx.offset((v_0 << 1).wrapping_add(0 as size_t) as isize);
+            ftB = *fx.offset((v_0 << 1).wrapping_add(1 as size_t) as isize);
+            gtA = *gx.offset((v_0 << 1).wrapping_add(0 as size_t) as isize);
+            gtB = *gx.offset((v_0 << 1).wrapping_add(1 as size_t) as isize);
             mFp = modp_montymul(*Fp.offset(v_0 as isize), R2_0, p_0, p0i_0);
             mGp = modp_montymul(*Gp.offset(v_0 as isize), R2_0, p_0, p0i_0);
             *x.offset(0 as isize) = modp_montymul(gtB, mFp, p_0, p0i_0);
@@ -7442,7 +7181,10 @@ unsafe extern "C" fn solve_NTRU_intermediate(
     rt5 = rt4.offset(n as isize);
     rt1 = rt5.offset((n >> 1) as isize);
     k = align_u32(tmp as *mut libc::c_void, rt1 as *mut libc::c_void) as *mut int32_t;
-    rt2 = align_fpr(tmp as *mut libc::c_void, k.offset(n as isize) as *mut libc::c_void);
+    rt2 = align_fpr(
+        tmp as *mut libc::c_void,
+        k.offset(n as isize) as *mut libc::c_void,
+    );
     if rt2 < rt1.offset(n as isize) {
         rt2 = rt1.offset(n as isize);
     }
@@ -7467,10 +7209,8 @@ unsafe extern "C" fn solve_NTRU_intermediate(
         logn,
     );
     scale_fg = 31 * slen.wrapping_sub(rlen) as libc::c_int;
-    minbl_fg = BITLENGTH[depth as usize].avg
-        - 6 * BITLENGTH[depth as usize].std;
-    maxbl_fg = BITLENGTH[depth as usize].avg
-        + 6 * BITLENGTH[depth as usize].std;
+    minbl_fg = BITLENGTH[depth as usize].avg - 6 * BITLENGTH[depth as usize].std;
+    maxbl_fg = BITLENGTH[depth as usize].avg + 6 * BITLENGTH[depth as usize].std;
     PQCLEAN_FALCON512_CLEAN_FFT(rt3, logn);
     PQCLEAN_FALCON512_CLEAN_FFT(rt4, logn);
     PQCLEAN_FALCON512_CLEAN_poly_invnorm2_fft(rt5, rt3, rt4, logn);
@@ -7570,18 +7310,14 @@ unsafe extern "C" fn solve_NTRU_intermediate(
         while u < n {
             let mut v_1: size_t = 0;
             let mut sw: u32 = 0;
-            sw = (*Ft.offset(FGlen.wrapping_sub(1 as size_t) as isize)
-                >> 30)
-                .wrapping_neg() >> 1;
+            sw = (*Ft.offset(FGlen.wrapping_sub(1 as size_t) as isize) >> 30).wrapping_neg() >> 1;
             v_1 = FGlen;
             while v_1 < slen {
                 *Ft.offset(v_1 as isize) = sw;
                 v_1 = v_1.wrapping_add(1);
                 v_1;
             }
-            sw = (*Gt.offset(FGlen.wrapping_sub(1 as size_t) as isize)
-                >> 30)
-                .wrapping_neg() >> 1;
+            sw = (*Gt.offset(FGlen.wrapping_sub(1 as size_t) as isize) >> 30).wrapping_neg() >> 1;
             v_1 = FGlen;
             while v_1 < slen {
                 *Gt.offset(v_1 as isize) = sw;
@@ -7796,26 +7532,10 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
             let mut gtB: u32 = 0;
             let mut mFp: u32 = 0;
             let mut mGp: u32 = 0;
-            ftA = *fx
-                .offset(
-                    (v_0 << 1).wrapping_add(0 as size_t)
-                        as isize,
-                );
-            ftB = *fx
-                .offset(
-                    (v_0 << 1).wrapping_add(1 as size_t)
-                        as isize,
-                );
-            gtA = *gx
-                .offset(
-                    (v_0 << 1).wrapping_add(0 as size_t)
-                        as isize,
-                );
-            gtB = *gx
-                .offset(
-                    (v_0 << 1).wrapping_add(1 as size_t)
-                        as isize,
-                );
+            ftA = *fx.offset((v_0 << 1).wrapping_add(0 as size_t) as isize);
+            ftB = *fx.offset((v_0 << 1).wrapping_add(1 as size_t) as isize);
+            gtA = *gx.offset((v_0 << 1).wrapping_add(0 as size_t) as isize);
+            gtB = *gx.offset((v_0 << 1).wrapping_add(1 as size_t) as isize);
             mFp = modp_montymul(*Fp.offset(v_0 as isize), R2_0, p_0, p0i_0);
             mGp = modp_montymul(*Gp.offset(v_0 as isize), R2_0, p_0, p0i_0);
             *x.offset(0 as isize) = modp_montymul(gtB, mFp, p_0, p0i_0);
@@ -7847,24 +7567,8 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
         u = u.wrapping_add(1);
         u;
     }
-    zint_rebuild_CRT(
-        Ft,
-        llen,
-        llen,
-        n << 1,
-        PRIMES.as_ptr(),
-        1,
-        t1,
-    );
-    zint_rebuild_CRT(
-        ft,
-        slen,
-        slen,
-        n << 1,
-        PRIMES.as_ptr(),
-        1,
-        t1,
-    );
+    zint_rebuild_CRT(Ft, llen, llen, n << 1, PRIMES.as_ptr(), 1, t1);
+    zint_rebuild_CRT(ft, slen, slen, n << 1, PRIMES.as_ptr(), 1, t1);
     rt1 = align_fpr(
         tmp as *mut libc::c_void,
         gt.offset((slen * n) as isize) as *mut libc::c_void,
@@ -7875,8 +7579,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
     rust_memmove(
         tmp as *mut libc::c_void,
         ft as *const libc::c_void,
-        (2 as size_t * slen * n)
-            .wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
+        (2 as size_t * slen * n).wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
     );
     ft = tmp;
     gt = ft.offset((slen * n) as isize);
@@ -7887,8 +7590,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
     rust_memmove(
         rt3 as *mut libc::c_void,
         rt1 as *const libc::c_void,
-        (2 as size_t * n)
-            .wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
+        (2 as size_t * n).wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
     );
     rt1 = rt3;
     rt2 = rt1.offset(n as isize);
@@ -7899,8 +7601,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
     rust_memmove(
         tmp as *mut libc::c_void,
         rt1 as *const libc::c_void,
-        (4 as size_t * n)
-            .wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
+        (4 as size_t * n).wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
     );
     rt1 = tmp as *mut fpr;
     rt2 = rt1.offset(n as isize);
@@ -7943,8 +7644,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
     rust_memmove(
         rt3 as *mut libc::c_void,
         rt1 as *const libc::c_void,
-        (2 as size_t * n)
-            .wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
+        (2 as size_t * n).wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
     );
     rt1 = rt3;
     rt2 = rt1.offset(n as isize);
@@ -8040,22 +7740,10 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
         gtB = *gt.offset(u.wrapping_add(1 as size_t) as isize);
         mFp = modp_montymul(*Fp.offset((u >> 1) as isize), R2, p, p0i);
         mGp = modp_montymul(*Gp.offset((u >> 1) as isize), R2, p, p0i);
-        *ft
-            .offset(
-                u.wrapping_add(0 as size_t) as isize,
-            ) = modp_montymul(gtB, mFp, p, p0i);
-        *ft
-            .offset(
-                u.wrapping_add(1 as size_t) as isize,
-            ) = modp_montymul(gtA, mFp, p, p0i);
-        *gt
-            .offset(
-                u.wrapping_add(0 as size_t) as isize,
-            ) = modp_montymul(ftB, mGp, p, p0i);
-        *gt
-            .offset(
-                u.wrapping_add(1 as size_t) as isize,
-            ) = modp_montymul(ftA, mGp, p, p0i);
+        *ft.offset(u.wrapping_add(0 as size_t) as isize) = modp_montymul(gtB, mFp, p, p0i);
+        *ft.offset(u.wrapping_add(1 as size_t) as isize) = modp_montymul(gtA, mFp, p, p0i);
+        *gt.offset(u.wrapping_add(0 as size_t) as isize) = modp_montymul(ftB, mGp, p, p0i);
+        *gt.offset(u.wrapping_add(1 as size_t) as isize) = modp_montymul(ftA, mGp, p, p0i);
         u = u.wrapping_add(2 as size_t);
     }
     modp_iNTT2_ext(ft, 1 as size_t, igm, logn, p, p0i);
@@ -8065,8 +7753,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     rust_memmove(
         Fp as *mut libc::c_void,
         ft as *const libc::c_void,
-        (2 as size_t * n)
-            .wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
+        (2 as size_t * n).wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
     );
     t2 = t1.offset(n as isize);
     t3 = t2.offset(n as isize);
@@ -8081,10 +7768,8 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     u = 1 as size_t;
     while u < n {
         *t4.offset(u as isize) = modp_set(*f.offset(u as isize) as int32_t, p);
-        *t5
-            .offset(
-                n.wrapping_sub(u) as isize,
-            ) = modp_set(-(*f.offset(u as isize) as libc::c_int), p);
+        *t5.offset(n.wrapping_sub(u) as isize) =
+            modp_set(-(*f.offset(u as isize) as libc::c_int), p);
         u = u.wrapping_add(1);
         u;
     }
@@ -8105,10 +7790,8 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     u = 1 as size_t;
     while u < n {
         *t4.offset(u as isize) = modp_set(*g.offset(u as isize) as int32_t, p);
-        *t5
-            .offset(
-                n.wrapping_sub(u) as isize,
-            ) = modp_set(-(*g.offset(u as isize) as libc::c_int), p);
+        *t5.offset(n.wrapping_sub(u) as isize) =
+            modp_set(-(*g.offset(u as isize) as libc::c_int), p);
         u = u.wrapping_add(1);
         u;
     }
@@ -8118,18 +7801,12 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     while u < n {
         let mut w_0: u32 = 0;
         w_0 = modp_montymul(*t5.offset(u as isize), R2, p, p0i);
-        *t2
-            .offset(
-                u as isize,
-            ) = modp_add(
+        *t2.offset(u as isize) = modp_add(
             *t2.offset(u as isize),
             modp_montymul(w_0, *Gp.offset(u as isize), p, p0i),
             p,
         );
-        *t3
-            .offset(
-                u as isize,
-            ) = modp_add(
+        *t3.offset(u as isize) = modp_add(
             *t3.offset(u as isize),
             modp_montymul(w_0, *t4.offset(u as isize), p, p0i),
             p,
@@ -8150,10 +7827,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     rt3 = align_fpr(tmp as *mut libc::c_void, t3 as *mut libc::c_void);
     u = 0 as size_t;
     while u < n {
-        *rt3
-            .offset(
-                u as isize,
-            ) = fpr_of(*(t2 as *mut int32_t).offset(u as isize) as i64);
+        *rt3.offset(u as isize) = fpr_of(*(t2 as *mut int32_t).offset(u as isize) as i64);
         u = u.wrapping_add(1);
         u;
     }
@@ -8167,10 +7841,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     rt3 = rt2.offset(hn as isize);
     u = 0 as size_t;
     while u < n {
-        *rt3
-            .offset(
-                u as isize,
-            ) = fpr_of(*(t1 as *mut int32_t).offset(u as isize) as i64);
+        *rt3.offset(u as isize) = fpr_of(*(t1 as *mut int32_t).offset(u as isize) as i64);
         u = u.wrapping_add(1);
         u;
     }
@@ -8179,10 +7850,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     PQCLEAN_FALCON512_CLEAN_iFFT(rt3, logn);
     u = 0 as size_t;
     while u < n {
-        *t1
-            .offset(
-                u as isize,
-            ) = modp_set(fpr_rint(*rt3.offset(u as isize)) as int32_t, p);
+        *t1.offset(u as isize) = modp_set(fpr_rint(*rt3.offset(u as isize)) as int32_t, p);
         u = u.wrapping_add(1);
         u;
     }
@@ -8205,18 +7873,12 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     while u < n {
         let mut kw: u32 = 0;
         kw = modp_montymul(*t1.offset(u as isize), R2, p, p0i);
-        *Fp
-            .offset(
-                u as isize,
-            ) = modp_sub(
+        *Fp.offset(u as isize) = modp_sub(
             *Fp.offset(u as isize),
             modp_montymul(kw, *t4.offset(u as isize), p, p0i),
             p,
         );
-        *Gp
-            .offset(
-                u as isize,
-            ) = modp_sub(
+        *Gp.offset(u as isize) = modp_sub(
             *Gp.offset(u as isize),
             modp_montymul(kw, *t5.offset(u as isize), p, p0i),
             p,
@@ -8327,12 +7989,7 @@ unsafe extern "C" fn solve_NTRU(
     modp_NTT2_ext(gt, 1 as size_t, gm, logn, p, p0i);
     modp_NTT2_ext(Ft, 1 as size_t, gm, logn, p, p0i);
     modp_NTT2_ext(Gt, 1 as size_t, gm, logn, p, p0i);
-    r = modp_montymul(
-        12289 as u32,
-        1 as u32,
-        p,
-        p0i,
-    );
+    r = modp_montymul(12289 as u32, 1 as u32, p, p0i);
     u = 0 as size_t;
     while u < n {
         let mut z: u32 = 0;
@@ -8368,9 +8025,7 @@ unsafe extern "C" fn poly_small_mkgauss(
                 continue;
             }
             if u == n.wrapping_sub(1 as size_t) {
-                if !(mod2 ^ (s & 1) as libc::c_uint
-                    == 0 as libc::c_uint)
-                {
+                if !(mod2 ^ (s & 1) as libc::c_uint == 0 as libc::c_uint) {
                     break;
                 }
             } else {
@@ -8413,8 +8068,10 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_keygen(
         poly_small_mkgauss(rc, f, logn);
         poly_small_mkgauss(rc, g, logn);
         lim = (1)
-            << *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(logn as isize)
-                as libc::c_int - 1;
+            << *PQCLEAN_FALCON512_CLEAN_max_fg_bits
+                .as_ptr()
+                .offset(logn as isize) as libc::c_int
+                - 1;
         u = 0 as size_t;
         while u < n {
             if *f.offset(u as isize) as libc::c_int >= lim
@@ -8434,8 +8091,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_keygen(
         }
         normf = poly_small_sqnorm(f, logn);
         normg = poly_small_sqnorm(g, logn);
-        norm = normf.wrapping_add(normg)
-            | ((normf | normg) >> 31).wrapping_neg();
+        norm = normf.wrapping_add(normg) | ((normf | normg) >> 31).wrapping_neg();
         if norm >= 16823 as u32 {
             continue;
         }
@@ -8458,14 +8114,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_keygen(
         bnorm = fpr_zero;
         u = 0 as size_t;
         while u < n {
-            bnorm = PQCLEAN_FALCON512_CLEAN_fpr_add(
-                bnorm,
-                fpr_sqr(*rt1.offset(u as isize)),
-            );
-            bnorm = PQCLEAN_FALCON512_CLEAN_fpr_add(
-                bnorm,
-                fpr_sqr(*rt2.offset(u as isize)),
-            );
+            bnorm = PQCLEAN_FALCON512_CLEAN_fpr_add(bnorm, fpr_sqr(*rt1.offset(u as isize)));
+            bnorm = PQCLEAN_FALCON512_CLEAN_fpr_add(bnorm, fpr_sqr(*rt2.offset(u as isize)));
             u = u.wrapping_add(1);
             u;
         }
@@ -8479,16 +8129,17 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_keygen(
             h2 = h;
             tmp2 = tmp as *mut uint16_t;
         }
-        if PQCLEAN_FALCON512_CLEAN_compute_public(h2, f, g, logn, tmp2 as *mut uint8_t)
-            == 0
-        {
+        if PQCLEAN_FALCON512_CLEAN_compute_public(h2, f, g, logn, tmp2 as *mut uint8_t) == 0 {
             continue;
         }
         lim = ((1)
-            << *PQCLEAN_FALCON512_CLEAN_max_FG_bits.as_ptr().offset(logn as isize)
-                as libc::c_int - 1) - 1;
+            << *PQCLEAN_FALCON512_CLEAN_max_FG_bits
+                .as_ptr()
+                .offset(logn as isize) as libc::c_int
+                - 1)
+            - 1;
         if !(solve_NTRU(logn, F, G, f, g, lim, tmp as *mut u32) == 0) {
             break;
         }
-    };
+    }
 }

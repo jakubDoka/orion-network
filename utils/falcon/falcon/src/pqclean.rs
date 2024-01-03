@@ -17,11 +17,7 @@ extern "C" {
         tmp: *mut uint8_t,
     );
     fn shake256_inc_finalize(state: *mut shake256incctx);
-    fn shake256_inc_absorb(
-        state: *mut shake256incctx,
-        input: *const uint8_t,
-        inlen: size_t,
-    );
+    fn shake256_inc_absorb(state: *mut shake256incctx, input: *const uint8_t, inlen: size_t);
     fn shake256_inc_init(state: *mut shake256incctx);
     fn PQCLEAN_FALCON512_CLEAN_modq_encode(
         out: *mut libc::c_void,
@@ -143,7 +139,8 @@ pub union C2RustUnnamed_2 {
     pub dummy_fpr: fpr,
 }
 
-pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
+pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(
+    mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
     mut pk: *mut uint8_t,
     mut sk: *mut uint8_t,
 ) -> libc::c_int {
@@ -154,7 +151,7 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(mut randombytes: impl 
     let mut h: [uint16_t; 512] = [0; 512];
     let mut seed: [libc::c_uchar; 48] = [0; 48];
     let mut rng: shake256incctx = shake256incctx {
-        ctx: crate::shake::Ctx { uninit: (), },
+        ctx: crate::shake::Ctx { uninit: () },
     };
     let mut u: size_t = 0;
     let mut v: size_t = 0;
@@ -180,18 +177,16 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(mut randombytes: impl 
         (tmp.b).as_mut_ptr(),
     );
     shake256_inc_ctx_release(&mut rng);
-    *sk
-        .offset(
-            0 as isize,
-        ) = (0x50 + 9) as uint8_t;
+    *sk.offset(0 as isize) = (0x50 + 9) as uint8_t;
     u = 1 as size_t;
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_encode(
         sk.offset(u as isize) as *mut libc::c_void,
         (1281 as size_t).wrapping_sub(u),
         f.as_mut_ptr(),
         9 as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as isize)
-            as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_fg_bits
+            .as_ptr()
+            .offset(9 as isize) as libc::c_uint,
     );
     if v == 0 as size_t {
         return -(1);
@@ -202,8 +197,9 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(mut randombytes: impl 
         (1281 as size_t).wrapping_sub(u),
         g.as_mut_ptr(),
         9 as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as isize)
-            as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_fg_bits
+            .as_ptr()
+            .offset(9 as isize) as libc::c_uint,
     );
     if v == 0 as size_t {
         return -(1);
@@ -214,8 +210,9 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(mut randombytes: impl 
         (1281 as size_t).wrapping_sub(u),
         F.as_mut_ptr(),
         9 as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_FG_bits.as_ptr().offset(9 as isize)
-            as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_FG_bits
+            .as_ptr()
+            .offset(9 as isize) as libc::c_uint,
     );
     if v == 0 as size_t {
         return -(1);
@@ -224,10 +221,7 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(mut randombytes: impl 
     if u != 1281 as size_t {
         return -(1);
     }
-    *pk
-        .offset(
-            0 as isize,
-        ) = (0 + 9) as uint8_t;
+    *pk.offset(0 as isize) = (0 + 9) as uint8_t;
     v = PQCLEAN_FALCON512_CLEAN_modq_encode(
         pk.offset(1 as isize) as *mut libc::c_void,
         (897 - 1) as size_t,
@@ -239,7 +233,8 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_keypair(mut randombytes: impl 
     }
     return 0;
 }
-unsafe extern "C" fn do_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
+unsafe extern "C" fn do_sign(
+    mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
     mut nonce: *mut uint8_t,
     mut sigbuf: *mut uint8_t,
     mut sigbuflen: *mut size_t,
@@ -258,21 +253,20 @@ unsafe extern "C" fn do_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -
     };
     let mut seed: [libc::c_uchar; 48] = [0; 48];
     let mut sc: shake256incctx = shake256incctx {
-        ctx: crate::shake::Ctx { uninit: (), },
+        ctx: crate::shake::Ctx { uninit: () },
     };
     let mut u: size_t = 0;
     let mut v: size_t = 0;
-    if *sk.offset(0 as isize) as libc::c_int
-        != 0x50 + 9
-    {
+    if *sk.offset(0 as isize) as libc::c_int != 0x50 + 9 {
         return -(1);
     }
     u = 1 as size_t;
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
         f.as_mut_ptr(),
         9 as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as isize)
-            as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_fg_bits
+            .as_ptr()
+            .offset(9 as isize) as libc::c_uint,
         sk.offset(u as isize) as *const libc::c_void,
         (1281 as size_t).wrapping_sub(u),
     );
@@ -283,8 +277,9 @@ unsafe extern "C" fn do_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
         g.as_mut_ptr(),
         9 as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(9 as isize)
-            as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_fg_bits
+            .as_ptr()
+            .offset(9 as isize) as libc::c_uint,
         sk.offset(u as isize) as *const libc::c_void,
         (1281 as size_t).wrapping_sub(u),
     );
@@ -295,8 +290,9 @@ unsafe extern "C" fn do_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -
     v = PQCLEAN_FALCON512_CLEAN_trim_i8_decode(
         F.as_mut_ptr(),
         9 as libc::c_uint,
-        *PQCLEAN_FALCON512_CLEAN_max_FG_bits.as_ptr().offset(9 as isize)
-            as libc::c_uint,
+        *PQCLEAN_FALCON512_CLEAN_max_FG_bits
+            .as_ptr()
+            .offset(9 as isize) as libc::c_uint,
         sk.offset(u as isize) as *const libc::c_void,
         (1281 as size_t).wrapping_sub(u),
     );
@@ -364,7 +360,7 @@ unsafe extern "C" fn do_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -
             *sigbuflen = v;
             return 0;
         }
-    };
+    }
 }
 unsafe extern "C" fn do_verify(
     mut nonce: *const uint8_t,
@@ -379,11 +375,9 @@ unsafe extern "C" fn do_verify(
     let mut hm: [uint16_t; 512] = [0; 512];
     let mut sig: [int16_t; 512] = [0; 512];
     let mut sc: shake256incctx = shake256incctx {
-        ctx: crate::shake::Ctx { uninit: (), },
+        ctx: crate::shake::Ctx { uninit: () },
     };
-    if *pk.offset(0 as isize) as libc::c_int
-        != 0 + 9
-    {
+    if *pk.offset(0 as isize) as libc::c_int != 0 + 9 {
         return -(1);
     }
     if PQCLEAN_FALCON512_CLEAN_modq_decode(
@@ -395,10 +389,7 @@ unsafe extern "C" fn do_verify(
     {
         return -(1);
     }
-    PQCLEAN_FALCON512_CLEAN_to_ntt_monty(
-        h.as_mut_ptr(),
-        9 as libc::c_uint,
-    );
+    PQCLEAN_FALCON512_CLEAN_to_ntt_monty(h.as_mut_ptr(), 9 as libc::c_uint);
     if sigbuflen == 0 as size_t {
         return -(1);
     }
@@ -435,7 +426,8 @@ unsafe extern "C" fn do_verify(
     return 0;
 }
 
-pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_signature(mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
+pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_signature(
+    mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
     mut sig: *mut uint8_t,
     mut siglen: *mut size_t,
     mut m: *const uint8_t,
@@ -444,7 +436,8 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_signature(mut randombytes: imp
 ) -> libc::c_int {
     let mut vlen: size_t = 0;
     vlen = (666 - 40 - 3) as size_t;
-    if do_sign(randombytes,
+    if do_sign(
+        randombytes,
         sig.offset(1 as isize),
         sig.offset(1 as isize).offset(40 as isize),
         &mut vlen,
@@ -455,10 +448,7 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_signature(mut randombytes: imp
     {
         return -(1);
     }
-    *sig
-        .offset(
-            0 as isize,
-        ) = (0x30 + 9) as uint8_t;
+    *sig.offset(0 as isize) = (0x30 + 9) as uint8_t;
     *siglen = ((1 + 40) as size_t).wrapping_add(vlen);
     return 0;
 }
@@ -473,24 +463,21 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_verify(
     if siglen < (1 + 40) as size_t {
         return -(1);
     }
-    if *sig.offset(0 as isize) as libc::c_int
-        != 0x30 + 9
-    {
+    if *sig.offset(0 as isize) as libc::c_int != 0x30 + 9 {
         return -(1);
     }
     return do_verify(
         sig.offset(1 as isize),
         sig.offset(1 as isize).offset(40 as isize),
-        siglen
-            .wrapping_sub(1 as size_t)
-            .wrapping_sub(40 as size_t),
+        siglen.wrapping_sub(1 as size_t).wrapping_sub(40 as size_t),
         m,
         mlen,
         pk,
     );
 }
 
-pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign(mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
+pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign(
+    mut randombytes: impl FnMut(*mut uint8_t, size_t) -> libc::c_int,
     mut sm: *mut uint8_t,
     mut smlen: *mut size_t,
     mut m: *const uint8_t,
@@ -501,15 +488,15 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign(mut randombytes: impl FnMut(*m
     let mut sigbuf: *mut uint8_t = 0 as *mut uint8_t;
     let mut sigbuflen: size_t = 0;
     rust_memmove(
-        sm.offset(2 as isize).offset(40 as isize)
-            as *mut libc::c_void,
+        sm.offset(2 as isize).offset(40 as isize) as *mut libc::c_void,
         m as *const libc::c_void,
         mlen,
     );
     pm = sm.offset(2 as isize).offset(40 as isize);
     sigbuf = pm.offset(1 as isize).offset(mlen as isize);
     sigbuflen = (666 - 40 - 3) as size_t;
-    if do_sign(randombytes,
+    if do_sign(
+        randombytes,
         sm.offset(2 as isize),
         sigbuf,
         &mut sigbuflen,
@@ -545,13 +532,9 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_open(
     if smlen < (3 + 40) as size_t {
         return -(1);
     }
-    sigbuflen = (*sm.offset(0 as isize) as size_t) << 8
-        | *sm.offset(1 as isize) as size_t;
+    sigbuflen = (*sm.offset(0 as isize) as size_t) << 8 | *sm.offset(1 as isize) as size_t;
     if sigbuflen < 2 as size_t
-        || sigbuflen
-            > smlen
-                .wrapping_sub(40 as size_t)
-                .wrapping_sub(2 as size_t)
+        || sigbuflen > smlen.wrapping_sub(40 as size_t).wrapping_sub(2 as size_t)
     {
         return -(1);
     }
@@ -561,12 +544,7 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_open(
         .wrapping_sub(40 as size_t)
         .wrapping_sub(3 as size_t)
         .wrapping_sub(sigbuflen);
-    if *sm
-        .offset(
-            ((2 + 40) as size_t).wrapping_add(pmlen)
-                as isize,
-        ) as libc::c_int != 0x20 + 9
-    {
+    if *sm.offset(((2 + 40) as size_t).wrapping_add(pmlen) as isize) as libc::c_int != 0x20 + 9 {
         return -(1);
     }
     sigbuf = sm
@@ -587,8 +565,7 @@ pub unsafe fn PQCLEAN_FALCON512_CLEAN_crypto_sign_open(
     }
     rust_memmove(
         m as *mut libc::c_void,
-        sm.offset(2 as isize).offset(40 as isize)
-            as *const libc::c_void,
+        sm.offset(2 as isize).offset(40 as isize) as *const libc::c_void,
         pmlen,
     );
     *mlen = pmlen;

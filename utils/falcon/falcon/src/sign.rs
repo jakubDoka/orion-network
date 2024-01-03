@@ -38,11 +38,7 @@ extern "C" {
     );
     fn PQCLEAN_FALCON512_CLEAN_poly_mulconst(a: *mut fpr, x: fpr, logn: libc::c_uint);
     fn PQCLEAN_FALCON512_CLEAN_poly_mulselfadj_fft(a: *mut fpr, logn: libc::c_uint);
-    fn PQCLEAN_FALCON512_CLEAN_poly_muladj_fft(
-        a: *mut fpr,
-        b: *const fpr,
-        logn: libc::c_uint,
-    );
+    fn PQCLEAN_FALCON512_CLEAN_poly_muladj_fft(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
     fn PQCLEAN_FALCON512_CLEAN_is_short_half(
         sqn: u32,
         s2: *const int16_t,
@@ -60,11 +56,7 @@ extern "C" {
     fn PQCLEAN_FALCON512_CLEAN_poly_add(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
     fn PQCLEAN_FALCON512_CLEAN_poly_sub(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
     fn PQCLEAN_FALCON512_CLEAN_poly_neg(a: *mut fpr, logn: libc::c_uint);
-    fn PQCLEAN_FALCON512_CLEAN_poly_mul_fft(
-        a: *mut fpr,
-        b: *const fpr,
-        logn: libc::c_uint,
-    );
+    fn PQCLEAN_FALCON512_CLEAN_poly_mul_fft(a: *mut fpr, b: *const fpr, logn: libc::c_uint);
 }
 pub type __int8_t = libc::c_schar;
 pub type __uint8_t = libc::c_uchar;
@@ -80,7 +72,6 @@ pub type int32_t = __int32_t;
 
 pub type uint8_t = __uint8_t;
 pub type uint16_t = __uint16_t;
-
 
 pub type size_t = libc::c_ulong;
 #[derive()]
@@ -109,9 +100,7 @@ pub union C2RustUnnamed_0 {
     pub d: [uint8_t; 512],
     pub dummy_u64: u64,
 }
-pub type samplerZ = Option::<
-    unsafe extern "C" fn(*mut libc::c_void, fpr, fpr) -> libc::c_int,
->;
+pub type samplerZ = Option<unsafe extern "C" fn(*mut libc::c_void, fpr, fpr) -> libc::c_int>;
 #[derive()]
 #[repr(C)]
 pub struct sampler_context {
@@ -120,9 +109,7 @@ pub struct sampler_context {
 }
 #[inline]
 unsafe extern "C" fn fpr_ursh(mut x: u64, mut n: libc::c_int) -> u64 {
-    x
-        ^= (x ^ x >> 32)
-            & ((n >> 5) as u64).wrapping_neg();
+    x ^= (x ^ x >> 32) & ((n >> 5) as u64).wrapping_neg();
     return x >> (n & 31);
 }
 #[inline]
@@ -132,9 +119,7 @@ unsafe extern "C" fn fpr_irsh(mut x: i64, mut n: libc::c_int) -> i64 {
 }
 #[inline]
 unsafe extern "C" fn fpr_ulsh(mut x: u64, mut n: libc::c_int) -> u64 {
-    x
-        ^= (x ^ x << 32)
-            & ((n >> 5) as u64).wrapping_neg();
+    x ^= (x ^ x << 32) & ((n >> 5) as u64).wrapping_neg();
     return x << (n & 31);
 }
 #[inline]
@@ -181,22 +166,14 @@ unsafe extern "C" fn fpr_rint(mut x: fpr) -> i64 {
     let mut s: u32 = 0;
     let mut dd: u32 = 0;
     let mut f: u32 = 0;
-    m = (x << 10 | (1 as u64) << 62)
-        & ((1 as u64) << 63)
-            .wrapping_sub(1 as u64);
-    e = 1085
-        - ((x >> 52) as libc::c_int & 0x7ff);
-    m
-        &= (((e - 64) as u32 >> 31) as u64)
-            .wrapping_neg();
+    m = (x << 10 | (1 as u64) << 62) & ((1 as u64) << 63).wrapping_sub(1 as u64);
+    e = 1085 - ((x >> 52) as libc::c_int & 0x7ff);
+    m &= (((e - 64) as u32 >> 31) as u64).wrapping_neg();
     e &= 63;
     d = fpr_ulsh(m, 63 - e);
-    dd = d as u32
-        | (d >> 32) as u32 & 0x1fffffff as u32;
-    f = (d >> 61) as u32
-        | (dd | dd.wrapping_neg()) >> 31;
-    m = (fpr_ursh(m, e))
-        .wrapping_add((0xc8 as libc::c_uint >> f & 1 as libc::c_uint) as u64);
+    dd = d as u32 | (d >> 32) as u32 & 0x1fffffff as u32;
+    f = (d >> 61) as u32 | (dd | dd.wrapping_neg()) >> 31;
+    m = (fpr_ursh(m, e)).wrapping_add((0xc8 as libc::c_uint >> f & 1 as libc::c_uint) as u64);
     s = (x >> 63) as u32;
     return (m as i64 ^ -(s as i64)) + s as i64;
 }
@@ -208,15 +185,11 @@ unsafe extern "C" fn fpr_floor(mut x: fpr) -> i64 {
     let mut cc: libc::c_int = 0;
     e = (x >> 52) as libc::c_int & 0x7ff;
     t = x >> 63;
-    xi = ((x << 10 | (1 as u64) << 62)
-        & ((1 as u64) << 63)
-            .wrapping_sub(1 as u64)) as i64;
+    xi = ((x << 10 | (1 as u64) << 62) & ((1 as u64) << 63).wrapping_sub(1 as u64)) as i64;
     xi = (xi ^ -(t as i64)) + t as i64;
     cc = 1085 - e;
     xi = fpr_irsh(xi, cc & 63);
-    xi
-        ^= (xi ^ -(t as i64))
-            & -(((63 - cc) as u32 >> 31) as i64);
+    xi ^= (xi ^ -(t as i64)) & -(((63 - cc) as u32 >> 31) as i64);
     return xi;
 }
 #[inline]
@@ -226,14 +199,10 @@ unsafe extern "C" fn fpr_trunc(mut x: fpr) -> i64 {
     let mut e: libc::c_int = 0;
     let mut cc: libc::c_int = 0;
     e = (x >> 52) as libc::c_int & 0x7ff;
-    xu = (x << 10 | (1 as u64) << 62)
-        & ((1 as u64) << 63)
-            .wrapping_sub(1 as u64);
+    xu = (x << 10 | (1 as u64) << 62) & ((1 as u64) << 63).wrapping_sub(1 as u64);
     cc = 1085 - e;
     xu = fpr_ursh(xu, cc & 63);
-    xu
-        &= (((cc - 64) as u32 >> 31) as u64)
-            .wrapping_neg();
+    xu &= (((cc - 64) as u32 >> 31) as u64).wrapping_neg();
     t = x >> 63;
     xu = (xu ^ t.wrapping_neg()).wrapping_add(t);
     return *(&mut xu as *mut u64 as *mut i64);
@@ -251,10 +220,8 @@ unsafe extern "C" fn fpr_neg(mut x: fpr) -> fpr {
 #[inline]
 unsafe extern "C" fn fpr_half(mut x: fpr) -> fpr {
     let mut t: u32 = 0;
-    x = (x as u64).wrapping_sub((1 as u64) << 52)
-        as fpr as fpr;
-    t = ((x >> 52) as u32 & 0x7ff as u32)
-        .wrapping_add(1 as u32) >> 11;
+    x = (x as u64).wrapping_sub((1 as u64) << 52) as fpr as fpr;
+    t = ((x >> 52) as u32 & 0x7ff as u32).wrapping_add(1 as u32) >> 11;
     x &= (t as u64).wrapping_sub(1 as u64);
     return x;
 }
@@ -266,29 +233,21 @@ unsafe extern "C" fn fpr_sqr(mut x: fpr) -> fpr {
 unsafe extern "C" fn prng_get_u64(mut p: *mut prng) -> u64 {
     let mut u: size_t = 0;
     u = (*p).ptr;
-    if u
-        >= (::core::mem::size_of::<[uint8_t; 512]>() as libc::c_ulong)
-            .wrapping_sub(9 as libc::c_ulong)
+    if u >= (::core::mem::size_of::<[uint8_t; 512]>() as libc::c_ulong)
+        .wrapping_sub(9 as libc::c_ulong)
     {
         PQCLEAN_FALCON512_CLEAN_prng_refill(p);
         u = 0 as size_t;
     }
     (*p).ptr = u.wrapping_add(8 as size_t);
     return (*p).buf.d[u.wrapping_add(0 as size_t) as usize] as u64
-        | ((*p).buf.d[u.wrapping_add(1 as size_t) as usize] as u64)
-            << 8
-        | ((*p).buf.d[u.wrapping_add(2 as size_t) as usize] as u64)
-            << 16
-        | ((*p).buf.d[u.wrapping_add(3 as size_t) as usize] as u64)
-            << 24
-        | ((*p).buf.d[u.wrapping_add(4 as size_t) as usize] as u64)
-            << 32
-        | ((*p).buf.d[u.wrapping_add(5 as size_t) as usize] as u64)
-            << 40
-        | ((*p).buf.d[u.wrapping_add(6 as size_t) as usize] as u64)
-            << 48
-        | ((*p).buf.d[u.wrapping_add(7 as size_t) as usize] as u64)
-            << 56;
+        | ((*p).buf.d[u.wrapping_add(1 as size_t) as usize] as u64) << 8
+        | ((*p).buf.d[u.wrapping_add(2 as size_t) as usize] as u64) << 16
+        | ((*p).buf.d[u.wrapping_add(3 as size_t) as usize] as u64) << 24
+        | ((*p).buf.d[u.wrapping_add(4 as size_t) as usize] as u64) << 32
+        | ((*p).buf.d[u.wrapping_add(5 as size_t) as usize] as u64) << 40
+        | ((*p).buf.d[u.wrapping_add(6 as size_t) as usize] as u64) << 48
+        | ((*p).buf.d[u.wrapping_add(7 as size_t) as usize] as u64) << 56;
 }
 #[inline]
 unsafe extern "C" fn prng_get_u8(mut p: *mut prng) -> libc::c_uint {
@@ -331,12 +290,8 @@ unsafe extern "C" fn ffLDL_fft_inner(
         tmp,
     );
     ffLDL_fft_inner(
-        tree
-            .offset(n as isize)
-            .offset(
-                ffLDL_treesize(logn.wrapping_sub(1 as libc::c_uint))
-                    as isize,
-            ),
+        tree.offset(n as isize)
+            .offset(ffLDL_treesize(logn.wrapping_sub(1 as libc::c_uint)) as isize),
         g0,
         g0.offset(hn as isize),
         logn.wrapping_sub(1 as libc::c_uint),
@@ -385,12 +340,8 @@ unsafe extern "C" fn ffLDL_fft(
         tmp,
     );
     ffLDL_fft_inner(
-        tree
-            .offset(n as isize)
-            .offset(
-                ffLDL_treesize(logn.wrapping_sub(1 as libc::c_uint))
-                    as isize,
-            ),
+        tree.offset(n as isize)
+            .offset(ffLDL_treesize(logn.wrapping_sub(1 as libc::c_uint)) as isize),
         d00,
         d00.offset(hn as isize),
         logn.wrapping_sub(1 as libc::c_uint),
@@ -405,10 +356,7 @@ unsafe extern "C" fn ffLDL_binary_normalize(
     let mut n: size_t = 0;
     n = (1 as size_t) << logn;
     if n == 1 as size_t {
-        *tree
-            .offset(
-                0 as isize,
-            ) = PQCLEAN_FALCON512_CLEAN_fpr_mul(
+        *tree.offset(0 as isize) = PQCLEAN_FALCON512_CLEAN_fpr_mul(
             PQCLEAN_FALCON512_CLEAN_fpr_sqrt(*tree.offset(0 as isize)),
             fpr_inv_sigma[orig_logn as usize],
         );
@@ -419,12 +367,8 @@ unsafe extern "C" fn ffLDL_binary_normalize(
             logn.wrapping_sub(1 as libc::c_uint),
         );
         ffLDL_binary_normalize(
-            tree
-                .offset(n as isize)
-                .offset(
-                    ffLDL_treesize(logn.wrapping_sub(1 as libc::c_uint))
-                        as isize,
-                ),
+            tree.offset(n as isize)
+                .offset(ffLDL_treesize(logn.wrapping_sub(1 as libc::c_uint)) as isize),
             orig_logn,
             logn.wrapping_sub(1 as libc::c_uint),
         );
@@ -578,24 +522,16 @@ unsafe extern "C" fn ffSampling_fft_dyntree(
             PQCLEAN_FALCON512_CLEAN_fpr_sqrt(leaf),
             fpr_inv_sigma[orig_logn as usize],
         );
-        *t0
-            .offset(
-                0 as isize,
-            ) = fpr_of(
-            samp
-                .expect(
-                    "non-null function pointer",
-                )(samp_ctx, *t0.offset(0 as isize), leaf) as i64,
-        );
-        *t1
-            .offset(
-                0 as isize,
-            ) = fpr_of(
-            samp
-                .expect(
-                    "non-null function pointer",
-                )(samp_ctx, *t1.offset(0 as isize), leaf) as i64,
-        );
+        *t0.offset(0 as isize) = fpr_of(samp.expect("non-null function pointer")(
+            samp_ctx,
+            *t0.offset(0 as isize),
+            leaf,
+        ) as i64);
+        *t1.offset(0 as isize) = fpr_of(samp.expect("non-null function pointer")(
+            samp_ctx,
+            *t1.offset(0 as isize),
+            leaf,
+        ) as i64);
         return;
     }
     n = (1 as size_t) << logn;
@@ -653,11 +589,7 @@ unsafe extern "C" fn ffSampling_fft_dyntree(
         t1 as *const libc::c_void,
         n.wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
     );
-    PQCLEAN_FALCON512_CLEAN_poly_sub(
-        z1,
-        tmp.offset((n << 1) as isize),
-        logn,
-    );
+    PQCLEAN_FALCON512_CLEAN_poly_sub(z1, tmp.offset((n << 1) as isize), logn);
     rust_memcpy(
         t1 as *mut libc::c_void,
         tmp.offset((n << 1) as isize) as *const libc::c_void,
@@ -732,12 +664,8 @@ unsafe extern "C" fn ffSampling_fft(
         x0 = w2;
         x1 = w3;
         sigma = *tree1.offset(3 as isize);
-        w2 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x0, sigma) as i64,
-        );
-        w3 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x1, sigma) as i64,
-        );
+        w2 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x0, sigma) as i64);
+        w3 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x1, sigma) as i64);
         a_re = fpr_sub(x0, w2);
         a_im = fpr_sub(x1, w3);
         b_re = *tree1.offset(0 as isize);
@@ -753,12 +681,8 @@ unsafe extern "C" fn ffSampling_fft(
         x0 = PQCLEAN_FALCON512_CLEAN_fpr_add(c_re, w0);
         x1 = PQCLEAN_FALCON512_CLEAN_fpr_add(c_im, w1);
         sigma = *tree1.offset(2 as isize);
-        w0 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x0, sigma) as i64,
-        );
-        w1 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x1, sigma) as i64,
-        );
+        w0 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x0, sigma) as i64);
+        w1 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x1, sigma) as i64);
         a_re = w0;
         a_im = w1;
         b_re = w2;
@@ -826,13 +750,9 @@ unsafe extern "C" fn ffSampling_fft(
         x0 = w2;
         x1 = w3;
         sigma = *tree0.offset(3 as isize);
-        y0 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x0, sigma) as i64,
-        );
+        y0 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x0, sigma) as i64);
         w2 = y0;
-        y1 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x1, sigma) as i64,
-        );
+        y1 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x1, sigma) as i64);
         w3 = y1;
         a_re = fpr_sub(x0, y0);
         a_im = fpr_sub(x1, y1);
@@ -849,12 +769,8 @@ unsafe extern "C" fn ffSampling_fft(
         x0 = PQCLEAN_FALCON512_CLEAN_fpr_add(c_re, w0);
         x1 = PQCLEAN_FALCON512_CLEAN_fpr_add(c_im, w1);
         sigma = *tree0.offset(2 as isize);
-        w0 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x0, sigma) as i64,
-        );
-        w1 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x1, sigma) as i64,
-        );
+        w0 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x0, sigma) as i64);
+        w1 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x1, sigma) as i64);
         a_re = w0;
         a_im = w1;
         b_re = w2;
@@ -864,14 +780,8 @@ unsafe extern "C" fn ffSampling_fft(
             PQCLEAN_FALCON512_CLEAN_fpr_add(b_re, b_im),
             fpr_invsqrt2,
         );
-        *z0
-            .offset(
-                0 as isize,
-            ) = PQCLEAN_FALCON512_CLEAN_fpr_add(a_re, c_re);
-        *z0
-            .offset(
-                2 as isize,
-            ) = PQCLEAN_FALCON512_CLEAN_fpr_add(a_im, c_im);
+        *z0.offset(0 as isize) = PQCLEAN_FALCON512_CLEAN_fpr_add(a_re, c_re);
+        *z0.offset(2 as isize) = PQCLEAN_FALCON512_CLEAN_fpr_add(a_im, c_im);
         *z0.offset(1 as isize) = fpr_sub(a_re, c_re);
         *z0.offset(3 as isize) = fpr_sub(a_im, c_im);
         return;
@@ -891,13 +801,9 @@ unsafe extern "C" fn ffSampling_fft(
         x0_0 = *t1.offset(0 as isize);
         x1_0 = *t1.offset(1 as isize);
         sigma_0 = *tree.offset(3 as isize);
-        y0_0 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x0_0, sigma_0) as i64,
-        );
+        y0_0 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x0_0, sigma_0) as i64);
         *z1.offset(0 as isize) = y0_0;
-        y1_0 = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x1_0, sigma_0) as i64,
-        );
+        y1_0 = fpr_of(samp.expect("non-null function pointer")(samp_ctx, x1_0, sigma_0) as i64);
         *z1.offset(1 as isize) = y1_0;
         a_re_0 = fpr_sub(x0_0, y0_0);
         a_im_0 = fpr_sub(x1_0, y1_0);
@@ -911,27 +817,13 @@ unsafe extern "C" fn ffSampling_fft(
             PQCLEAN_FALCON512_CLEAN_fpr_mul(a_re_0, b_im_0),
             PQCLEAN_FALCON512_CLEAN_fpr_mul(a_im_0, b_re_0),
         );
-        x0_0 = PQCLEAN_FALCON512_CLEAN_fpr_add(
-            c_re_0,
-            *t0.offset(0 as isize),
-        );
-        x1_0 = PQCLEAN_FALCON512_CLEAN_fpr_add(
-            c_im_0,
-            *t0.offset(1 as isize),
-        );
+        x0_0 = PQCLEAN_FALCON512_CLEAN_fpr_add(c_re_0, *t0.offset(0 as isize));
+        x1_0 = PQCLEAN_FALCON512_CLEAN_fpr_add(c_im_0, *t0.offset(1 as isize));
         sigma_0 = *tree.offset(2 as isize);
-        *z0
-            .offset(
-                0 as isize,
-            ) = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x0_0, sigma_0) as i64,
-        );
-        *z0
-            .offset(
-                1 as isize,
-            ) = fpr_of(
-            samp.expect("non-null function pointer")(samp_ctx, x1_0, sigma_0) as i64,
-        );
+        *z0.offset(0 as isize) =
+            fpr_of(samp.expect("non-null function pointer")(samp_ctx, x0_0, sigma_0) as i64);
+        *z0.offset(1 as isize) =
+            fpr_of(samp.expect("non-null function pointer")(samp_ctx, x1_0, sigma_0) as i64);
         return;
     }
     n = (1 as size_t) << logn;
@@ -939,9 +831,7 @@ unsafe extern "C" fn ffSampling_fft(
     tree0 = tree.offset(n as isize);
     tree1 = tree
         .offset(n as isize)
-        .offset(
-            ffLDL_treesize(logn.wrapping_sub(1 as libc::c_uint)) as isize,
-        );
+        .offset(ffLDL_treesize(logn.wrapping_sub(1 as libc::c_uint)) as isize);
     PQCLEAN_FALCON512_CLEAN_poly_split_fft(z1, z1.offset(hn as isize), t1, logn);
     ffSampling_fft(
         samp,
@@ -1029,7 +919,17 @@ unsafe extern "C" fn do_sign_tree(
     PQCLEAN_FALCON512_CLEAN_poly_mulconst(t0, ni, logn);
     tx = t1.offset(n as isize);
     ty = tx.offset(n as isize);
-    ffSampling_fft(samp, samp_ctx, tx, ty, tree, t0, t1, logn, ty.offset(n as isize));
+    ffSampling_fft(
+        samp,
+        samp_ctx,
+        tx,
+        ty,
+        tree,
+        t0,
+        t1,
+        logn,
+        ty.offset(n as isize),
+    );
     rust_memcpy(
         t0 as *mut libc::c_void,
         tx as *const libc::c_void,
@@ -1064,8 +964,7 @@ unsafe extern "C" fn do_sign_tree(
     u = 0 as size_t;
     while u < n {
         let mut z: int32_t = 0;
-        z = *hm.offset(u as isize) as int32_t
-            - fpr_rint(*t0.offset(u as isize)) as int32_t;
+        z = *hm.offset(u as isize) as int32_t - fpr_rint(*t0.offset(u as isize)) as int32_t;
         sqn = sqn.wrapping_add((z * z) as u32);
         ng |= sqn;
         *s1tmp.offset(u as isize) = z as int16_t;
@@ -1197,8 +1096,7 @@ unsafe extern "C" fn do_sign_dyn(
     rust_memcpy(
         b11 as *mut libc::c_void,
         t0 as *const libc::c_void,
-        (n * 2 as size_t)
-            .wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
+        (n * 2 as size_t).wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
     );
     t0 = g11.offset(n as isize);
     t1 = t0.offset(n as isize);
@@ -1221,8 +1119,7 @@ unsafe extern "C" fn do_sign_dyn(
     rust_memmove(
         b11.offset(n as isize) as *mut libc::c_void,
         t0 as *const libc::c_void,
-        (n * 2 as size_t)
-            .wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
+        (n * 2 as size_t).wrapping_mul(::core::mem::size_of::<fpr>() as libc::c_ulong),
     );
     t0 = b11.offset(n as isize);
     t1 = t0.offset(n as isize);
@@ -1272,8 +1169,7 @@ unsafe extern "C" fn do_sign_dyn(
     u = 0 as size_t;
     while u < n {
         let mut z: int32_t = 0;
-        z = *hm.offset(u as isize) as int32_t
-            - fpr_rint(*t0.offset(u as isize)) as int32_t;
+        z = *hm.offset(u as isize) as int32_t - fpr_rint(*t0.offset(u as isize)) as int32_t;
         sqn = sqn.wrapping_add((z * z) as u32);
         ng |= sqn;
         *s1tmp.offset(u as isize) = z as int16_t;
@@ -1404,20 +1300,18 @@ unsafe extern "C" fn BerExp(mut p: *mut prng, mut x: fpr, mut ccs: fpr) -> libc:
     let mut w: u32 = 0;
     let mut z: u64 = 0;
     s = fpr_trunc(PQCLEAN_FALCON512_CLEAN_fpr_mul(x, fpr_inv_log2)) as libc::c_int;
-    r = fpr_sub(x, PQCLEAN_FALCON512_CLEAN_fpr_mul(fpr_of(s as i64), fpr_log2));
+    r = fpr_sub(
+        x,
+        PQCLEAN_FALCON512_CLEAN_fpr_mul(fpr_of(s as i64), fpr_log2),
+    );
     sw = s as u32;
-    sw
-        ^= (sw ^ 63 as u32)
-            & ((63 as u32).wrapping_sub(sw) >> 31)
-                .wrapping_neg();
+    sw ^= (sw ^ 63 as u32) & ((63 as u32).wrapping_sub(sw) >> 31).wrapping_neg();
     s = sw as libc::c_int;
-    z = (PQCLEAN_FALCON512_CLEAN_fpr_expm_p63(r, ccs) << 1)
-        .wrapping_sub(1 as u64) >> s;
+    z = (PQCLEAN_FALCON512_CLEAN_fpr_expm_p63(r, ccs) << 1).wrapping_sub(1 as u64) >> s;
     i = 64;
     loop {
         i -= 8;
-        w = (prng_get_u8(p))
-            .wrapping_sub((z >> i) as u32 & 0xff as u32);
+        w = (prng_get_u8(p)).wrapping_sub((z >> i) as u32 & 0xff as u32);
         if !(w == 0 && i > 0) {
             break;
         }
@@ -1448,21 +1342,15 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_sampler(
         z0 = PQCLEAN_FALCON512_CLEAN_gaussian0_sampler(&mut (*spc).p);
         b = prng_get_u8(&mut (*spc).p) as libc::c_int & 1;
         z = b + ((b << 1) - 1) * z0;
-        x = PQCLEAN_FALCON512_CLEAN_fpr_mul(
-            fpr_sqr(fpr_sub(fpr_of(z as i64), r)),
-            dss,
-        );
+        x = PQCLEAN_FALCON512_CLEAN_fpr_mul(fpr_sqr(fpr_sub(fpr_of(z as i64), r)), dss);
         x = fpr_sub(
             x,
-            PQCLEAN_FALCON512_CLEAN_fpr_mul(
-                fpr_of((z0 * z0) as i64),
-                fpr_inv_2sqrsigma0,
-            ),
+            PQCLEAN_FALCON512_CLEAN_fpr_mul(fpr_of((z0 * z0) as i64), fpr_inv_2sqrsigma0),
         );
         if BerExp(&mut (*spc).p, x, ccs) != 0 {
             return s + z;
         }
-    };
+    }
 }
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_sign_tree(
@@ -1497,7 +1385,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_sign_tree(
         if do_sign_tree(samp, samp_ctx, sig, expanded_key, hm, logn, ftmp) != 0 {
             break;
         }
-    };
+    }
 }
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_sign_dyn(
@@ -1535,5 +1423,5 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_sign_dyn(
         if do_sign_dyn(samp, samp_ctx, sig, f, g, F, G, hm, logn, ftmp) != 0 {
             break;
         }
-    };
+    }
 }
