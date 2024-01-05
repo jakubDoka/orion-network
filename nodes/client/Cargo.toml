@@ -18,7 +18,7 @@ leptos = { version = "0.5.1", default-features = false, features = ["nightly", "
 leptos_router = { version = "0.5.2", features = ["nightly", "csr"] }
 libp2p = { version = "0.53.0", features = ["noise", "macros", "yamux", "wasm-bindgen"] }
 log = "0.4.20"
-mini-dht = { version = "0.1.0", path = "../../core/mini-dht" }
+dht = { version = "0.1.0", path = "../../core/dht" }
 onion = { version = "0.1.0", path = "../../core/onion", features = ["wasm"] }
 rand = "0.8.5"
 serde = { version = "1.0.193", features = ["derive"] }

@@ -466,14 +466,14 @@ mod test {
             multiaddr::Protocol,
             Multiaddr, Transport,
         },
-        mini_dht::Route,
+        dht::Route,
         std::net::Ipv4Addr,
     };
 
     #[derive(NetworkBehaviour, Default)]
     struct TestBehatiour {
         rpc: Behaviour,
-        dht: mini_dht::Behaviour,
+        dht: dht::Behaviour,
     }
 
     #[tokio::test(flavor = "current_thread")]

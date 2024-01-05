@@ -25,7 +25,7 @@ use {
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Transport,
     },
-    mini_dht::Route,
+    dht::Route,
     onion::{EncryptedStream, PathId},
     rand_core::OsRng,
     std::{
@@ -239,7 +239,7 @@ async fn deal_with_chain(
 }
 
 fn filter_incoming(
-    table: &mut mini_dht::RoutingTable,
+    table: &mut dht::RoutingTable,
     peer: PeerId,
     local_addr: &Multiaddr,
     _: &Multiaddr,
@@ -290,7 +290,7 @@ impl Server {
                 ),
                 sender.clone(),
             ),
-            dht: mini_dht::Behaviour::new(filter_incoming),
+            dht: dht::Behaviour::new(filter_incoming),
             rpc: topology_wrapper::new(rpc::Behaviour::default(), sender.clone()),
             report: topology_wrapper::report::new(receiver),
         };
@@ -640,7 +640,7 @@ impl Context<'_> {
 }
 
 fn replicators_for(
-    table: &mini_dht::RoutingTable,
+    table: &dht::RoutingTable,
     topic: impl Into<PossibleTopic>,
 ) -> impl Iterator<Item = PeerId> + '_ {
     table
@@ -650,7 +650,7 @@ fn replicators_for(
 }
 
 fn other_replicators_for(
-    table: &mini_dht::RoutingTable,
+    table: &dht::RoutingTable,
     topic: impl Into<PossibleTopic>,
     us: PeerId,
 ) -> impl Iterator<Item = PeerId> + '_ {
@@ -697,7 +697,7 @@ type SE = libp2p::swarm::SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>;
 #[derive(NetworkBehaviour)]
 struct Behaviour {
     onion: topology_wrapper::Behaviour<onion::Behaviour>,
-    dht: mini_dht::Behaviour,
+    dht: dht::Behaviour,
     rpc: topology_wrapper::Behaviour<rpc::Behaviour>,
     report: topology_wrapper::report::Behaviour,
 }

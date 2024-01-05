@@ -20,7 +20,7 @@ use {
         swarm::{NetworkBehaviour, SwarmEvent},
         PeerId, Swarm, *,
     },
-    mini_dht::Route,
+    dht::Route,
     onion::{EncryptedStream, PathId, SharedSecret},
     rand::{rngs::OsRng, seq::IteratorRandom},
     std::{
@@ -221,7 +221,7 @@ impl Node {
                 onion::Config::new(None, peer_id).keep_alive_interval(Duration::from_secs(100)),
             ),
             key_share: onion::key_share::Behaviour::default(),
-            dht: mini_dht::Behaviour::default(),
+            dht: dht::Behaviour::default(),
         };
         let transport = websocket_websys::Transport::new(100)
             .upgrade(Version::V1)
@@ -658,5 +658,5 @@ impl futures::Stream for Subscription {
 struct Behaviour {
     onion: onion::Behaviour,
     key_share: onion::key_share::Behaviour,
-    dht: mini_dht::Behaviour,
+    dht: dht::Behaviour,
 }

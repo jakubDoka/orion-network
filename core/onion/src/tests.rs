@@ -2,13 +2,13 @@ use {
     crate::{EncryptedStream, PathId},
     aes_gcm::aead::OsRng,
     component_utils::AsocStream,
+    dht::Route,
     futures::{stream::SelectAll, FutureExt, StreamExt},
     libp2p::{
         core::{multiaddr::Protocol, upgrade::Version, Transport},
         identity::{ed25519, Keypair, PeerId},
         swarm::{NetworkBehaviour, SwarmEvent},
     },
-    mini_dht::Route,
     rand::seq::SliceRandom,
     std::{collections::HashSet, io, net::Ipv4Addr, pin::Pin, time::Duration, usize},
 };
@@ -16,8 +16,7 @@ use {
 const CONNECTION_TIMEOUT: Duration = Duration::from_millis(1000);
 
 fn init() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(env_logger::init);
+    let _ = env_logger::builder().is_test(true).try_init();
 }
 
 fn setup_nodes<const COUNT: usize>(
@@ -81,21 +80,14 @@ async fn open_path(
 ) -> (EncryptedStream, EncryptedStream) {
     let Ok([_, path @ ..]): Result<[_; 4], _> = swarms
         .iter()
-        .map(|s| {
-            (
-                s.behaviour().config().secret.clone(),
-                s.behaviour().config().current_peer_id,
-            )
-        })
+        .map(|s| (s.behaviour().config().secret.clone(), s.behaviour().config().current_peer_id))
         .collect::<Vec<_>>()
         .try_into()
     else {
         panic!("failed to create path")
     };
 
-    swarms[0]
-        .behaviour_mut()
-        .open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)));
+    swarms[0].behaviour_mut().open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)));
 
     let mut input = None;
     let mut output = None;
@@ -142,9 +134,7 @@ async fn test_timeout() {
     let mut swarms = setup_nodes([8804, 8805, 8806, 8807]);
 
     swarms.reverse();
-    swarms
-        .array_chunks_mut()
-        .for_each(|[a, b]| std::mem::swap(a, b));
+    swarms.array_chunks_mut().for_each(|[a, b]| std::mem::swap(a, b));
 
     let (mut input, mut output) = open_path(&mut swarms).await;
 
@@ -182,10 +172,7 @@ async fn test_missing_route() {
         let Ok([_, mut path @ ..]): Result<[_; 4], _> = swarms
             .iter()
             .map(|s| {
-                (
-                    s.behaviour().config().secret.clone(),
-                    s.behaviour().config().current_peer_id,
-                )
+                (s.behaviour().config().secret.clone(), s.behaviour().config().current_peer_id)
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -195,9 +182,7 @@ async fn test_missing_route() {
 
         path[index].1 = PeerId::random();
 
-        swarms[0]
-            .behaviour_mut()
-            .open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)));
+        swarms[0].behaviour_mut().open_path(path.map(|(k, i)| (k.unwrap().public_key(), i)));
 
         loop {
             let (e, id, ..) =
@@ -231,20 +216,16 @@ async fn settle_down() {
     let spacing = Duration::from_millis(0);
     let keep_alive_interval = Duration::from_secs(5);
 
-    let kps = (0..server_count)
-        .map(|_| ed25519::Keypair::generate())
-        .collect::<Vec<_>>();
+    let kps = (0..server_count).map(|_| ed25519::Keypair::generate()).collect::<Vec<_>>();
     let pks = kps.iter().map(|k| k.public()).collect::<Vec<_>>();
 
-    let mut router = mini_dht::Behaviour::default();
-    router
-        .table
-        .bulk_insert(pks.into_iter().enumerate().map(|(i, k)| {
-            let addr = libp2p::core::Multiaddr::empty()
-                .with(Protocol::Ip4(Ipv4Addr::LOCALHOST))
-                .with(Protocol::Tcp(first_port + i as u16));
-            Route::new(k, addr)
-        }));
+    let mut router = dht::Behaviour::default();
+    router.table.bulk_insert(pks.into_iter().enumerate().map(|(i, k)| {
+        let addr = libp2p::core::Multiaddr::empty()
+            .with(Protocol::Ip4(Ipv4Addr::LOCALHOST))
+            .with(Protocol::Tcp(first_port + i as u16));
+        Route::new(k, addr)
+    }));
 
     let (swarms, node_data): (Vec<_>, Vec<_>) = kps
         .into_iter()
@@ -421,5 +402,5 @@ async fn settle_down() {
 #[derive(NetworkBehaviour)]
 struct SDBehaviour {
     onion: crate::Behaviour,
-    dht: mini_dht::Behaviour,
+    dht: dht::Behaviour,
 }

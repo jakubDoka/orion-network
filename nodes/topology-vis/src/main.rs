@@ -5,7 +5,7 @@ use {
         PeerId, Transport,
     },
     macroquad::prelude::*,
-    mini_dht::Route,
+    dht::Route,
     std::{
         cell::RefCell,
         collections::{BTreeMap, HashSet},
@@ -387,7 +387,7 @@ impl topology_wrapper::collector::World for WorldRc {
 #[derive(NetworkBehaviour)]
 struct Behaviour {
     collector: topology_wrapper::collector::Behaviour<WorldRc>,
-    dht: mini_dht::Behaviour,
+    dht: dht::Behaviour,
 }
 
 fn node_contract() -> ContractId {
@@ -420,7 +420,7 @@ async fn main() {
     let world = WorldRc::default();
     let behaviour = Behaviour {
         collector: topology_wrapper::collector::Behaviour::new(peer_id, world),
-        dht: mini_dht::Behaviour::default(),
+        dht: dht::Behaviour::default(),
     };
     let mut swarm = libp2p::Swarm::new(
         transport,

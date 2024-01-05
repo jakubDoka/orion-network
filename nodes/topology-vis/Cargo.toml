@@ -13,7 +13,7 @@ crypto = { version = "0.1.0", path = "../../core/crypto" }
 libp2p = { version = "0.53.1", features = ["noise", "yamux", "wasm-bindgen", "macros"] }
 log = "0.4.20"
 macroquad = "0.4.4"
-mini-dht = { version = "0.1.0", path = "../../core/mini-dht" }
+dht = { version = "0.1.0", path = "../../core/dht" }
 topology-wrapper = { version = "0.1.0", path = "../../utils/topology-wrapper" }
 wasm-bindgen-futures = "0.4.39"
 websocket-websys = { version = "0.1.0", path = "../../utils/websocket-websys" }

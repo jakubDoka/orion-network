@@ -16,7 +16,7 @@ crypto = { version = "0.1.0", path = "../../core/crypto" }
 env_logger = "0.10.0"
 libp2p = { version = "0.53.0", features = ["tcp", "noise", "macros", "tokio", "yamux", "websocket", "dns"] }
 log = "0.4.20"
-mini-dht = { version = "0.1.0", path = "../../core/mini-dht" }
+dht = { version = "0.1.0", path = "../../core/dht" }
 onion = { version = "0.1.0", path = "../../core/onion" }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 rpc = { version = "0.1.0", path = "../../core/rpc" }
