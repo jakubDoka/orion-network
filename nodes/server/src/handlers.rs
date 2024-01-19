@@ -214,14 +214,12 @@ pub trait ProvideRequestBuffer {
 }
 
 pub struct HandlerNest<H> {
-    handlers: Vec<HandlerInstance<H>>,
+    handlers: Vec<Option<HandlerInstance<H>>>,
 }
 
 impl<H> Default for HandlerNest<H> {
     fn default() -> Self {
-        Self {
-            handlers: Vec::new(),
-        }
+        Self { handlers: Vec::new() }
     }
 }
 
@@ -237,21 +235,16 @@ impl<H: Handler> HandlerNest<H> {
         let decoded = <H::Protocol as Protocol>::Request::decode(&mut &*req.body)
             .ok_or(HandlerExecError::DecodeRequest)?;
         if let Err(con) = H::execute_and_encode(
-            Scope {
-                cx,
-                origin: req.origin,
-                call_id: req.id,
-                prefix: req.prefix,
-            },
+            Scope { cx, origin: req.origin, call_id: req.id, prefix: req.prefix },
             decoded,
             bp,
         ) {
-            self.handlers.push(HandlerInstance {
+            self.handlers.push(Some(HandlerInstance {
                 prefix: req.prefix,
                 id: req.id,
                 origin: req.origin,
                 handler: con,
-            });
+            }));
 
             Ok(false)
         } else {
@@ -272,27 +265,28 @@ impl<H: Handler> HandlerNest<H> {
             .iter_mut()
             .enumerate()
             .find_map(|(i, h)| {
-                let read = unsafe { std::ptr::read(&h.handler) };
-                match read.resume_and_encode(
+                let mut read = h.take().expect("we keep the integrity");
+                match read.handler.resume_and_encode(
                     Scope {
                         cx: crate::extract_ctx!(cx),
-                        origin: h.origin,
-                        call_id: h.id,
-                        prefix: h.prefix,
+                        origin: read.origin,
+                        call_id: read.id,
+                        prefix: read.prefix,
                     },
                     &event,
                     bp,
                 ) {
-                    Ok(res) => Some((i, res, h.origin, h.id)),
-                    Err(new_handler) => unsafe {
-                        std::ptr::write(&mut h.handler, new_handler);
+                    Ok(res) => Some((i, res, read.origin, read.id)),
+                    Err(new_handler) => {
+                        read.handler = new_handler;
+                        *h = Some(read);
                         None
-                    },
+                    }
                 }
             })
             .ok_or(event)?;
 
-        std::mem::forget(self.handlers.swap_remove(i));
+        self.handlers.swap_remove(i);
 
         if res.is_none() {
             log::info!("the response buffer is owerwhelmed");

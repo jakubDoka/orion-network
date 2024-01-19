@@ -1,18 +1,14 @@
 use {
     super::{Handler, TryUnwrap},
     crate::REPLICATION_FACTOR,
-    chat_logic::{PossibleTopic, Protocol, ReplError, ToPossibleTopic},
-    component_utils::{arrayvec::ArrayVec, Codec, FindAndRemove},
+    chat_logic::{PossibleTopic, Protocol, ReplError, ReplVec, ToPossibleTopic},
+    component_utils::{Codec, FindAndRemove},
     rpc::CallId,
 };
 
 pub enum Repl<H> {
     Resolving(H, PossibleTopic, Vec<u8>),
-    Replicating {
-        response: Vec<u8>,
-        ongoing: ArrayVec<CallId, { REPLICATION_FACTOR.get() }>,
-        matched: usize,
-    },
+    Replicating { response: Vec<u8>, ongoing: ReplVec<CallId>, matched: usize },
 }
 
 impl<H> Repl<H> {
@@ -28,11 +24,7 @@ impl<H> Repl<H> {
             .filter_map(|peer| beh.rpc.request(peer, request.as_slice()).ok())
             .collect();
 
-        Self::Replicating {
-            response,
-            ongoing,
-            matched: 0,
-        }
+        Self::Replicating { response, ongoing, matched: 0 }
     }
 }
 
@@ -87,12 +79,9 @@ where
 
                 return Err(Self::new_replicating(response, request, topic, cx.cx));
             }
-            Repl::Replicating {
-                ref response,
-                ref mut ongoing,
-                ref mut matched,
-                ..
-            } => (response, ongoing, matched),
+            Repl::Replicating { ref response, ref mut ongoing, ref mut matched, .. } => {
+                (response, ongoing, matched)
+            }
         };
 
         crate::ensure!(let Ok(rpc::Event::Response(_, call, res)) = TryUnwrap::<&rpc::Event>::try_unwrap(event), self);

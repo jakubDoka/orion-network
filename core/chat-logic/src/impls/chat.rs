@@ -21,10 +21,7 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub const INIT: Self = Self {
-        block: u64::MAX,
-        offset: 0,
-    };
+    pub const INIT: Self = Self { block: u64::MAX, offset: 0 };
 }
 
 pub type ChatName = ArrayString<CHAT_NAME_CAP>;
@@ -125,4 +122,10 @@ pub enum InvalidBlockReason {
     Outdated,
     #[error("not expected at this point")]
     NotExpected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
+pub enum FetchLatestBlockError {
+    #[error("chat not found")]
+    ChatNotFound,
 }

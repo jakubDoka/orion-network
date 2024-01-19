@@ -46,8 +46,6 @@ pub type Serialized<T> = <T as TransmutationCircle>::Serialized;
 
 pub mod enc;
 pub mod hash;
-#[cfg(never)]
-pub mod merkle;
 pub mod sign;
 
 pub use hash::Hash;
@@ -78,10 +76,7 @@ pub fn decrypt(data: &mut [u8], secret: SharedSecret) -> Option<&mut [u8]> {
     let nonce = <Nonce<<Aes256Gcm as AeadCore>::NonceSize>>::from_slice(&postfix[TAG_SIZE..]);
     let tag = <Tag<Aes256Gcm>>::from_slice(&postfix[..TAG_SIZE]);
     let cipher = Aes256Gcm::new(&GenericArray::from(secret));
-    cipher
-        .decrypt_in_place_detached(nonce, crate::ASOC_DATA, data, tag)
-        .ok()
-        .map(|()| data)
+    cipher.decrypt_in_place_detached(nonce, crate::ASOC_DATA, data, tag).ok().map(|()| data)
 }
 
 #[must_use = "dont forget to append the array to the data"]

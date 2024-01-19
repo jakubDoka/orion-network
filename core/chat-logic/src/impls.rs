@@ -1,6 +1,6 @@
 use {
     crate::Protocol,
-    component_utils::{Codec, Reminder},
+    component_utils::{arrayvec::ArrayVec, Codec, Reminder},
     crypto::{enc, sign, Serialized, TransmutationCircle},
     rand_core::OsRng,
     std::{convert::Infallible, fmt::Debug, iter, num::NonZeroUsize, ops::Range, usize},
@@ -13,6 +13,7 @@ pub type Nonce = u64;
 pub type BlockNumber = u64;
 pub type ProofContext = [u8; CHAT_NAME_CAP];
 pub type Identity = crypto::Hash;
+pub type ReplVec<T> = ArrayVec<T, { REPLICATION_FACTOR.get() }>;
 
 mod chat;
 mod profile;
@@ -40,6 +41,7 @@ compose_protocols! {
     fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Cursor, Reminder<'a>), FetchMessagesError>;
     fn ProposeMsgBlock<'a>(ChatName, BlockNumber, crypto::Hash) -> Result<(), ProposeMsgBlockError>;
     fn SendBlock<'a>(ChatName, BlockNumber, Reminder<'a>) -> Result<(), SendBlockError>;
+    fn FetchLatestBlock<'a>(ChatName) -> Result<(BlockNumber, Reminder<'a>), FetchLatestBlockError>;
 
     fn CreateProfile<'a>(Proof<&'a [u8]>, Serialized<enc::PublicKey>) -> Result<(), CreateAccountError>;
     fn SetVault<'a>(Proof<Reminder<'a>>) -> Result<(), SetVaultError>;
@@ -208,11 +210,7 @@ pub fn retain_messages(
         let write_len = hole_end as usize - cursor as usize - len;
         if hole_end != *write_cursor {
             unsafe {
-                std::ptr::copy(
-                    hole_end.sub(write_len),
-                    write_cursor.sub(write_len),
-                    write_len,
-                )
+                std::ptr::copy(hole_end.sub(write_len), write_cursor.sub(write_len), write_len)
             };
         }
 
@@ -262,10 +260,7 @@ const PAYLOAD_SIZE: usize = std::mem::size_of::<Nonce>() + CHAT_NAME_CAP;
 
 impl<T: ToProofContext> Proof<T> {
     pub fn new(kp: &sign::Keypair, nonce: &mut Nonce, context: T) -> Self {
-        let signature = kp.sign(
-            &Self::pack_payload(*nonce, context.to_proof_context()),
-            OsRng,
-        );
+        let signature = kp.sign(&Self::pack_payload(*nonce, context.to_proof_context()), OsRng);
         *nonce += 1;
         Self {
             pk: kp.public_key().into_bytes(),

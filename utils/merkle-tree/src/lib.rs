@@ -1,4 +1,6 @@
-use {crate::Hash, std::iter};
+#![feature(iter_intersperse)]
+
+use {crypto::Hash, std::iter};
 
 pub trait MerkleHash: Default + Copy {
     fn combine(a: Self, b: Self) -> Self;
@@ -6,7 +8,7 @@ pub trait MerkleHash: Default + Copy {
 
 impl MerkleHash for Hash {
     fn combine(a: Self, b: Self) -> Self {
-        crate::hash::combine(a, b)
+        crypto::hash::combine(a, b)
     }
 }
 
@@ -25,6 +27,27 @@ impl<T: MerkleHash> MerkleTree<T> {
         Self { nodes: vec![root] }
     }
 
+    pub fn from_base(base: impl IntoIterator<Item = T>) -> Self {
+        let mut nodes = base.into_iter().intersperse(Default::default()).collect::<Vec<_>>();
+
+        fn comute_recur<T: MerkleHash>(nodes: &mut [T]) -> T {
+            if let &mut [node] = nodes {
+                return node;
+            }
+
+            let mid = nodes.len() / 2;
+            let (left, right) = nodes.split_at_mut(mid);
+            let (mid, right) = right.split_first_mut().unwrap();
+
+            *mid = T::combine(comute_recur(left), comute_recur(right));
+            *mid
+        }
+
+        comute_recur(&mut nodes);
+
+        Self { nodes }
+    }
+
     pub fn root(&self) -> &T {
         &self.nodes[(self.nodes.len().next_power_of_two() / 2) - 1]
     }
@@ -41,10 +64,8 @@ impl<T: MerkleHash> MerkleTree<T> {
                 cursor += width;
             } else {
                 cursor -= width;
-                self.nodes[cursor] = T::combine(
-                    self.nodes[cursor - width],
-                    self.nodes[(cursor + width).min(clamp)],
-                );
+                self.nodes[cursor] =
+                    T::combine(self.nodes[cursor - width], self.nodes[(cursor + width).min(clamp)]);
                 clamp = cursor;
             }
             width <<= 1;
@@ -91,6 +112,11 @@ impl<T: MerkleHash> MerkleTree<T> {
                 return Some(value);
             }
         })
+    }
+
+    pub fn clear(&mut self, root: T) {
+        self.nodes.clear();
+        self.nodes.push(root);
     }
 }
 

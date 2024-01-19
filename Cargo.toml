@@ -16,6 +16,7 @@ exclude = [
 	"forked/rust-yamux",
 	"forked/PQClean",
 	"utils/falcon",
+	"forked/infectious",
 ]
 
 [profile.native-optimized]

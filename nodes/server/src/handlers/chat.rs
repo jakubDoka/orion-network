@@ -24,7 +24,7 @@ impl SyncHandler for CreateChat {
             CreateChatError::AlreadyExists
         );
 
-        entry.insert(Chat::new(identity));
+        entry.insert(Chat::new(identity, false));
 
         Ok(())
     }
@@ -214,6 +214,13 @@ impl SyncHandler for SendBlock {
     }
 }
 
+impl SyncHandler for FetchLatestBlock {
+    fn execute<'a>(cx: Scope<'a>, req: Self::Request<'_>) -> ProtocolResult<'a, Self> {
+        let chat = cx.cx.storage.chats.get(&req).ok_or(FetchLatestBlockError::ChatNotFound)?;
+        Ok((chat.block_number, Reminder(chat.current_block.as_slice())))
+    }
+}
+
 impl SyncHandler for FetchMessages {
     fn execute<'a>(
         sc: Scope<'a>,
@@ -297,16 +304,18 @@ pub struct Chat {
     current_block: Vec<u8>,
     pub(crate) block_number: BlockNumber,
     stage: BlockStage,
+    restoring: bool,
 }
 
 impl Chat {
-    pub fn new(id: Identity) -> Self {
+    pub fn new(id: Identity, restoring: bool) -> Self {
         Self {
             members: [(id, Member::new())].into(),
             finalized: Default::default(),
             current_block: Vec::with_capacity(BLOCK_SIZE),
             block_number: 0,
             stage: Default::default(),
+            restoring,
         }
     }
 

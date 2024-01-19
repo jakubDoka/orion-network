@@ -17,6 +17,7 @@ use {
     chat_logic::*,
     component_utils::{Codec, LinearMap, Reminder},
     crypto::{enc, sign, TransmutationCircle},
+    dht::Route,
     handlers::{Repl, SendMail, *},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
@@ -25,7 +26,6 @@ use {
         swarm::{NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Transport,
     },
-    dht::Route,
     onion::{EncryptedStream, PathId},
     rand_core::OsRng,
     std::{
@@ -55,35 +55,36 @@ mod handlers;
 #[cfg(test)]
 mod tests;
 
-type SyncReplRetry<T> = Repl<SyncRetry<T>>;
+type ReplRetry<T> = Repl<Retry<T>>;
 
 compose_handlers! {
     InternalServer {
         CreateProfile,
-        SyncRetry<SetVault>,
+        Retry<SetVault>,
         Retry<SendMail>,
-        SyncRetry<ReadMail>,
-        SyncRetry<FetchProfile>,
+        Retry<ReadMail>,
+        Retry<FetchProfile>,
         FetchFullProfile,
 
         CreateChat,
         PerformChatAction,
         ProposeMsgBlock,
         SendBlock,
+        FetchLatestBlock,
     }
 
     ExternalServer {
         Subscribe,
 
         Repl<CreateProfile>,
-        SyncReplRetry<SetVault>,
-        Repl<Retry<SendMail>>,
-        SyncReplRetry<ReadMail>,
-        SyncReplRetry<FetchProfile>,
-        SyncRetry<FetchVault>,
+        ReplRetry<SetVault>,
+        ReplRetry<SendMail>,
+        ReplRetry<ReadMail>,
+        ReplRetry<FetchProfile>,
+        Retry<FetchVault>,
 
         Repl<CreateChat>,
-        Repl<PerformChatAction>,
+        ReplRetry<PerformChatAction>,
         FetchMessages,
     }
 }
@@ -96,10 +97,7 @@ struct NodeKeys {
 
 impl Default for NodeKeys {
     fn default() -> Self {
-        Self {
-            enc: enc::Keypair::new(OsRng),
-            sign: sign::Keypair::new(OsRng),
-        }
+        Self { enc: enc::Keypair::new(OsRng), sign: sign::Keypair::new(OsRng) }
     }
 }
 
@@ -184,14 +182,8 @@ async fn deal_with_chain(
     keys: &NodeKeys,
     is_new: bool,
 ) -> anyhow::Result<(Vec<(NodeData, NodeAddress)>, StakeEvents)> {
-    let ChainConfig {
-        chain_node,
-        node_account,
-        node_contract,
-        port,
-        exposed_address,
-        nonce,
-    } = config;
+    let ChainConfig { chain_node, node_account, node_contract, port, exposed_address, nonce } =
+        config;
     let (mut chain_events_tx, stake_events) = futures::channel::mpsc::channel(0);
     let account = if node_account.starts_with("//") {
         chain_api::dev_keypair(&node_account)
@@ -203,14 +195,9 @@ async fn deal_with_chain(
         .await
         .context("connecting to chain")?;
 
-    let node_list = client
-        .list(node_contract.clone())
-        .await
-        .context("fetching node list")?;
+    let node_list = client.list(node_contract.clone()).await.context("fetching node list")?;
 
-    let stream = client
-        .node_contract_event_stream(node_contract.clone())
-        .await?;
+    let stream = client.node_contract_event_stream(node_contract.clone()).await?;
     tokio::spawn(async move {
         let mut stream = std::pin::pin!(stream);
         // TODO: properly recover fro errors, add node pool to try
@@ -222,12 +209,7 @@ async fn deal_with_chain(
     if is_new {
         let nonce = client.get_nonce().await.context("fetching nonce")? + nonce;
         client
-            .join(
-                node_contract.clone(),
-                keys.to_stored(),
-                (exposed_address, port).into(),
-                nonce,
-            )
+            .join(node_contract.clone(), keys.to_stored(), (exposed_address, port).into(), nonce)
             .await
             .context("registeing to chain")?;
         log::info!("registered on chain");
@@ -244,17 +226,12 @@ fn filter_incoming(
     local_addr: &Multiaddr,
     _: &Multiaddr,
 ) -> Result<(), libp2p::swarm::ConnectionDenied> {
-    if local_addr
-        .iter()
-        .any(|p| p == multiaddr::Protocol::Ws("/".into()))
-    {
+    if local_addr.iter().any(|p| p == multiaddr::Protocol::Ws("/".into())) {
         return Ok(());
     }
 
     if table.get(peer).is_none() {
-        return Err(libp2p::swarm::ConnectionDenied::new(
-            "not registered as a node",
-        ));
+        return Err(libp2p::swarm::ConnectionDenied::new("not registered as a node"));
     }
 
     Ok(())
@@ -267,13 +244,7 @@ impl Server {
         node_list: Vec<(NodeData, NodeAddress)>,
         stake_events: StakeEvents,
     ) -> anyhow::Result<Self> {
-        let NodeConfig {
-            port,
-            ws_port,
-            boot_nodes,
-            idle_timeout,
-            ..
-        } = config;
+        let NodeConfig { port, ws_port, boot_nodes, idle_timeout, .. } = config;
 
         let local_key = libp2p::identity::Keypair::ed25519_from_bytes(keys.sign.pre_quantum())
             .context("deriving ed signature")?;
@@ -309,14 +280,12 @@ impl Server {
                 .multiplex(libp2p::yamux::Config::default()),
         )
         .map(move |t, _| match t {
-            futures::future::Either::Left((p, m)) => (
-                p,
-                StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender.clone())),
-            ),
-            futures::future::Either::Right((p, m)) => (
-                p,
-                StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender.clone())),
-            ),
+            futures::future::Either::Left((p, m)) => {
+                (p, StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender.clone())))
+            }
+            futures::future::Either::Right((p, m)) => {
+                (p, StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender.clone())))
+            }
         })
         .boxed();
         let mut swarm = libp2p::swarm::Swarm::new(
@@ -392,10 +361,7 @@ impl Server {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::Rpc(rpc::Event::Request(peer, id, body))) => {
                 if self.swarm.behaviour_mut().dht.table.get(peer).is_none() {
-                    log::warn!(
-                        "peer {} made rpc request but is not on the white list",
-                        peer
-                    );
+                    log::warn!("peer {} made rpc request but is not on the white list", peer);
                     return;
                 }
 
@@ -404,23 +370,14 @@ impl Server {
                     return;
                 };
 
-                let req = handlers::Request {
-                    prefix,
-                    id,
-                    origin: RequestOrigin::Server(peer),
-                    body,
-                };
+                let req =
+                    handlers::Request { prefix, id, origin: RequestOrigin::Server(peer), body };
                 self.buffer.clear();
-                let res = self
-                    .internal
-                    .execute(extract_ctx!(self), req, &mut self.buffer);
+                let res = self.internal.execute(extract_ctx!(self), req, &mut self.buffer);
                 match res {
                     Ok(false) => {}
                     Ok(true) => {
-                        self.swarm
-                            .behaviour_mut()
-                            .rpc
-                            .respond(peer, id, self.buffer.as_slice());
+                        self.swarm.behaviour_mut().rpc.respond(peer, id, self.buffer.as_slice());
                     }
                     Err(e) => {
                         log::info!("failed to dispatch rpc request: {}", e);
@@ -437,12 +394,10 @@ impl Server {
                 self.buffer.clear();
                 let Ok((origin, id)) = Err(ev)
                     .or_else(|ev| {
-                        self.internal
-                            .try_complete(extract_ctx!(self), ev, &mut self.buffer)
+                        self.internal.try_complete(extract_ctx!(self), ev, &mut self.buffer)
                     })
                     .or_else(|ev| {
-                        self.external
-                            .try_complete(extract_ctx!(self), ev, &mut self.buffer)
+                        self.external.try_complete(extract_ctx!(self), ev, &mut self.buffer)
                     })
                 else {
                     return;
@@ -459,10 +414,7 @@ impl Server {
                         }
                     }
                     RequestOrigin::Server(mid) => {
-                        self.swarm
-                            .behaviour_mut()
-                            .rpc
-                            .respond(mid, id, self.buffer.as_slice());
+                        self.swarm.behaviour_mut().rpc.respond(mid, id, self.buffer.as_slice());
                     }
                 }
             }
@@ -484,11 +436,7 @@ impl Server {
             return;
         };
 
-        log::info!(
-            "received message from client: {:?} {:?}",
-            req.id,
-            req.prefix,
-        );
+        log::info!("received message from client: {:?} {:?}", req.id, req.prefix,);
 
         let req = handlers::Request {
             prefix: req.prefix,
@@ -497,23 +445,14 @@ impl Server {
             body: req.body.0,
         };
         self.buffer.clear();
-        let res = self
-            .external
-            .execute(extract_ctx!(self), req, &mut self.buffer);
+        let res = self.external.execute(extract_ctx!(self), req, &mut self.buffer);
 
         match res {
             Ok(false) => {}
             Ok(true) => {
-                let stream = self
-                    .clients
-                    .iter_mut()
-                    .find(|s| s.id == id)
-                    .expect("we just received message");
-                if stream
-                    .inner
-                    .write((req.id, Reminder(&self.buffer)))
-                    .is_none()
-                {
+                let stream =
+                    self.clients.iter_mut().find(|s| s.id == id).expect("we just received message");
+                if stream.inner.write((req.id, Reminder(&self.buffer))).is_none() {
                     log::info!("client cannot process the response");
                 }
             }
@@ -643,10 +582,7 @@ fn replicators_for(
     table: &dht::RoutingTable,
     topic: impl Into<PossibleTopic>,
 ) -> impl Iterator<Item = PeerId> + '_ {
-    table
-        .closest(topic.into().as_bytes())
-        .take(REPLICATION_FACTOR.get() + 1)
-        .map(Route::peer_id)
+    table.closest(topic.into().as_bytes()).take(REPLICATION_FACTOR.get() + 1).map(Route::peer_id)
 }
 
 fn other_replicators_for(
@@ -766,11 +702,7 @@ pub struct Stream {
 
 impl Stream {
     fn new(id: PathId, inner: EncryptedStream) -> Stream {
-        Stream {
-            id,
-            subscriptions: Default::default(),
-            inner: InnerStream::Normal(inner),
-        }
+        Stream { id, subscriptions: Default::default(), inner: InnerStream::Normal(inner) }
     }
 
     #[cfg(test)]

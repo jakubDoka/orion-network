@@ -14,9 +14,7 @@ async fn repopulate_account() {
 
     stream.create_user(&mut nodes, &mut user).await;
 
-    assert_nodes(&nodes, |node| {
-        node.storage.profiles.contains_key(&user.identity())
-    });
+    assert_nodes(&nodes, |node| node.storage.profiles.contains_key(&user.identity()));
 
     let target = nodes.iter_mut().next().unwrap();
     target.storage.profiles.clear();
@@ -25,10 +23,7 @@ async fn repopulate_account() {
         .await;
 
     assert_nodes(&nodes, |node| {
-        node.storage
-            .profiles
-            .values()
-            .any(|p| unpack_mail(&p.mail).next().unwrap() == [0xff])
+        node.storage.profiles.values().any(|p| unpack_mail(&p.mail).next().unwrap() == [0xff])
     });
 
     let target = nodes.iter_mut().next().unwrap();
@@ -37,9 +32,7 @@ async fn repopulate_account() {
         .test_req::<chat_logic::FetchVault>(&mut nodes, user.identity(), Ok((0, 0, Reminder(&[]))))
         .await;
 
-    assert_nodes(&nodes, |node| {
-        node.storage.profiles.contains_key(&user.identity())
-    });
+    assert_nodes(&nodes, |node| node.storage.profiles.contains_key(&user.identity()));
 }
 
 #[tokio::test]
@@ -68,9 +61,7 @@ async fn direct_messaging() {
         )
         .await;
 
-    stream2
-        .test_req::<chat_logic::Subscribe>(&mut nodes, user2.identity().into(), Ok(()))
-        .await;
+    stream2.test_req::<chat_logic::Subscribe>(&mut nodes, user2.identity().into(), Ok(())).await;
 
     futures::future::select(
         nodes.next(),
@@ -113,9 +104,7 @@ async fn message_block_finalization() {
 
     let chat = ChatName::from("foo").unwrap();
 
-    stream1
-        .test_req::<CreateChat>(&mut nodes, (chat, user.identity()), Ok(()))
-        .await;
+    stream1.test_req::<CreateChat>(&mut nodes, (chat, user.identity()), Ok(())).await;
     stream1
         .test_req::<PerformChatAction>(
             &mut nodes,
@@ -139,10 +128,7 @@ async fn message_block_finalization() {
             .await;
     }
 
-    assert_nodes(&nodes, |s| {
-        println!("{:?}", s.storage.chats.get(&chat).unwrap().block_number);
-        s.storage.chats.get(&chat).unwrap().block_number == 2
-    });
+    assert_nodes(&nodes, |s| s.storage.chats.get(&chat).unwrap().block_number == 2);
 
     for i in 0..6 * MULTIPLIER {
         // futures::future::select(
@@ -154,25 +140,27 @@ async fn message_block_finalization() {
         println!("i: {}", i);
         let msg = [i as u8; MESSAGE_SIZE / MULTIPLIER];
         let body = (user.proof(chat), ChatAction::SendMessage(Reminder(&msg)));
-        stream1
-            .inner
-            .write((PerformChatAction::PREFIX, CallId::whatever(), body))
-            .unwrap();
+        stream1.inner.write((PerformChatAction::PREFIX, CallId::whatever(), body)).unwrap();
         let msg = [i as u8 * 2; MESSAGE_SIZE / MULTIPLIER];
         let body = (user2.proof(chat), ChatAction::SendMessage(Reminder(&msg)));
-        stream2
-            .inner
-            .write((PerformChatAction::PREFIX, CallId::whatever(), body))
-            .unwrap();
+        stream2.inner.write((PerformChatAction::PREFIX, CallId::whatever(), body)).unwrap();
 
         response::<PerformChatAction>(&mut nodes, &mut stream1, 1000, Ok(())).await;
         response::<PerformChatAction>(&mut nodes, &mut stream2, 1000, Ok(())).await;
     }
 
-    assert_nodes(&nodes, |s| {
-        println!("{:?}", s.storage.chats.get(&chat).unwrap().block_number);
-        s.storage.chats.get(&chat).unwrap().block_number == 5
-    });
+    assert_nodes(&nodes, |s| s.storage.chats.get(&chat).unwrap().block_number == 5);
+
+    let target = nodes.iter_mut().next().unwrap();
+    target.storage.chats.clear();
+
+    stream1
+        .test_req::<PerformChatAction>(
+            &mut nodes,
+            (user.proof(chat), ChatAction::SendMessage(Reminder(&[0xff]))),
+            Ok(()),
+        )
+        .await;
 }
 
 impl Stream {
@@ -184,9 +172,7 @@ impl Stream {
     ) where
         for<'a> ProtocolResult<'a, chat_logic::Repl<P>>: PartialEq + Debug,
     {
-        self.inner
-            .write((P::PREFIX, CallId::whatever(), body))
-            .unwrap();
+        self.inner.write((P::PREFIX, CallId::whatever(), body)).unwrap();
 
         response::<P>(nodes, self, 1000, expected).await;
     }
@@ -287,17 +273,13 @@ fn next_node_config() -> NodeConfig {
 }
 
 fn create_nodes(count: usize) -> FuturesUnordered<Server> {
-    let node_data = (0..count)
-        .map(|_| (next_node_config(), NodeKeys::default()))
-        .collect::<Vec<_>>();
+    let node_data =
+        (0..count).map(|_| (next_node_config(), NodeKeys::default())).collect::<Vec<_>>();
 
     let nodes = node_data
         .iter()
         .map(|(config, keys)| {
-            (
-                keys.to_stored(),
-                (IpAddr::from(Ipv4Addr::LOCALHOST), config.port).into(),
-            )
+            (keys.to_stored(), (IpAddr::from(Ipv4Addr::LOCALHOST), config.port).into())
         })
         .collect::<Vec<(NodeData, NodeAddress)>>();
 

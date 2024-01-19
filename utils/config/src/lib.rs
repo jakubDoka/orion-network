@@ -63,27 +63,27 @@ impl<T> Default for List<T> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Key([u8; 32]);
+pub struct Hex([u8; 32]);
 
-impl Key {
+impl Hex {
     pub fn to_bytes(&self) -> [u8; 32] {
         self.0
     }
 }
 
-impl AsRef<[u8]> for Key {
+impl AsRef<[u8]> for Hex {
     fn as_ref(&self) -> &[u8] {
         &self.0
     }
 }
 
-impl AsMut<[u8]> for Key {
+impl AsMut<[u8]> for Hex {
     fn as_mut(&mut self) -> &mut [u8] {
         &mut self.0
     }
 }
 
-impl FromStr for Key {
+impl FromStr for Hex {
     type Err = SecretKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

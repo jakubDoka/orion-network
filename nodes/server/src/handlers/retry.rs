@@ -1,17 +1,22 @@
 use {
     super::*,
     chat_logic::{Protocol, *},
-    component_utils::{arrayvec::ArrayVec, FindAndRemove},
+    component_utils::{FindAndRemove, Reminder},
     std::{collections::hash_map::Entry, marker::PhantomData},
 };
 
-pub type SyncRetry<H> = RetryBase<H, rpc::Event>;
+fn compute_message_owerflow_tolerance(median: usize) -> usize {
+    (median / 8).min(10).max(2)
+}
+
 pub type Retry<H> = RetryBase<H, <H as Handler>::Event>;
 
 pub struct Restoring {
     topic: PossibleTopic,
-    pending: ArrayVec<CallId, { REPLICATION_FACTOR.get() }>,
+    pending: ReplVec<CallId>,
     request: Vec<u8>,
+    messages: Vec<u8>,
+    block_data: ReplVec<(BlockNumber, usize)>,
 }
 
 pub enum RetryBase<H, E> {
@@ -37,7 +42,7 @@ where
 
         crate::ensure!(sc.cx.is_valid_topic(topic), Ok(NotFoundError::NotFound));
 
-        let mut packet = [0u8; std::mem::size_of::<(u8, Identity)>()];
+        let mut packet = [0u8; std::mem::size_of::<(u8, Identity)>() + 1];
         match topic {
             PossibleTopic::Profile(identity) if sc.cx.storage.profiles.contains_key(&identity) => {
                 return H::execute(sc, req)
@@ -45,11 +50,21 @@ where
                     .map(|r| r.map_err(NotFoundError::Inner))
             }
             PossibleTopic::Profile(identity) => {
-                (<FetchFullProfile as Protocol>::PREFIX, identity)
+                FetchFullProfile::rpc(identity)
                     .encode(&mut packet.as_mut_slice())
                     .expect("always big enough");
             }
-            PossibleTopic::Chat(_) => todo!(),
+            PossibleTopic::Chat(name) if sc.cx.storage.chats.contains_key(&name) => {
+                return H::execute(sc, req)
+                    .map_err(|h| Self::Handling(h, topic, PhantomData))
+                    .map(|r| r.map_err(NotFoundError::Inner))
+            }
+            PossibleTopic::Chat(name) => {
+                //sc.cx.storage.chats.insert(name);
+                FetchLatestBlock::rpc(name)
+                    .encode(&mut packet.as_mut_slice())
+                    .expect("always big enough");
+            }
         }
 
         let us = *sc.cx.swarm.local_peer_id();
@@ -62,6 +77,8 @@ where
             topic,
             pending,
             request: req.to_bytes(),
+            messages: Default::default(),
+            block_data: Default::default(),
         }))
     }
 
@@ -80,9 +97,9 @@ where
                     Self::Restoring(r)
                 );
 
-                match r.topic {
-                    PossibleTopic::Profile(identity) => match res {
-                        Ok((request, ..)) => 'a: {
+                match res {
+                    Ok((request, ..)) => match r.topic {
+                        PossibleTopic::Profile(identity) => 'a: {
                             let Some(Ok(profile)) = ProtocolResult::<'a, FetchFullProfile>::decode(
                                 &mut request.as_slice(),
                             ) else {
@@ -106,14 +123,58 @@ where
 
                             entry.insert_entry(profile.into());
                         }
-                        Err(e) => {
-                            log::warn!("rpc failed: {e}");
+                        PossibleTopic::Chat(_name) => 'a: {
+                            let Some(Ok((block_number, Reminder(current_block)))) =
+                                ProtocolResult::<'a, FetchLatestBlock>::decode(
+                                    &mut request.as_slice(),
+                                )
+                            else {
+                                break 'a;
+                            };
+
+                            r.messages.extend_from_slice(current_block);
+                            let end = r.messages.len();
+                            r.block_data.push((block_number, end));
                         }
                     },
-                    PossibleTopic::Chat(_) => todo!(),
+                    Err(_) => {
+                        todo!()
+                    }
                 }
 
                 crate::ensure!(r.pending.is_empty(), Self::Restoring(r));
+
+                if let PossibleTopic::Chat(_name) = r.topic
+                    && r.block_data.len() > REPLICATION_FACTOR.get() / 2
+                {
+                    sc.cx.res.hashes.clear();
+                    let mut message_bounds = r
+                        .block_data
+                        .iter()
+                        .scan(0, |start, &(_, end)| {
+                            let prev = sc.cx.res.hashes.len();
+                            unpack_messages_ref(&r.messages[*start..end])
+                                .map(crypto::hash::from_slice)
+                                .collect_into(&mut sc.cx.res.hashes);
+                            *start = end;
+                            Some(prev..sc.cx.res.hashes.len())
+                        })
+                        .enumerate()
+                        .collect::<ReplVec<_>>();
+
+                    message_bounds.sort_by_key(|(_, range)| range.len());
+                    let median = message_bounds[message_bounds.len() / 2].1.len();
+                    let tolerance = compute_message_owerflow_tolerance(median);
+
+                    message_bounds.retain(|(_, range)| range.len().abs_diff(median) <= tolerance);
+
+                    message_bounds
+                        .iter()
+                        .cloned()
+                        .scan(&mut sc.cx.res.hashes[..], |slc, (_, r)| slc.take_mut(..r.len()))
+                        .for_each(<[_]>::sort_unstable);
+                }
+
                 let req = <Self::Protocol as Protocol>::Request::decode(&mut r.request.as_slice())
                     .expect("always valid");
                 H::execute(sc, req)
