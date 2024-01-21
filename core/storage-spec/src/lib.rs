@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 pub mod db;
+pub mod protocol;
 
 pub const SHARD_SIZE_BYTES: usize = 1024 * 4;
 pub const SHARD_SIZE: usize = SHARD_SIZE_BYTES / std::mem::size_of::<Elem>();
@@ -76,11 +77,12 @@ pub fn hash_shard(index: ShardIndex, shard: &Shard) -> ShardHash {
 
 pub struct Codec {
     inner: berkleamp_welch::Fec,
+    buffer: Vec<u8>,
 }
 
 impl Default for Codec {
     fn default() -> Self {
-        Self { inner: berkleamp_welch::Fec::new(DATA_SHARDS, PARITY_SHARDS) }
+        Self { inner: berkleamp_welch::Fec::new(DATA_SHARDS, PARITY_SHARDS), buffer: vec![] }
     }
 }
 
@@ -89,7 +91,10 @@ impl Codec {
         self.inner.encode(data.flatten(), parity.flatten_mut()).unwrap();
     }
 
-    // pub fn reconstruct(&self, shards: &mut []) -> Result<()> {
-    //     self.inner.reconstruct_data(shards)
-    // }
+    pub fn reconstruct(
+        &mut self,
+        shards: &mut ReconstructBundle,
+    ) -> Result<(), berkleamp_welch::RebuildError> {
+        self.inner.rebuild(shards, &mut self.buffer).map(drop)
+    }
 }

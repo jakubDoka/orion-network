@@ -17,6 +17,7 @@ blake3 = "1.5.0"
 crypto = { version = "0.1.0", path = "../crypto" }
 futures = "0.3.30"
 berkleamp-welch = { version = "6.0.0", path = "../../utils/berkleamp-welch", features = ["simd-accel"] }
+component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 
 [dev-dependencies]
 getrandom = "0.2.12"

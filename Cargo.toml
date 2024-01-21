@@ -21,6 +21,7 @@ exclude = [
 
 [workspace.lints.clippy]
 all = "warn"
+unnecessary_wraps = "warn"
 
 [workspace.package]
 repository = "https://github.com/jakubDoka/orion-network"

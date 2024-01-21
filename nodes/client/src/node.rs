@@ -2,7 +2,7 @@ use {
     crate::{protocol::*, BootPhase, UserKeys},
     anyhow::Context,
     chain_api::RawUserName,
-    chat_logic::{
+    chat-spec::{
         username_to_raw, CallId, ChatName, CreateProfile, FetchVault, Identity, Nonce,
         PossibleTopic, Proof, RawChatName, Repl, UserName, REPLICATION_FACTOR,
     },
@@ -325,7 +325,7 @@ impl Node {
         };
         let vault = if vault.is_empty() && vault_nonce == 0 {
             set_state!(ProfileCreate);
-            let proof = Proof::new(&keys.sign, &mut vault_nonce, &[][..]);
+            let proof = Proof::new(&keys.sign, &mut vault_nonce, &[][..], OsRng);
             request_dispatch
                 .dispatch_direct::<Repl<CreateProfile>>(
                     &mut profile_stream,

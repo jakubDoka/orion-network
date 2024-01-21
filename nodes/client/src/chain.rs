@@ -1,7 +1,7 @@
 use {
     self::web_sys::wasm_bindgen::JsValue,
     chain_api::{ContractId, TransactionHandler},
-    chat_logic::UserName,
+    chat-spec::UserName,
     leptos::*,
     std::str::FromStr,
     web_sys::js_sys::wasm_bindgen,

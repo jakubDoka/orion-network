@@ -1,6 +1,6 @@
 pub use {chat::*, profile::*, replicated::*, retry::*};
 use {
-    chat_logic::{Protocol, ProtocolResult, Subscribe},
+    chat-spec::{Protocol, ProtocolResult, Subscribe},
     component_utils::{codec, Codec},
     libp2p::PeerId,
     onion::PathId,

@@ -14,7 +14,7 @@ use {
     self::handlers::RequestOrigin,
     anyhow::Context as _,
     chain_api::{ContractId, NodeAddress, NodeData},
-    chat_logic::{
+    chat-spec::{
         CallId, ChatName, CreateChat, CreateProfile, FetchFullProfile, FetchLatestBlock,
         FetchMessages, FetchProfile, FetchVault, Identity, PerformChatAction, PossibleTopic,
         Profile, ProposeMsgBlock, Protocol, ReadMail, SendBlock, SetVault, Subscribe, Topic,
@@ -436,7 +436,7 @@ impl Server {
             }
         };
 
-        let Some(req) = chat_logic::Request::decode(&mut req.as_slice()) else {
+        let Some(req) = chat-spec::Request::decode(&mut req.as_slice()) else {
             log::info!("failed to decode client request: {:?}", req);
             return;
         };

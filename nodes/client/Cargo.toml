@@ -14,7 +14,7 @@ description = "minimal frontend for the chat application"
 [dependencies]
 anyhow = "1.0.75"
 argon2 = { version = "0.5.2", default-features = false, features = ["alloc"] }
-chat-logic = { version = "0.1.0", path = "../../core/chat-logic" }
+chat-spec = { version = "0.1.0", path = "../../core/chat-spec" }
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 console_error_panic_hook = "0.1.7"
 console_log = { version = "1.0.0", features = ["wasm-bindgen"] }

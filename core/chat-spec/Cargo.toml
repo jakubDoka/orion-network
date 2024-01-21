@@ -4,7 +4,7 @@ license = { workspace = true }
 readme = { workspace = true }
 categories = { workspace = true }
 keywords = { workspace = true }
-name = "chat-logic"
+name = "chat-spec"
 version = "0.1.0"
 edition = "2021"
 description = "common declarations that client and server share"

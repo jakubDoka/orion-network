@@ -48,8 +48,8 @@ pub mod enc;
 pub mod hash;
 pub mod sign;
 
-pub use hash::Hash;
 use rand_core::CryptoRngCore;
+pub use {hash::Hash, rand_core};
 
 pub trait TransmutationCircle: Sized {
     type Serialized: AsRef<[u8]>;

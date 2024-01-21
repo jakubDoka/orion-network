@@ -17,7 +17,7 @@ use {
     anyhow::Context,
     argon2::Argon2,
     chain_api::UserIdentity,
-    chat_logic::{
+    chat-spec::{
         username_to_raw, ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, SetVault,
         UserName,
     },
@@ -136,26 +136,27 @@ impl State {
         self,
         chat_name: ChatName,
         nonce: Option<Nonce>,
-    ) -> Option<chat_logic::Proof<ChatName>> {
+    ) -> Option<chat-spec::Proof<ChatName>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
                 self.vault.try_update(|vault| {
                     let chat = vault.chats.get_mut(&chat_name)?;
                     chat.action_no = nonce.map_or(chat.action_no, |n| n + 1);
-                    Some(Proof::new(&keys.sign, &mut chat.action_no, chat_name))
+                    Some(Proof::new(&keys.sign, &mut chat.action_no, chat_name, OsRng))
                 })
             })
             .flatten()
             .flatten()
     }
 
-    pub fn next_profile_proof(self, vault: &[u8]) -> Option<chat_logic::Proof<Reminder>> {
+    pub fn next_profile_proof(self, vault: &[u8]) -> Option<chat-spec::Proof<Reminder>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
-                self.vault_version
-                    .try_update_value(|nonce| Some(Proof::new(&keys.sign, nonce, Reminder(vault))))
+                self.vault_version.try_update_value(|nonce| {
+                    Some(Proof::new(&keys.sign, nonce, Reminder(vault), OsRng))
+                })
             })
             .flatten()
             .flatten()
@@ -165,12 +166,13 @@ impl State {
         self.vault.with_untracked(|vault| vault.chats.get(&chat_name).map(|c| c.secret))
     }
 
-    fn next_mail_proof(&self) -> Option<chat_logic::Proof<chat_logic::Mail>> {
+    fn next_mail_proof(&self) -> Option<chat-spec::Proof<chat-spec::Mail>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
-                self.mail_action
-                    .try_update_value(|nonce| Some(Proof::new(&keys.sign, nonce, chat_logic::Mail)))
+                self.mail_action.try_update_value(|nonce| {
+                    Some(Proof::new(&keys.sign, nonce, chat-spec::Mail, OsRng))
+                })
             })
             .flatten()
             .flatten()
@@ -395,7 +397,7 @@ fn App() -> impl IntoView {
                 let Reminder(list) = dispatch_clone.dispatch::<ReadMail>(proof).await?;
 
                 let mut new_messages = Vec::new();
-                for mail in chat_logic::unpack_mail(list) {
+                for mail in chat-spec::unpack_mail(list) {
                     handle_error(
                         handle_mail(
                             mail,
@@ -510,14 +512,8 @@ pub enum BootPhase {
     FetchNodesAndProfile,
     #[error("initiating orion connection...")]
     InitiateConnection,
-    #[error("bootstrapping kademlia...")]
-    Bootstrapping,
     #[error("collecting server keys... ({0} left)")]
     CollecringKeys(usize),
-    #[error("initiating search path...")]
-    InitialRoute,
-    #[error("searching profile...")]
-    ProfileSearch,
     #[error("opening route to profile...")]
     ProfileOpen,
     #[error("loading vault...")]
@@ -526,8 +522,6 @@ pub enum BootPhase {
     ProfileCreate,
     #[error("searching chats...")]
     ChatSearch,
-    #[error("loading chats...")]
-    ChatLoad,
     #[error("ready")]
     ChatRun,
 }

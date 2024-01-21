@@ -1,5 +1,5 @@
 use {
-    anyhow::Context, chat_logic::*, component_utils::Codec, libp2p::futures::StreamExt,
+    anyhow::Context, chat-spec::*, component_utils::Codec, libp2p::futures::StreamExt,
     onion::EncryptedStream, std::convert::Infallible,
 };
 

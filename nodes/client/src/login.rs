@@ -1,7 +1,7 @@
 use {
     crate::{handled_async_closure, State, UserKeys},
     anyhow::Context,
-    chat_logic::{username_to_raw, UserName},
+    chat-spec::{username_to_raw, UserName},
     leptos::{html::Input, *},
     leptos_router::A,
 };

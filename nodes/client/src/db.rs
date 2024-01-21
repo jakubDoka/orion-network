@@ -1,6 +1,6 @@
 use {
     crate::handle_js_err,
-    chat_logic::{ChatName, UserName},
+    chat-spec::{ChatName, UserName},
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

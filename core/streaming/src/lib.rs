@@ -66,7 +66,7 @@ impl NetworkBehaviour for Behaviour {
         _: &libp2p::Multiaddr,
         _: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        Ok(Handler::default())
+        Ok(Handler::new(|| PROTOCOL_NAME))
     }
 
     fn handle_established_outbound_connection(
@@ -76,7 +76,7 @@ impl NetworkBehaviour for Behaviour {
         _: &libp2p::Multiaddr,
         _: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        Ok(Handler::default())
+        Ok(Handler::new(|| PROTOCOL_NAME))
     }
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
@@ -186,11 +186,17 @@ pub enum Event {
 
 pub type Error = StreamUpgradeError<void::Void>;
 
-#[derive(Default)]
 pub struct Handler {
     requested: usize,
     stream: Vec<Result<libp2p::Stream, Result<libp2p::Stream, Error>>>,
     waker: Option<std::task::Waker>,
+    proto: fn() -> StreamProtocol,
+}
+
+impl Handler {
+    pub fn new(proto: fn() -> StreamProtocol) -> Self {
+        Self { requested: 0, stream: Vec::new(), waker: None, proto }
+    }
 }
 
 impl ConnectionHandler for Handler {
@@ -204,7 +210,7 @@ impl ConnectionHandler for Handler {
     fn listen_protocol(
         &self,
     ) -> libp2p::swarm::SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        libp2p::swarm::SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ())
+        libp2p::swarm::SubstreamProtocol::new(ReadyUpgrade::new((self.proto)()), ())
     }
 
     fn poll(
@@ -225,7 +231,7 @@ impl ConnectionHandler for Handler {
         if let Some(next_requested) = self.requested.checked_sub(1) {
             self.requested = next_requested;
             return Poll::Ready(libp2p::swarm::ConnectionHandlerEvent::OutboundSubstreamRequest {
-                protocol: SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ()),
+                protocol: SubstreamProtocol::new(ReadyUpgrade::new((self.proto)()), ()),
             });
         }
         Poll::Pending

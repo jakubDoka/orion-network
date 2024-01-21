@@ -2,7 +2,7 @@ use {
     super::{
         CallId, Codec, Handler, HandlerResult, ProtocolResult, RequestOrigin, Scope, SyncHandler,
     },
-    chat_logic::{
+    chat-spec::{
         advance_nonce, CreateAccountError, CreateProfile, FetchFullProfile, FetchProfile,
         FetchProfileError, FetchVault, FetchVaultError, Identity, Profile, Protocol, ReadMail,
         ReadMailError, SendMailError, SetVault, SetVaultError,
@@ -113,6 +113,7 @@ pub struct SendMail {
     for_who: Identity,
 }
 
+#[allow(clippy::unnecessary_wraps)]
 impl SendMail {
     fn clear_presence(self, mut cx: Scope) -> HandlerResult<Self> {
         cx.storage.online.remove(&self.for_who);
@@ -129,7 +130,7 @@ impl SendMail {
 
 impl Handler for SendMail {
     type Event = rpc::Event;
-    type Protocol = chat_logic::SendMail;
+    type Protocol = chat-spec::SendMail;
 
     fn execute<'a>(
         sc: Scope<'a>,

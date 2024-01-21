@@ -1,6 +1,6 @@
 use {
     super::{Codec, Protocol, ProtocolResult, RequestOrigin, Scope, SyncHandler},
-    chat_logic::{
+    chat-spec::{
         advance_nonce, retain_messages_in_vec, unpack_messages, unpack_messages_ref, BlockNumber,
         ChatAction, ChatActionError, ChatEvent, ChatName, CreateChat, CreateChatError, Cursor,
         FetchLatestBlock, FetchLatestBlockError, FetchMessages, FetchMessagesError, Identity,

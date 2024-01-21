@@ -6,6 +6,7 @@ use {
 };
 
 type Db = storage_spec::db::MemoryDatabase;
+#[allow(clippy::unnecessary_wraps)]
 fn connect_db(_: &Config) -> anyhow::Result<Db> {
     Ok(storage_spec::db::MemoryDatabase::default())
 }

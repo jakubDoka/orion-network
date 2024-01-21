@@ -15,7 +15,7 @@ description = "node serving users of a chat, storing latest messages and finaliz
 anyhow = "1.0.75"
 bitflags = "2.4.1"
 chain-api = { version = "0.1.0", path = "../../core/chain-api", features = ["native"] }
-chat-logic = { version = "0.1.0", path = "../../core/chat-logic" }
+chat-spec = { version = "0.1.0", path = "../../core/chat-spec" }
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 config = { version = "0.1.0", path = "../../utils/config" }
 crypto = { version = "0.1.0", path = "../../core/crypto" }

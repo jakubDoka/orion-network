@@ -15,6 +15,8 @@ use {
     std::{io, sync::Arc, task::Poll, time::Duration},
 };
 
+component_utils::decl_stream_protocol!(PROTOCOL_NAME = "rpc");
+
 pub struct Stream {
     writer: PacketWriter,
     reader: PacketReader,
@@ -149,22 +151,22 @@ impl NetworkBehaviour for Behaviour {
 
     fn handle_established_inbound_connection(
         &mut self,
-        conn: ConnectionId,
-        peer: PeerId,
-        a: &libp2p::Multiaddr,
-        b: &libp2p::Multiaddr,
+        _: ConnectionId,
+        _: PeerId,
+        _: &libp2p::Multiaddr,
+        _: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        self.streaming.handle_established_inbound_connection(conn, peer, a, b)
+        Ok(streaming::Handler::new(|| PROTOCOL_NAME))
     }
 
     fn handle_established_outbound_connection(
         &mut self,
-        conn: ConnectionId,
-        peer: PeerId,
-        a: &libp2p::Multiaddr,
-        b: libp2p::core::Endpoint,
+        _: ConnectionId,
+        _: PeerId,
+        _: &libp2p::Multiaddr,
+        _: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        self.streaming.handle_established_outbound_connection(conn, peer, a, b)
+        Ok(streaming::Handler::new(|| PROTOCOL_NAME))
     }
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
