@@ -16,15 +16,17 @@ pub fn mul(a: u8, b: u8) -> u8 {
 
 /// Divide one element by another. `b`, the divisor, may not be 0.
 #[inline]
-pub fn div(a: u8, b: u8) -> u8 {
-    assert!(b != 0, "divide by zero");
+pub fn div(a: u8, b: u8) -> Option<u8> {
+    if b == 0 {
+        return None;
+    }
 
     if a == 0 {
-        return 0;
+        return Some(0);
     }
 
     if a == 1 {
-        return INV_TABLE[b as usize];
+        return Some(INV_TABLE[b as usize]);
     }
 
     let log_a = LOG_TABLE[a as usize];
@@ -33,7 +35,7 @@ pub fn div(a: u8, b: u8) -> u8 {
     if log_result < 0 {
         log_result += 255;
     }
-    EXP_TABLE[log_result as usize]
+    Some(EXP_TABLE[log_result as usize])
 }
 
 /// Compute a^n.
@@ -53,6 +55,7 @@ pub fn exp(a: u8, n: usize) -> u8 {
     }
 }
 
+#[allow(unused)]
 const PURE_RUST_UNROLL: usize = 4;
 
 #[cfg(not(all(
@@ -63,7 +66,21 @@ const PURE_RUST_UNROLL: usize = 4;
 )))]
 #[inline]
 pub fn mul_slice(c: u8, input: &[u8], out: &mut [u8]) {
-    mul_slice_pure_rust(c, input, out);
+    assert_eq!(input.len(), out.len());
+
+    let mt = &MUL_TABLE[c as usize];
+    let mut input_chunks = input.array_chunks::<PURE_RUST_UNROLL>();
+    let mut out_chunks = out.array_chunks_mut::<PURE_RUST_UNROLL>();
+
+    for (inp, out) in input_chunks.by_ref().zip(out_chunks.by_ref()) {
+        for i in 0..PURE_RUST_UNROLL {
+            out[i] ^= mt[inp[i] as usize];
+        }
+    }
+
+    for (i, o) in input_chunks.remainder().iter().zip(out_chunks.into_remainder()) {
+        *o ^= mt[*i as usize];
+    }
 }
 
 #[cfg(not(all(
@@ -74,10 +91,6 @@ pub fn mul_slice(c: u8, input: &[u8], out: &mut [u8]) {
 )))]
 #[inline]
 pub fn mul_slice_xor(c: u8, input: &[u8], out: &mut [u8]) {
-    mul_slice_xor_pure_rust(c, input, out);
-}
-
-fn mul_slice_pure_rust(c: u8, input: &[u8], out: &mut [u8]) {
     assert_eq!(input.len(), out.len());
 
     let mt = &MUL_TABLE[c as usize];
@@ -93,24 +106,6 @@ fn mul_slice_pure_rust(c: u8, input: &[u8], out: &mut [u8]) {
 
     for (i, o) in input_chunks.remainder().iter().zip(out_chunks.into_remainder()) {
         *o = mt[*i as usize];
-    }
-}
-
-fn mul_slice_xor_pure_rust(c: u8, input: &[u8], out: &mut [u8]) {
-    assert_eq!(input.len(), out.len());
-
-    let mt = &MUL_TABLE[c as usize];
-    let mut input_chunks = input.array_chunks::<PURE_RUST_UNROLL>();
-    let mut out_chunks = out.array_chunks_mut::<PURE_RUST_UNROLL>();
-
-    for (inp, out) in input_chunks.by_ref().zip(out_chunks.by_ref()) {
-        for i in 0..PURE_RUST_UNROLL {
-            out[i] ^= mt[inp[i] as usize];
-        }
-    }
-
-    for (i, o) in input_chunks.remainder().iter().zip(out_chunks.into_remainder()) {
-        *o ^= mt[*i as usize];
     }
 }
 
@@ -154,6 +149,8 @@ extern "C" {
 pub fn mul_slice(c: u8, input: &[u8], out: &mut [u8]) {
     assert_eq!(input.len(), out.len());
 
+    let len = input.len();
+
     let low = MUL_TABLE_LOW[c as usize].as_ptr();
     let high = MUL_TABLE_HIGH[c as usize].as_ptr();
 
@@ -165,9 +162,8 @@ pub fn mul_slice(c: u8, input: &[u8], out: &mut [u8]) {
 
     unsafe {
         let mt = &MUL_TABLE[c as usize];
-        for (i, o) in
-            input.get_unchecked(bytes_done..).iter().zip(out.get_unchecked_mut(bytes_done..))
-        {
+        let range = bytes_done..len;
+        for (i, o) in input.get_unchecked(range.clone()).iter().zip(out.get_unchecked_mut(range)) {
             *o = mt[*i as usize];
         }
     }
@@ -188,17 +184,17 @@ pub fn mul_slice_xor(c: u8, input: &[u8], out: &mut [u8]) {
 
     let input_ptr = input.as_ptr();
     let out_ptr = out.as_mut_ptr();
-    let size: usize = input.len();
+    let size = input.len();
 
     let bytes_done: usize = unsafe { reedsolomon_gal_mul_xor(low, high, input_ptr, out_ptr, size) };
 
-    unsafe {
-        let mt = &MUL_TABLE[c as usize];
-        for (i, o) in
-            input.get_unchecked(bytes_done..).iter().zip(out.get_unchecked_mut(bytes_done..))
-        {
-            *o ^= mt[*i as usize];
-        }
+    if bytes_done == size {
+        return;
+    }
+
+    let mt = &MUL_TABLE[c as usize];
+    for i in bytes_done..size {
+        out[i] ^= mt[input[i] as usize];
     }
 }
 
@@ -275,7 +271,7 @@ mod tests {
             let c = sub(a, b);
             assert_eq!(c, 0);
             if a != 0 {
-                let b = div(1, a);
+                let b = div(1, a).unwrap();
                 let c = mul(a, b);
                 assert_eq!(c, 1);
             }
@@ -289,7 +285,7 @@ mod tests {
 
         fn qc_multiplicative_identity(a: u8) -> bool {
             if a == 0 { true }
-            else      { mul(a, div(1, a)) == 1 }
+            else      { mul(a, div(1, a).unwrap()) == 1 }
         }
     }
 
@@ -456,17 +452,6 @@ mod tests {
                 assert_eq!(expect[i], output[i]);
             }
         }
-    }
-
-    #[test]
-    fn test_div_a_is_0() {
-        assert_eq!(0, div(0, 100));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_div_b_is_0() {
-        div(1, 0);
     }
 
     #[test]

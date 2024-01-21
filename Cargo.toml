@@ -24,6 +24,7 @@ inherits = "release"
 lto = true
 codegen-units = 1
 panic = "abort"
+strip = true
 
 [profile.wasm-optimized]
 inherits = "release"

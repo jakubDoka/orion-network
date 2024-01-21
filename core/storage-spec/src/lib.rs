@@ -1,7 +1,11 @@
-use std::collections::HashMap;
+#![feature(slice_take)]
+#![feature(array_windows)]
+//use std::collections::HashMap;
 
 mod berkleamp_wench;
 pub mod db;
+
+pub use berkleamp_wench::Fec;
 
 //pub const SHARD_SIZE_BYTES: usize = 1024 * 4;
 //pub const SHARD_SIZE: usize = SHARD_SIZE_BYTES / std::mem::size_of::<Elem>();
