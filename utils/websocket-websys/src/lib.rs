@@ -7,7 +7,6 @@ use {
         fmt,
         future::Future,
         io,
-        ops::DerefMut,
         pin::Pin,
         rc::Rc,
         task::{Poll, Waker},
@@ -35,6 +34,7 @@ pub struct Transport {
 }
 
 impl Transport {
+    #[must_use]
     pub fn new(trottle_period: i32) -> Self {
         Self { trottle_period }
     }
@@ -91,7 +91,7 @@ pub struct Error(JsValue);
 
 impl From<JsValue> for Error {
     fn from(e: JsValue) -> Self {
-        Error(e)
+        Self(e)
     }
 }
 
@@ -121,10 +121,7 @@ impl Timeout {
                 dur,
             )
             .unwrap();
-        Self {
-            _closure: closure,
-            id,
-        }
+        Self { _closure: closure, id }
     }
 }
 
@@ -217,7 +214,7 @@ impl Future for ConnectionFut {
     type Output = Result<Connection, Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let s = self.deref_mut();
+        let s = &mut *self;
         let Some(conn) = s.conn.as_mut() else {
             return Poll::Pending;
         };
@@ -228,8 +225,7 @@ impl Future for ConnectionFut {
             return Poll::Ready(Ok(s.conn.take().unwrap()));
         }
 
-        conn.inner
-            .set_onopen(Some(s.closure.as_ref().unchecked_ref()));
+        conn.inner.set_onopen(Some(s.closure.as_ref().unchecked_ref()));
 
         Poll::Pending
     }
@@ -249,16 +245,8 @@ impl Connection {
             let waker = waker.clone();
             move || waker.take().unwrap().wake()
         });
-        let conn = Some(Connection {
-            inner: sock.clone(),
-            state,
-            trottle_period,
-        });
-        Ok(ConnectionFut {
-            conn,
-            closure,
-            waker,
-        })
+        let conn = Some(Self { inner: sock, state, trottle_period });
+        Ok(ConnectionFut { conn, closure, waker })
     }
 }
 
@@ -305,7 +293,7 @@ impl futures::AsyncWrite for Connection {
                     return;
                 };
                 state.trottle_callback.take();
-                waker.wake_by_ref()
+                waker.wake_by_ref();
             });
             self.state.trottle_callback.set(Some(cb));
 
@@ -316,7 +304,7 @@ impl futures::AsyncWrite for Connection {
             self.inner
                 .send_with_u8_array(buf)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))
-                .map(|_| buf.len()),
+                .map(|()| buf.len()),
         )
     }
 
@@ -325,18 +313,11 @@ impl futures::AsyncWrite for Connection {
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<io::Result<()>> {
-        if self
-            .state
-            .close_waker
-            .replace(Some(cx.waker().clone()))
-            .is_some()
-        {
+        if self.state.close_waker.replace(Some(cx.waker().clone())).is_some() {
             return Poll::Pending;
         }
 
-        self.inner
-            .close()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
+        self.inner.close().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
         Poll::Pending
     }
 }

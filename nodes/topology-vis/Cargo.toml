@@ -1,7 +1,13 @@
 [package]
+repository = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
 name = "topology-vis"
 version = "0.1.0"
 edition = "2021"
+description = "little frontend to visualize the topology of a network"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -32,3 +38,6 @@ default-features = false
 
 [features]
 building = []
+
+[lints]
+workspace = true

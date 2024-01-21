@@ -14,11 +14,16 @@ use {
     self::handlers::RequestOrigin,
     anyhow::Context as _,
     chain_api::{ContractId, NodeAddress, NodeData},
-    chat_logic::*,
+    chat_logic::{
+        CallId, ChatName, CreateChat, CreateProfile, FetchFullProfile, FetchLatestBlock,
+        FetchMessages, FetchProfile, FetchVault, Identity, PerformChatAction, PossibleTopic,
+        Profile, ProposeMsgBlock, Protocol, ReadMail, SendBlock, SetVault, Subscribe, Topic,
+        REPLICATION_FACTOR,
+    },
     component_utils::{Codec, LinearMap, Reminder},
     crypto::{enc, sign, TransmutationCircle},
     dht::Route,
-    handlers::{Repl, SendMail, *},
+    handlers::{Chat, Handler, HandlerNest, Repl, Retry, SendMail, TryUnwrap},
     libp2p::{
         core::{multiaddr, muxing::StreamMuxerBox, upgrade::Version},
         futures::{self, stream::SelectAll, SinkExt, StreamExt},
@@ -255,7 +260,7 @@ impl Server {
         let behaviour = Behaviour {
             onion: topology_wrapper::new(
                 onion::Behaviour::new(
-                    onion::Config::new(keys.enc.clone().into(), peer_id)
+                    onion::Config::new(keys.enc.into(), peer_id)
                         .max_streams(10)
                         .keep_alive_interval(Duration::from_secs(100)),
                 ),
@@ -281,10 +286,10 @@ impl Server {
         )
         .map(move |t, _| match t {
             futures::future::Either::Left((p, m)) => {
-                (p, StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender.clone())))
+                (p, StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender)))
             }
             futures::future::Either::Right((p, m)) => {
-                (p, StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender.clone())))
+                (p, StreamMuxerBox::new(topology_wrapper::muxer::Muxer::new(m, sender)))
             }
         })
         .boxed();
@@ -551,7 +556,7 @@ impl Context<'_> {
     }
 
     fn push(&mut self, topic: ChatName, event: <ChatName as Topic>::Event<'_>) {
-        handle_event(self.clients, PossibleTopic::Chat(topic), event)
+        handle_event(self.clients, PossibleTopic::Chat(topic), event);
     }
 
     fn is_valid_topic(&self, topic: PossibleTopic) -> bool {
@@ -652,14 +657,14 @@ impl TryUnwrap<Infallible> for BehaviourEvent {
 
 impl From<rpc::Event> for BehaviourEvent {
     fn from(v: rpc::Event) -> Self {
-        BehaviourEvent::Rpc(v)
+        Self::Rpc(v)
     }
 }
 
 impl TryUnwrap<rpc::Event> for BehaviourEvent {
     fn try_unwrap(self) -> Result<rpc::Event, Self> {
         match self {
-            BehaviourEvent::Rpc(e) => Ok(e),
+            Self::Rpc(e) => Ok(e),
             e => Err(e),
         }
     }
@@ -687,9 +692,9 @@ impl InnerStream {
     #[must_use = "write could have failed"]
     pub fn write<'a>(&mut self, data: impl Codec<'a>) -> Option<()> {
         match self {
-            InnerStream::Normal(s) => s.write(data),
+            Self::Normal(s) => s.write(data),
             #[cfg(test)]
-            InnerStream::Test(_, s) => s.try_send(data.to_bytes()).ok(),
+            Self::Test(_, s) => s.try_send(data.to_bytes()).ok(),
         }
     }
 }
@@ -701,8 +706,8 @@ pub struct Stream {
 }
 
 impl Stream {
-    fn new(id: PathId, inner: EncryptedStream) -> Stream {
-        Stream { id, subscriptions: Default::default(), inner: InnerStream::Normal(inner) }
+    fn new(id: PathId, inner: EncryptedStream) -> Self {
+        Self { id, subscriptions: Default::default(), inner: InnerStream::Normal(inner) }
     }
 
     #[cfg(test)]
@@ -710,7 +715,7 @@ impl Stream {
         let (input_s, input_r) = mpsc::channel(1);
         let (output_s, output_r) = mpsc::channel(1);
         let id = PathId::new();
-        [(input_r, output_s), (output_r, input_s)].map(|(a, b)| Stream {
+        [(input_r, output_s), (output_r, input_s)].map(|(a, b)| Self {
             id,
             subscriptions: Default::default(),
             inner: InnerStream::Test(a, b),

@@ -1,4 +1,9 @@
 [package]
+repository = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
 name = "merkle-tree"
 version = "0.1.0"
 edition = "2021"
@@ -7,3 +12,6 @@ edition = "2021"
 
 [dependencies]
 crypto = { version = "0.1.0", path = "../../core/crypto" }
+
+[lints]
+workspace = true

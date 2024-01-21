@@ -45,6 +45,7 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
+    #[must_use]
     pub fn new(config: Config) -> Self {
         Self {
             config,
@@ -74,20 +75,13 @@ impl Behaviour {
     ) -> PathId {
         assert!(path.array_windows().all(|[a, b]| a.1 != b.1));
 
-        path.iter_mut()
-            .rev()
-            .for_each(|(k, _)| mem::swap(k, &mut recipient));
+        path.iter_mut().rev().for_each(|(k, _)| mem::swap(k, &mut recipient));
 
         let path_id = PathId::new();
 
         log::debug!("opening path to {}", to);
 
-        self.push_stream_request(StreamRequest {
-            to,
-            recipient,
-            path,
-            path_id,
-        });
+        self.push_stream_request(StreamRequest { to, path_id, recipient, path });
 
         path_id
     }
@@ -102,11 +96,7 @@ impl Behaviour {
         let sr = Arc::new(sr);
         self.pending_requests.push(sr.clone());
         let Some(&conn_id) = self.peer_to_connection.get(&sr.to) else {
-            log::debug!(
-                "queueing connection to {} from {}",
-                sr.to,
-                self.config.current_peer_id
-            );
+            log::debug!("queueing connection to {} from {}", sr.to, self.config.current_peer_id);
             self.handle_missing_connection(sr.to);
             return;
         };
@@ -132,8 +122,7 @@ impl Behaviour {
                 return;
             }
 
-            self.error_streams
-                .push(ClosingStream::new(is.stream, packet::OCCUPIED_PEER));
+            self.error_streams.push(ClosingStream::new(is.stream, packet::OCCUPIED_PEER));
             return;
         }
 
@@ -146,11 +135,7 @@ impl Behaviour {
         let meta = is.meta.clone();
         self.pending_connections.push(is);
         let Some(&conn_id) = self.peer_to_connection.get(&meta.to) else {
-            log::debug!(
-                "queueing connection to {} from {}",
-                meta.to,
-                self.config.current_peer_id
-            );
+            log::debug!("queueing connection to {} from {}", meta.to, self.config.current_peer_id);
             self.handle_missing_connection(meta.to);
             return;
         };
@@ -183,10 +168,7 @@ impl Behaviour {
             .cloned()
             .map(IncomingOrRequest::Request);
 
-        log::debug!(
-            "adding connection to {to} from {}",
-            self.config.current_peer_id
-        );
+        log::debug!("adding connection to {to} from {}", self.config.current_peer_id);
 
         for p in incoming.chain(requests) {
             log::debug!("sending pending stream to {to}");
@@ -202,16 +184,14 @@ impl Behaviour {
     /// leaked for each `ConnectionRequest`.
     pub fn report_unreachable(&mut self, peer: PeerId) {
         for p in self.pending_connections.extract_if(|p| p.meta.to == peer) {
-            self.error_streams
-                .push(ClosingStream::new(p.stream, MISSING_PEER));
+            self.error_streams.push(ClosingStream::new(p.stream, MISSING_PEER));
         }
 
         for r in self.pending_requests.extract_if(|p| p.to == peer) {
-            self.events
-                .push_back(TS::GenerateEvent(Event::OutboundStream(
-                    Err(StreamUpgradeError::Apply(OUpgradeError::MissingPeer)),
-                    r.path_id,
-                )));
+            self.events.push_back(TS::GenerateEvent(Event::OutboundStream(
+                Err(StreamUpgradeError::Apply(OUpgradeError::MissingPeer)),
+                r.path_id,
+            )));
         }
     }
 
@@ -219,8 +199,7 @@ impl Behaviour {
         if self.config.dial {
             self.dial(to);
         } else {
-            self.events
-                .push_back(TS::GenerateEvent(Event::ConnectRequest(to)));
+            self.events.push_back(TS::GenerateEvent(Event::ConnectRequest(to)));
         }
     }
 
@@ -263,13 +242,9 @@ impl NetworkBehaviour for Behaviour {
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
         if let libp2p::swarm::FromSwarm::ConnectionClosed(c) = event {
             if self.pending_requests.iter().any(|p| p.to == c.peer_id)
-                || self
-                    .pending_connections
-                    .iter()
-                    .any(|p| p.meta.to == c.peer_id)
+                || self.pending_connections.iter().any(|p| p.meta.to == c.peer_id)
             {
-                self.events
-                    .push_back(TS::GenerateEvent(Event::ConnectRequest(c.peer_id)));
+                self.events.push_back(TS::GenerateEvent(Event::ConnectRequest(c.peer_id)));
             }
             log::debug!("connection closed to {}", c.peer_id);
             self.peer_to_connection.remove(&c.peer_id);
@@ -292,9 +267,8 @@ impl NetworkBehaviour for Behaviour {
         use crate::handler::ToBehaviour as HTB;
         match event {
             HTB::NewChannel(to, path_id) => {
-                let Some(from) = self
-                    .pending_connections
-                    .find_and_remove(|p| p.meta.path_id == path_id)
+                let Some(from) =
+                    self.pending_connections.find_and_remove(|p| p.meta.path_id == path_id)
                 else {
                     log::error!("no pending connection for path id {}", peer_id);
                     return;
@@ -308,23 +282,17 @@ impl NetworkBehaviour for Behaviour {
             }
             HTB::IncomingStream(IncomingOrResponse::Incoming(s)) => self.push_incoming_stream(s),
             HTB::IncomingStream(IncomingOrResponse::Response(s)) => {
-                self.events
-                    .push_back(TS::GenerateEvent(Event::InboundStream(s, PathId::new())));
+                self.events.push_back(TS::GenerateEvent(Event::InboundStream(s, PathId::new())));
             }
             HTB::OutboundStream { to, id, from } => {
-                if self
-                    .pending_requests
-                    .find_and_remove(|p| p.path_id == id)
-                    .is_none()
-                {
+                if self.pending_requests.find_and_remove(|p| p.path_id == id).is_none() {
                     log::error!("no pending request for path id {:?}", id);
                     return;
                 }
-                self.events
-                    .push_back(TS::GenerateEvent(Event::OutboundStream(
-                        to.map(|to| (to, from)),
-                        id,
-                    )))
+                self.events.push_back(TS::GenerateEvent(Event::OutboundStream(
+                    to.map(|to| (to, from)),
+                    id,
+                )));
             }
         }
     }
@@ -372,10 +340,7 @@ component_utils::gen_config! {
 pub enum Event {
     ConnectRequest(PeerId),
     InboundStream(EncryptedStream, PathId),
-    OutboundStream(
-        Result<(EncryptedStream, PeerId), StreamUpgradeError<OUpgradeError>>,
-        PathId,
-    ),
+    OutboundStream(Result<(EncryptedStream, PeerId), StreamUpgradeError<OUpgradeError>>, PathId),
 }
 
 component_utils::gen_unique_id!(pub PathId);
@@ -390,12 +355,7 @@ pub struct EncryptedStream {
 
 impl EncryptedStream {
     pub(crate) fn new(inner: libp2p::Stream, key: SharedSecret, cap: usize) -> Self {
-        Self {
-            inner: Some(inner),
-            key,
-            reader: Default::default(),
-            writer: PacketWriter::new(cap),
-        }
+        Self { inner: Some(inner), key, reader: Default::default(), writer: PacketWriter::new(cap) }
     }
 
     #[must_use = "write could have failed"]
@@ -411,9 +371,7 @@ impl EncryptedStream {
         let mut writer = self.writer.guard();
         let reserved = writer.write([0u8; PACKET_LEN_WIDTH])?;
         let raw = writer.write(data)?;
-        let tag = aes
-            .encrypt_in_place_detached(&nonce, ASOC_DATA, raw)
-            .expect("no");
+        let tag = aes.encrypt_in_place_detached(&nonce, ASOC_DATA, raw).expect("no");
         let full_len = raw.len() + tag.len() + nonce.len();
         writer.write_bytes(&tag)?;
         writer.write_bytes(&nonce)?;
@@ -470,7 +428,7 @@ impl futures::stream::FusedStream for EncryptedStream {
 }
 
 #[derive(Debug)]
-pub(crate) struct Stream {
+pub struct Stream {
     pub(crate) inner: libp2p::swarm::Stream,
     pub(crate) poll_cache: Vec<u8>,
     pub(crate) written: usize,
@@ -478,11 +436,7 @@ pub(crate) struct Stream {
 
 impl Stream {
     pub(crate) fn new(inner: libp2p::swarm::Stream, cap: usize) -> Self {
-        Self {
-            inner,
-            poll_cache: Vec::with_capacity(cap),
-            written: 0,
-        }
+        Self { inner, poll_cache: Vec::with_capacity(cap), written: 0 }
     }
 
     fn forward_from(
@@ -565,13 +519,11 @@ impl Channel {
         component_utils::set_waker(&mut self.waker, cx.waker());
         let temp = &mut self.buffer.lock()[..];
         if let Poll::Ready(e) =
-            self.from
-                .forward_from(&mut self.to.inner, temp, &mut self.last_packet, cx)
+            self.from.forward_from(&mut self.to.inner, temp, &mut self.last_packet, cx)
         {
             return Poll::Ready(e);
         }
-        self.to
-            .forward_from(&mut self.from.inner, temp, &mut self.last_packet, cx)
+        self.to.forward_from(&mut self.from.inner, temp, &mut self.last_packet, cx)
     }
 
     fn is_valid(&mut self, timeout: Duration) -> bool {

@@ -13,9 +13,8 @@ pub fn Login(state: State) -> impl IntoView {
     let on_login = handled_async_closure("logging in", move || async move {
         let username = username.get_untracked().expect("universe to work");
         let password = password.get_untracked().expect("universe to work");
-        let username_content = UserName::try_from(username.value().as_str())
-            .ok()
-            .context("invalid username")?;
+        let username_content =
+            UserName::try_from(username.value().as_str()).ok().context("invalid username")?;
 
         let keys = UserKeys::new(username_content, password.value().as_str());
 
@@ -51,21 +50,16 @@ pub fn Register(state: State) -> impl IntoView {
     let on_register = handled_async_closure("registering", move || async move {
         let username = username.get_untracked().expect("universe to work");
         let password = password.get_untracked().expect("universe to work");
-        let username_content = UserName::try_from(username.value().as_str())
-            .ok()
-            .context("invalid username")?;
+        let username_content =
+            UserName::try_from(username.value().as_str()).ok().context("invalid username")?;
 
         let key = UserKeys::new(username_content, password.value().as_str());
 
-        let client = crate::chain::node(username_content)
-            .await
-            .context("chain is not reachable")?;
+        let client =
+            crate::chain::node(username_content).await.context("chain is not reachable")?;
 
         if client
-            .user_exists(
-                crate::chain::user_contract(),
-                username_to_raw(username_content),
-            )
+            .user_exists(crate::chain::user_contract(), username_to_raw(username_content))
             .await
             .context("user contract call failed")?
         {

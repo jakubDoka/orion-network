@@ -1,11 +1,11 @@
 use {
     chain_api::ContractId,
+    dht::Route,
     libp2p::{
         core::upgrade::Version, futures::StreamExt, multiaddr, swarm::NetworkBehaviour, Multiaddr,
         PeerId, Transport,
     },
     macroquad::prelude::*,
-    dht::Route,
     std::{
         cell::RefCell,
         collections::{BTreeMap, HashSet},
@@ -46,10 +46,7 @@ impl Nodes {
     }
 
     fn iter_mut(&mut self) -> impl Iterator<Item = (usize, &mut Node)> + '_ {
-        self.inner
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(i, node)| Some((i, node.as_mut()?)))
+        self.inner.iter_mut().enumerate().filter_map(|(i, node)| Some((i, node.as_mut()?)))
     }
 
     // fn len(&self) -> usize {
@@ -69,10 +66,7 @@ impl Nodes {
     }
 
     fn iter(&self) -> impl Iterator<Item = (usize, &Node)> + '_ {
-        self.inner
-            .iter()
-            .enumerate()
-            .filter_map(|(i, node)| Some((i, node.as_ref()?)))
+        self.inner.iter().enumerate().filter_map(|(i, node)| Some((i, node.as_ref()?)))
     }
 }
 
@@ -112,7 +106,7 @@ impl Node {
     ) {
         let diff = other.position - self.position;
         let dist_sq = diff.length_squared();
-        let force = (dist_sq - balanced_distance * balanced_distance).max(-1000.0);
+        let force = balanced_distance.mul_add(-balanced_distance, dist_sq).max(-1000.0);
         if force > 0.0 && dont_atract {
             return;
         }
@@ -124,15 +118,12 @@ impl Node {
     fn update(&mut self, time: f32) {
         self.position += self.velocity * time;
         self.velocity *= 1.0 - Self::FRICION;
-        self.brightness = (self.brightness - time * 0.8).max(Self::MIN_NODE_BRIGHTNESS);
+        self.brightness = time.mul_add(-0.8, self.brightness).max(Self::MIN_NODE_BRIGHTNESS);
     }
 
     fn draw(&self, is_client: bool) {
-        let color = if is_client {
-            Color::from_hex(0x1aaf72)
-        } else {
-            Color::from_hex(0xcc0000)
-        };
+        let color =
+            if is_client { Color::from_hex(0x001a_af72) } else { Color::from_hex(0x00cc_0000) };
         draw_circle(
             self.position.x,
             self.position.y,
@@ -195,14 +186,8 @@ impl Default for World {
             servers: HashSet::new(),
             edges: BTreeMap::new(),
             protocols: vec![
-                Protocol {
-                    name: "/onion/rot/0.1.0".into(),
-                    color: Color::from_hex(0x6600cc),
-                },
-                Protocol {
-                    name: "/onion/ksr/0.1.0".into(),
-                    color: Color::from_hex(0xccccff),
-                },
+                Protocol { name: "/onion/rot/0.1.0".into(), color: Color::from_hex(0x0066_00cc) },
+                Protocol { name: "/onion/ksr/0.1.0".into(), color: Color::from_hex(0x00cc_ccff) },
             ],
             center_node: Node::new(0.0, 0.0, PeerId::random()),
         }
@@ -222,10 +207,8 @@ impl World {
 
         let index = self.protocols.len();
         let rand_config = rand::gen_range(u32::MIN, u32::MAX);
-        self.protocols.push(Protocol {
-            name: protocol.to_owned(),
-            color: Color::from_hex(rand_config),
-        });
+        self.protocols
+            .push(Protocol { name: protocol.to_owned(), color: Color::from_hex(rand_config) });
         index
     }
 
@@ -248,16 +231,9 @@ impl World {
             node.reached = false;
         });
         self.edges.retain(|edge, brightness| {
-            *brightness = (*brightness - time * 2.0).max(Node::MIN_LINE_BRIGHTNESS);
-            self.nodes
-                .get_mut(edge.start)
-                .map(|n| n.reached = true)
-                .is_some()
-                && self
-                    .nodes
-                    .get_mut(edge.end)
-                    .map(|n| n.reached = true)
-                    .is_some()
+            *brightness = time.mul_add(-2.0, *brightness).max(Node::MIN_LINE_BRIGHTNESS);
+            self.nodes.get_mut(edge.start).map(|n| n.reached = true).is_some()
+                && self.nodes.get_mut(edge.end).map(|n| n.reached = true).is_some()
         });
 
         let mut iter = self.nodes.inner.iter_mut();
@@ -277,8 +253,7 @@ impl World {
         for (_, node) in self.nodes.iter_mut() {
             node.update(time);
         }
-        self.nodes
-            .retain(|node| node.reached || self.servers.contains(&node.pid));
+        self.nodes.retain(|node| node.reached || self.servers.contains(&node.pid));
     }
 
     fn draw(&self) {
@@ -321,9 +296,7 @@ impl Default for WorldRc {
 }
 
 fn by_peer_id(nodes: &Nodes, peer: PeerId) -> Option<usize> {
-    nodes
-        .iter()
-        .find_map(|(id, node)| (node.pid == peer).then_some(id))
+    nodes.iter().find_map(|(id, node)| (node.pid == peer).then_some(id))
 }
 
 impl topology_wrapper::collector::World for WorldRc {
@@ -452,26 +425,12 @@ async fn main() {
             let route = Route::new(id, unpack_node_addr(ip));
             let peer_id = route.peer_id();
             swarm.behaviour_mut().dht.table.insert(route);
-            swarm
-                .behaviour_mut()
-                .collector
-                .world_mut()
-                .0
-                .borrow_mut()
-                .servers
-                .insert(peer_id);
-            swarm
-                .behaviour_mut()
-                .collector
-                .world_mut()
-                .0
-                .borrow_mut()
-                .nodes
-                .push(Node::new(
-                    screen_width() / 2.,
-                    screen_height() / 2.,
-                    peer_id,
-                ));
+            swarm.behaviour_mut().collector.world_mut().0.borrow_mut().servers.insert(peer_id);
+            swarm.behaviour_mut().collector.world_mut().0.borrow_mut().nodes.push(Node::new(
+                screen_width() / 2.,
+                screen_height() / 2.,
+                peer_id,
+            ));
             _ = swarm.dial(peer_id);
         }
 
@@ -516,7 +475,7 @@ async fn main() {
                 }
             }
 
-            clear_background(Color::from_hex(0x000022));
+            clear_background(Color::from_hex(0x0000_0022));
             world.draw();
         }
 

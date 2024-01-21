@@ -64,6 +64,7 @@ impl<'a> From<&'a Profile> for BorrowedProfile<'a> {
 }
 
 impl<'a> BorrowedProfile<'a> {
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         Proof {
             pk: self.sign,
@@ -91,10 +92,7 @@ impl<'a> From<BorrowedProfile<'a>> for Profile {
 
 impl From<&Profile> for FetchProfileResp {
     fn from(profile: &Profile) -> Self {
-        Self {
-            sign: profile.sign,
-            enc: profile.enc,
-        }
+        Self { sign: profile.sign, enc: profile.enc }
     }
 }
 
@@ -163,12 +161,14 @@ pub enum SendMailError {
     MailboxFull,
 }
 
+#[must_use]
 pub fn username_to_raw(u: UserName) -> RawUserName {
     let mut arr = [0; USER_NAME_CAP];
     arr[..u.len()].copy_from_slice(u.as_bytes());
     arr
 }
 
+#[must_use]
 pub fn username_from_raw(name: RawUserName) -> Option<UserName> {
     let len = name.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
     let name = &name[..len];

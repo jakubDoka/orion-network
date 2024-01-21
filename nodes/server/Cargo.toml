@@ -1,7 +1,13 @@
 [package]
+repository = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
 name = "server"
 version = "0.1.0"
 edition = "2021"
+description = "node serving users of a chat, storing latest messages and finalizing message blocks"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,7 +19,7 @@ chat-logic = { version = "0.1.0", path = "../../core/chat-logic" }
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 config = { version = "0.1.0", path = "../../utils/config" }
 crypto = { version = "0.1.0", path = "../../core/crypto" }
-env_logger = "0.10.0"
+env_logger = "0.11.0"
 libp2p = { version = "0.53.0", features = ["tcp", "noise", "macros", "tokio", "yamux", "websocket", "dns"] }
 log = "0.4.20"
 dht = { version = "0.1.0", path = "../../core/dht" }
@@ -24,3 +30,6 @@ smallvec = "1.11.1"
 thiserror = "1.0.50"
 tokio = { version = "1.32.0", features = ["rt", "macros", "time"] }
 topology-wrapper = { version = "0.1.0", path = "../../utils/topology-wrapper" }
+
+[lints]
+workspace = true

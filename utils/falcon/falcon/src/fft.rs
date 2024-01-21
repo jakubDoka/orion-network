@@ -217,9 +217,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_iFFT(mut f: *mut fpr, mut logn:
     }
     if logn > 0 as libc::c_uint {
         let mut ni: fpr = 0;
-        ni = *PQCLEAN_FALCON512_CLEAN_fpr_p2_tab
-            .as_ptr()
-            .offset(logn as isize);
+        ni = *PQCLEAN_FALCON512_CLEAN_fpr_p2_tab.as_ptr().offset(logn as isize);
         u = 0 as size_t;
         while u < n {
             *f.offset(u as isize) = PQCLEAN_FALCON512_CLEAN_fpr_mul(*f.offset(u as isize), ni);

@@ -32,10 +32,7 @@ impl Default for Behaviour {
 
 impl Behaviour {
     pub fn new(filter: Filter) -> Self {
-        Self {
-            table: RoutingTable::default(),
-            filter,
-        }
+        Self { table: RoutingTable::default(), filter }
     }
 }
 
@@ -127,13 +124,11 @@ impl RoutingTable {
 
     pub fn remove(&mut self, id: PeerId) -> Option<Route> {
         let id = try_peer_id_to_ed(id)?;
-        let index = self
-            .routes
-            .binary_search_by_key(&id.into(), |r| r.id)
-            .ok()?;
+        let index = self.routes.binary_search_by_key(&id.into(), |r| r.id).ok()?;
         Some(self.routes.remove(index))
     }
 
+    #[must_use]
     pub fn get(&self, id: PeerId) -> Option<&Multiaddr> {
         let id = try_peer_id_to_ed(id)?;
         let id: U256 = id.into();
@@ -148,10 +143,7 @@ impl RoutingTable {
     }
 
     fn closest_low(&self, id: U256) -> impl Iterator<Item = &Route> + '_ {
-        let index = self
-            .routes
-            .binary_search_by_key(&id, |r| r.id)
-            .unwrap_or_else(|i| i);
+        let index = self.routes.binary_search_by_key(&id, |r| r.id).unwrap_or_else(|i| i);
 
         let mut left = self.routes[..index].iter().rev();
         let mut right = self.routes[index..].iter();
@@ -185,6 +177,7 @@ fn shortest_distance(a: U256, b: U256) -> U256 {
     a.overflowing_sub(b).0.min(b.overflowing_sub(a).0)
 }
 
+#[must_use]
 pub fn try_peer_id_to_ed(id: PeerId) -> Option<[u8; 32]> {
     let multihash: &Multihash<64> = id.as_ref();
     let bytes = multihash.digest();
@@ -198,11 +191,13 @@ pub struct Route {
 }
 
 impl Route {
+    #[must_use]
     pub fn new(id: ed25519::PublicKey, addr: Multiaddr) -> Self {
         let id = U256::from(id.to_bytes());
         Self { id, addr }
     }
 
+    #[must_use]
     pub fn peer_id(&self) -> PeerId {
         let bytes: [u8; 32] = self.id.into();
         let key = ed25519::PublicKey::try_from_bytes(&bytes).expect("id to always be valid ed key");
@@ -228,12 +223,7 @@ mod tests {
     fn closest_correct_len() {
         let count = 10;
         let table = RoutingTable {
-            routes: (0..count)
-                .map(|i| Route {
-                    id: i.into(),
-                    addr: Multiaddr::empty(),
-                })
-                .collect(),
+            routes: (0..count).map(|i| Route { id: i.into(), addr: Multiaddr::empty() }).collect(),
         };
 
         assert_eq!(table.closest(&[]).count(), count);
@@ -243,18 +233,9 @@ mod tests {
     fn wrap_around() {
         let table = RoutingTable {
             routes: vec![
-                Route {
-                    id: U256::from(2),
-                    addr: Multiaddr::empty(),
-                },
-                Route {
-                    id: U256::MAX / 2,
-                    addr: Multiaddr::empty(),
-                },
-                Route {
-                    id: U256::MAX,
-                    addr: Multiaddr::empty(),
-                },
+                Route { id: U256::from(2), addr: Multiaddr::empty() },
+                Route { id: U256::MAX / 2, addr: Multiaddr::empty() },
+                Route { id: U256::MAX, addr: Multiaddr::empty() },
             ],
         };
 

@@ -73,13 +73,8 @@ impl TransactionHandler for WebSigner {
         // These numbers aren't SCALE encoded; their bytes are just converted to hex:
         let spec_version =
             chain_api::to_hex(inner.client.runtime_version().spec_version.to_be_bytes());
-        let transaction_version = chain_api::to_hex(
-            inner
-                .client
-                .runtime_version()
-                .transaction_version
-                .to_be_bytes(),
-        );
+        let transaction_version =
+            chain_api::to_hex(inner.client.runtime_version().transaction_version.to_be_bytes());
         let nonce_enc = chain_api::to_hex(nonce.to_be_bytes());
         let mortality_checkpoint = chain_api::encode_then_hex(&inner.client.genesis_hash());
         let era = chain_api::immortal_era();

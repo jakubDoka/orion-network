@@ -61,12 +61,12 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_prng_init(
         i += 1;
         i;
     }
-    tl = *d32.offset(
-        (48 as libc::c_ulong).wrapping_div(::core::mem::size_of::<u32>() as libc::c_ulong) as isize,
-    ) as u64;
-    th = *d32.offset(
-        (52 as libc::c_ulong).wrapping_div(::core::mem::size_of::<u32>() as libc::c_ulong) as isize,
-    ) as u64;
+    tl = *d32
+        .offset((48 as libc::c_ulong).wrapping_div(::core::mem::size_of::<u32>() as libc::c_ulong)
+            as isize) as u64;
+    th = *d32
+        .offset((52 as libc::c_ulong).wrapping_div(::core::mem::size_of::<u32>() as libc::c_ulong)
+            as isize) as u64;
     *d64.offset(
         (48 as libc::c_ulong).wrapping_div(::core::mem::size_of::<u64>() as libc::c_ulong) as isize,
     ) = tl.wrapping_add(th << 32);
@@ -74,12 +74,8 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_prng_init(
 }
 #[no_mangle]
 pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_prng_refill(mut p: *mut prng) {
-    static mut CW: [u32; 4] = [
-        0x61707865 as u32,
-        0x3320646e as u32,
-        0x79622d32 as u32,
-        0x6b206574 as u32,
-    ];
+    static mut CW: [u32; 4] =
+        [0x61707865 as u32, 0x3320646e as u32, 0x79622d32 as u32, 0x6b206574 as u32];
     let mut cc: u64 = 0;
     let mut u: size_t = 0;
     cc = *(((*p).state.d).as_mut_ptr().offset(48 as isize) as *mut u64);

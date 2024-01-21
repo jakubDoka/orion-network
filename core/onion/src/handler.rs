@@ -35,13 +35,10 @@ pub struct Handler {
 }
 
 impl Handler {
+    #[must_use]
     pub fn new(keypair: Option<KeyPair>, buffer_cap: usize) -> Self {
         log::debug!("new handler");
-        Self {
-            keypair,
-            buffer_cap,
-            events: VecDeque::new(),
-        }
+        Self { keypair, buffer_cap, events: VecDeque::new() }
     }
 }
 
@@ -57,10 +54,7 @@ impl ConnectionHandler for Handler {
         &self,
     ) -> libp2p::swarm::SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
         libp2p::swarm::SubstreamProtocol::new(
-            IUpgrade {
-                keypair: self.keypair.clone(),
-                buffer_cap: self.buffer_cap,
-            },
+            IUpgrade { keypair: self.keypair.clone(), buffer_cap: self.buffer_cap },
             (),
         )
     }
@@ -80,19 +74,15 @@ impl ConnectionHandler for Handler {
                     IncomingOrRequest::Incoming(i) => (i.path_id, i.to, false),
                     IncomingOrRequest::Request(r) => (r.path_id, r.to, true),
                 };
-                self.events
-                    .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
-                        protocol: libp2p::swarm::SubstreamProtocol::new(
-                            OUpgrade {
-                                keypair: self
-                                    .keypair
-                                    .clone()
-                                    .unwrap_or_else(|| Keypair::new(OsRng)),
-                                incoming,
-                            },
-                            info,
-                        ),
-                    });
+                self.events.push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
+                    protocol: libp2p::swarm::SubstreamProtocol::new(
+                        OUpgrade {
+                            keypair: self.keypair.clone().unwrap_or_else(|| Keypair::new(OsRng)),
+                            incoming,
+                        },
+                        info,
+                    ),
+                });
             }
         }
     }
@@ -109,8 +99,7 @@ impl ConnectionHandler for Handler {
         use libp2p::swarm::handler::{ConnectionEvent as CE, ConnectionHandlerEvent as CHE};
         let ev = match event {
             CE::FullyNegotiatedInbound(FullyNegotiatedInbound {
-                protocol: Some(proto),
-                ..
+                protocol: Some(proto), ..
             }) => ToBehaviour::IncomingStream(proto),
             CE::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
                 protocol: ChannelMeta { from, to },
@@ -129,11 +118,7 @@ impl ConnectionHandler for Handler {
                 // worth it, client will just pick different relays
                 info: (id, from, true),
                 error,
-            }) => ToBehaviour::OutboundStream {
-                to: Err(error),
-                id,
-                from,
-            },
+            }) => ToBehaviour::OutboundStream { to: Err(error), id, from },
             _ => return,
         };
 
@@ -226,10 +211,7 @@ impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
 
     fn upgrade_inbound(self, mut stream: libp2p::swarm::Stream, proto: Self::Info) -> Self::Future {
         async move {
-            let Self {
-                keypair,
-                buffer_cap,
-            } = self;
+            let Self { keypair, buffer_cap } = self;
             let keypair = keypair.expect("handshake to fail");
 
             if proto == KEY_SHARE_PROTOCOL {
@@ -244,18 +226,12 @@ impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
 
             log::debug!("received inbound stream");
             let mut len = [0; 2];
-            stream
-                .read_exact(&mut len)
-                .await
-                .map_err(IUpgradeError::ReadPacketLength)?;
+            stream.read_exact(&mut len).await.map_err(IUpgradeError::ReadPacketLength)?;
 
             let len = u16::from_be_bytes(len) as usize;
             let mut buffer = vec![0; len];
 
-            stream
-                .read_exact(&mut buffer)
-                .await
-                .map_err(IUpgradeError::ReadPacket)?;
+            stream.read_exact(&mut buffer).await.map_err(IUpgradeError::ReadPacket)?;
 
             log::debug!("peeling packet: {}", len);
             let (to, ss, new_len) = crate::packet::peel_initial(&keypair, &mut buffer)
@@ -269,10 +245,7 @@ impl InboundUpgrade<libp2p::swarm::Stream> for IUpgrade {
                 buffer.resize(CONFIRM_PACKET_SIZE + 1, 0);
                 packet::write_confirm(&ss, &mut buffer[1..]);
                 buffer[0] = packet::OK;
-                stream
-                    .write_all(&buffer)
-                    .await
-                    .map_err(IUpgradeError::WriteAuthPacket)?;
+                stream.write_all(&buffer).await.map_err(IUpgradeError::WriteAuthPacket)?;
 
                 return Ok(Some(IncomingOrResponse::Response(EncryptedStream::new(
                     stream, ss, buffer_cap,
@@ -367,19 +340,13 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                 .await
                 .map_err(OUpgradeError::WritePacketLength)?;
             log::debug!("wrote packet length: {}", buffer.len());
-            stream
-                .write_all(buffer)
-                .await
-                .map_err(OUpgradeError::WritePacket)?;
+            stream.write_all(buffer).await.map_err(OUpgradeError::WritePacket)?;
             log::debug!("wrote packet");
 
             let request = match incoming {
                 IncomingOrRequest::Incoming(i) => {
                     log::debug!("received incoming routable stream");
-                    return Ok(ChannelMeta {
-                        from: ChannelSource::Relay(i.path_id),
-                        to: stream,
-                    });
+                    return Ok(ChannelMeta { from: ChannelSource::Relay(i.path_id), to: stream });
                 }
                 IncomingOrRequest::Request(r) => r,
             };
@@ -396,10 +363,7 @@ impl OutboundUpgrade<libp2p::swarm::Stream> for OUpgrade {
                     log::debug!("received auth packet");
                     let mut buffer = written_packet;
                     buffer.resize(CONFIRM_PACKET_SIZE, 0);
-                    stream
-                        .read(&mut buffer)
-                        .await
-                        .map_err(OUpgradeError::ReadPacket)?;
+                    stream.read(&mut buffer).await.map_err(OUpgradeError::ReadPacket)?;
 
                     if !packet::verify_confirm(&ss, &mut buffer) {
                         Err(OUpgradeError::AuthenticationFailed)

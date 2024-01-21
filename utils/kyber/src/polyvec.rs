@@ -1,5 +1,8 @@
 use {
-    crate::{params::*, poly::Poly},
+    crate::{
+        params::{K, N, POLYBYTES, POLYVECBYTES, POLYVECCOMPRESSEDBYTES, Q},
+        poly::Poly,
+    },
     core::array,
 };
 
@@ -13,14 +16,9 @@ pub fn compress(input: &Polyvec) -> [u8; POLYVECCOMPRESSEDBYTES] {
             .map(|u| u + ((u >> 0xf) & Q as i16))
             .map(|u| ((((u as u32) << 10) + Q as u32 / 2) / Q as u32) & 0x3ff);
 
-        *out_chunk = [
-            t0,
-            (t0 >> 8) | (t1 << 2),
-            (t1 >> 6) | (t2 << 4),
-            (t2 >> 4) | (t3 << 6),
-            t3 >> 2,
-        ]
-        .map(|u| u as u8);
+        *out_chunk =
+            [t0, (t0 >> 8) | (t1 << 2), (t1 >> 6) | (t2 << 4), (t2 >> 4) | (t3 << 6), t3 >> 2]
+                .map(|u| u as u8);
     }
     output
 }
@@ -30,9 +28,9 @@ pub fn decompress(input: &[u8; POLYVECCOMPRESSEDBYTES]) -> Polyvec {
     let output_ier = output.iter_mut().flat_map(|p| p.array_chunks_mut::<4>());
     for (out_chunk, in_chunk) in output_ier.zip(input.array_chunks::<5>()) {
         *out_chunk = array::from_fn(|i| {
-            ((in_chunk[i] as u16) >> (2 * i)) | ((in_chunk[i + 1] as u16) << (8 - 2 * i))
+            (u16::from(in_chunk[i]) >> (2 * i)) | (u16::from(in_chunk[i + 1]) << (8 - 2 * i))
         })
-        .map(|u| (((u & 0x3ff) as u32) * Q as u32 + 512) >> 10)
+        .map(|u| (u32::from(u & 0x3ff) * Q as u32 + 512) >> 10)
         .map(|u| u as i16);
     }
     output

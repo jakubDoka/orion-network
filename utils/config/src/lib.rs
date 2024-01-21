@@ -26,15 +26,16 @@ macro_rules! env_config {
     (@default ) => { None };
 }
 
+#[must_use]
 pub fn get_env<T: std::str::FromStr>(key: &str, default: Option<&str>) -> T
 where
     T::Err: std::fmt::Display,
 {
-    let key = key.to_uppercase().to_string();
+    let key = key.to_uppercase();
     if cfg!(debug_assertions)
         && let Some(default) = default
     {
-        std::env::var(&key).unwrap_or(default.to_string())
+        std::env::var(&key).unwrap_or_else(|_| default.to_string())
     } else {
         std::env::var(&key).unwrap_or_else(|_| panic!("{key} is not set"))
     }
@@ -66,6 +67,7 @@ impl<T> Default for List<T> {
 pub struct Hex([u8; 32]);
 
 impl Hex {
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; 32] {
         self.0
     }
@@ -93,7 +95,7 @@ impl FromStr for Hex {
 
         let mut bytes = [0; 32];
         for (&[a, b], dest) in s.as_bytes().array_chunks().zip(bytes.iter_mut()) {
-            fn hex_to_u8(e: u8) -> Result<u8, SecretKeyError> {
+            const fn hex_to_u8(e: u8) -> Result<u8, SecretKeyError> {
                 Ok(match e {
                     b'0'..=b'9' => e - b'0',
                     b'a'..=b'f' => e - b'a' + 10,
@@ -118,10 +120,10 @@ pub enum SecretKeyError {
 impl std::fmt::Display for SecretKeyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SecretKeyError::InvalidLength(len) => {
-                write!(f, "invalid length (expected 64): {}", len)
+            Self::InvalidLength(len) => {
+                write!(f, "invalid length (expected 64): {len}")
             }
-            SecretKeyError::InvalidHex => write!(f, "invalid hex (expected [0-9a-fA-F])"),
+            Self::InvalidHex => write!(f, "invalid hex (expected [0-9a-fA-F])"),
         }
     }
 }

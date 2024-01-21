@@ -12,7 +12,7 @@ use {
         swarm::{ConnectionId, NetworkBehaviour, StreamUpgradeError},
         PeerId,
     },
-    std::{io, ops::DerefMut, sync::Arc, task::Poll, time::Duration},
+    std::{io, sync::Arc, task::Poll, time::Duration},
 };
 
 pub struct Stream {
@@ -32,7 +32,7 @@ impl libp2p::futures::Stream for Stream {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        let this = self.deref_mut();
+        let this = &mut *self;
         let Some(stream) = this.inner.as_mut() else {
             return Poll::Ready(None);
         };
@@ -168,7 +168,7 @@ impl NetworkBehaviour for Behaviour {
     }
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
-        self.streaming.on_swarm_event(event)
+        self.streaming.on_swarm_event(event);
     }
 
     fn on_connection_handler_event(
@@ -177,7 +177,7 @@ impl NetworkBehaviour for Behaviour {
         connection_id: ConnectionId,
         event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {
-        self.streaming.on_connection_handler_event(peer_id, connection_id, event)
+        self.streaming.on_connection_handler_event(peer_id, connection_id, event);
     }
 
     fn poll(

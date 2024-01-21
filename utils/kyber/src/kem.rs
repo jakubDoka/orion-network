@@ -1,4 +1,6 @@
-use crate::params::*;
+use crate::params::{
+    CIPHERTEXTBYTES, INDCPA_SECRETKEYBYTES, PUBLICKEYBYTES, SECRETKEYBYTES, SYMBYTES,
+};
 
 pub fn keypair_derand(coins: &[u8; SYMBYTES * 2]) -> [u8; SECRETKEYBYTES] {
     let (pk, sk) = crate::indcpa::keypair_derand(coins[..SYMBYTES].try_into().unwrap());
@@ -23,12 +25,7 @@ pub fn dec(ct: [u8; CIPHERTEXTBYTES], sk: [u8; SECRETKEYBYTES]) -> Option<[u8; S
     let (sk, pk, pk_hash, _) = unsafe {
         core::mem::transmute::<
             _,
-            (
-                [u8; INDCPA_SECRETKEYBYTES],
-                [u8; PUBLICKEYBYTES],
-                [u8; SYMBYTES],
-                [u8; SYMBYTES],
-            ),
+            ([u8; INDCPA_SECRETKEYBYTES], [u8; PUBLICKEYBYTES], [u8; SYMBYTES], [u8; SYMBYTES]),
         >(sk)
     };
 

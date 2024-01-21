@@ -19,9 +19,9 @@ pub trait Protocol {
 }
 
 impl Protocol for Infallible {
-    type Error = Infallible;
-    type Request<'a> = Infallible;
-    type Response<'a> = Infallible;
+    type Error = Self;
+    type Request<'a> = Self;
+    type Response<'a> = Self;
 
     const PREFIX: u8 = u8::MAX / 2;
 }

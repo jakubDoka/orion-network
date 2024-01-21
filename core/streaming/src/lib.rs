@@ -31,6 +31,7 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
+    #[must_use]
     pub fn is_resolving_stream_for(&self, peer: PeerId) -> bool {
         self.stream_requests.iter().any(|(p, ..)| *p == peer)
             || self.dial_requests.iter().any(|(p, ..)| *p == peer)
@@ -137,7 +138,7 @@ impl NetworkBehaviour for Behaviour {
         self.events.push(match event {
             Ok(stream) => Event::IncomingStream(peer_id, stream),
             Err(e) => Event::OutgoingStream(peer_id, e),
-        })
+        });
     }
 
     fn poll(

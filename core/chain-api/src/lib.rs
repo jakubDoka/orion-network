@@ -2,7 +2,9 @@
 
 use {
     chain_types::{
+        futures, node_staker,
         polkadot::{
+            self,
             contracts::calls::types::Call,
             runtime_types::{
                 pallet_contracts_primitives::{ContractResult, ExecReturnValue},
@@ -10,7 +12,7 @@ use {
                 sp_weights::weight_v2::Weight,
             },
         },
-        *,
+        subxt, subxt_signer, user_manager, Hash, InkMessage,
     },
     futures::{StreamExt, TryFutureExt, TryStreamExt},
     parity_scale_codec::{Decode, Encode as _},
@@ -43,6 +45,7 @@ pub type UserIdentity = user_manager::Profile;
 pub type NodeIdentity = node_staker::NodeIdentity;
 pub type NodeData = node_staker::NodeData;
 
+#[must_use]
 pub fn immortal_era() -> String {
     encode_then_hex(&subxt::utils::Era::Immortal)
 }
@@ -55,22 +58,26 @@ pub fn encode_then_hex<E: parity_scale_codec::Encode>(input: &E) -> String {
     format!("0x{}", hex::encode(input.encode()))
 }
 
+#[must_use]
 pub fn encode_tip(value: u128) -> String {
     encode_then_hex(&parity_scale_codec::Compact(value))
 }
 
 #[track_caller]
+#[must_use]
 pub fn dev_keypair(name: &str) -> Keypair {
     subxt_signer::sr25519::Keypair::from_uri(&subxt_signer::SecretUri::from_str(name).unwrap())
         .unwrap()
 }
 
 #[track_caller]
+#[must_use]
 pub fn mnemonic_keypair(mnemonic: &str) -> Keypair {
     subxt_signer::sr25519::Keypair::from_phrase(&Mnemonic::from_str(mnemonic).unwrap(), None)
         .unwrap()
 }
 
+#[must_use]
 pub fn new_signature(sig: [u8; 64]) -> Signature {
     subxt_signer::sr25519::Signature(sig)
 }
@@ -125,17 +132,15 @@ pub async fn wait_for_in_block(
                 return b.wait_for_success().await.map(|r| r.extrinsic_hash());
             }
             subxt::tx::TxStatus::Error { message } => {
-                return Err(subxt::Error::Other(format!(
-                    "tx error (try again): {message}",
-                )));
+                return Err(subxt::Error::Other(format!("tx error (try again): {message}",)));
             }
             subxt::tx::TxStatus::Invalid { message } => {
                 return Err(subxt::Error::Other(format!("tx invalid: {message}",)));
             }
             subxt::tx::TxStatus::Dropped { message } => {
-                return Err(subxt::Error::Other(format!(
-                    "tx dropped, maybe try again: {message}",
-                )));
+                return Err(subxt::Error::Other(
+                    format!("tx dropped, maybe try again: {message}",),
+                ));
             }
             _ => continue,
         }
@@ -158,13 +163,8 @@ impl InnerClient {
             .chain_get_block_hash(None)
             .await?
             .ok_or(Error::Other("Best block not found".into()))?;
-        let account_nonce = self
-            .client
-            .blocks()
-            .at(best_block)
-            .await?
-            .account_nonce(account)
-            .await?;
+        let account_nonce =
+            self.client.blocks().at(best_block).await?.account_nonce(account).await?;
         Ok(account_nonce)
     }
 }
@@ -214,11 +214,7 @@ impl<S: TransactionHandler> Client<S> {
         let client = OnlineClient::<Config>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::new(rpc);
 
-        Ok(Self {
-            signer: account,
-
-            inner: InnerClient { client, legacy },
-        })
+        Ok(Self { signer: account, inner: InnerClient { client, legacy } })
     }
 
     pub async fn transfere(&self, dest: AccountId, amount: Balance, nonce: Nonce) -> Result<()> {
@@ -233,13 +229,7 @@ impl<S: TransactionHandler> Client<S> {
         addr: NodeAddress,
         nonce: Nonce,
     ) -> Result<()> {
-        self.call_auto_weight(
-            1000000,
-            dest,
-            node_staker::messages::join(data, addr),
-            nonce,
-        )
-        .await
+        self.call_auto_weight(1_000_000, dest, node_staker::messages::join(data, addr), nonce).await
     }
 
     pub async fn list(&self, addr: ContractId) -> Result<Vec<(NodeData, NodeAddress)>> {
@@ -259,8 +249,7 @@ impl<S: TransactionHandler> Client<S> {
     }
 
     pub async fn reclaim(&self, dest: ContractId, me: NodeIdentity, nonce: Nonce) -> Result<()> {
-        self.call_auto_weight(0, dest, node_staker::messages::reclaim(me), nonce)
-            .await
+        self.call_auto_weight(0, dest, node_staker::messages::reclaim(me), nonce).await
     }
 
     pub async fn register(
@@ -289,9 +278,7 @@ impl<S: TransactionHandler> Client<S> {
     }
 
     pub async fn user_exists(&self, dest: ContractId, name: RawUserName) -> Result<bool> {
-        self.get_profile_by_name(dest, name)
-            .await
-            .map(|p| p.is_some())
+        self.get_profile_by_name(dest, name).await.map(|p| p.is_some())
     }
 
     pub async fn get_username(&self, dest: ContractId, id: crypto::Hash) -> Result<RawUserName> {
@@ -306,9 +293,8 @@ impl<S: TransactionHandler> Client<S> {
         call_data: impl InkMessage,
         nonce: Nonce,
     ) -> Result<T> {
-        let (res, mut weight) = self
-            .call_dry_low(value, dest.clone(), call_data.to_bytes())
-            .await?;
+        let (res, mut weight) =
+            self.call_dry_low(value, dest.clone(), call_data.to_bytes()).await?;
 
         weight.ref_time *= 10;
         weight.proof_size *= 10;
@@ -341,9 +327,7 @@ impl<S: TransactionHandler> Client<S> {
         dest: ContractId,
         call_data: impl InkMessage,
     ) -> Result<T> {
-        self.call_dry_low(value, dest, call_data.to_bytes())
-            .await
-            .map(|(t, ..)| t)
+        self.call_dry_low(value, dest, call_data.to_bytes()).await.map(|(t, ..)| t)
     }
 
     async fn call_dry_low<T: parity_scale_codec::Decode>(
@@ -362,7 +346,7 @@ impl<S: TransactionHandler> Client<S> {
                 input_data: call_data,
             })
             .await?;
-        let e = e.map_err(|_| Error::Other("contract returned `Err`".into()))?;
+        let e = e.map_err(|()| Error::Other("contract returned `Err`".into()))?;
         Ok((e, w))
     }
 
@@ -371,11 +355,7 @@ impl<S: TransactionHandler> Client<S> {
         call: CallRequest,
     ) -> Result<(T, Weight)> {
         let bytes = call.encode();
-        let r = self
-            .inner
-            .legacy
-            .state_call("ContractsApi_call", Some(&bytes), None)
-            .await?;
+        let r = self.inner.legacy.state_call("ContractsApi_call", Some(&bytes), None).await?;
 
         let r = <ContractResult<Result<ExecReturnValue, DispatchError>, Balance, ()>>::decode(
             &mut r.as_slice(),
@@ -386,16 +366,14 @@ impl<S: TransactionHandler> Client<S> {
             DispatchError::Module(me) => {
                 let meta = self.inner.client.metadata();
                 let pallet = meta.pallet_by_index(me.index);
-                let error = pallet
-                    .as_ref()
-                    .and_then(|p| p.error_variant_by_index(me.error[0]));
+                let error = pallet.as_ref().and_then(|p| p.error_variant_by_index(me.error[0]));
                 Error::Other(format!(
                     "dispatch error: {}.{}",
                     pallet.map_or("unknown", |p| p.name()),
                     error.map_or("unknown", |e| &e.name)
                 ))
             }
-            e => Error::Other(format!("dispatch error: {:?}", e)),
+            e => Error::Other(format!("dispatch error: {e:?}")),
         })?;
         let res = T::decode(&mut res.data.as_slice())
             .map_err(|e| Error::Decode(subxt::error::DecodeError::custom(e)))?;

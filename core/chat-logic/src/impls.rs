@@ -81,6 +81,7 @@ pub enum PossibleTopic {
 }
 
 impl PossibleTopic {
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Profile(i) => i.as_ref(),
@@ -210,7 +211,7 @@ pub fn retain_messages(
         let write_len = hole_end as usize - cursor as usize - len;
         if hole_end != *write_cursor {
             unsafe {
-                std::ptr::copy(hole_end.sub(write_len), write_cursor.sub(write_len), write_len)
+                std::ptr::copy(hole_end.sub(write_len), write_cursor.sub(write_len), write_len);
             };
         }
 
@@ -353,7 +354,7 @@ mod tests {
             let output = output.to_vec();
             let real_out =
                 crate::retain_messages(&mut owned_intput, |bts| bts.iter().all(|b| *b == 0));
-            assert_eq!(real_out, output.as_slice(), "input: {:?}", input);
+            assert_eq!(real_out, output.as_slice(), "input: {input:?}");
         }
     }
 }

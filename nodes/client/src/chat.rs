@@ -48,10 +48,7 @@ fn resize_input(mi: HtmlElement<Textarea>) -> Result<(), JsValue> {
         .map_err(|e| format!("height is not a number: {e}"))?;
     let diff = outher_height - mi.client_height();
     mi.deref().style().set_property("height", "0px")?;
-    mi.deref().style().set_property(
-        "height",
-        format!("{}px", mi.scroll_height() + diff).as_str(),
-    )
+    mi.deref().style().set_property("height", format!("{}px", mi.scroll_height() + diff).as_str())
 }
 
 #[leptos::component]
@@ -90,7 +87,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             <div class="tbm flx" style=("justify-content", justify)>
                 <div class=format!("bp flx {color}")>
                     <div class=color>{username.to_string()}:</div>
-                    <div class=format!("lbp {color}")>{content.to_string()}</div>
+                    <div class=format!("lbp {color}")>{content}</div>
                 </div>
             </div>
         }
@@ -126,9 +123,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         }
 
         if is_hardened.get_untracked() && matches!(cursor.get_untracked(), Cursor::Normal(_)) {
-            let cursor = db::MessageCursor::new(chat, my_name)
-                .await
-                .context("opening message cursor")?;
+            let cursor =
+                db::MessageCursor::new(chat, my_name).await.context("opening message cursor")?;
             set_cursor(Cursor::Hardened(cursor));
         }
 
@@ -138,10 +134,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                     requests.dispatch::<FetchMessages>((chat, cursor)).await?;
                 let secret = state.chat_secret(chat).context("getting chat secret")?;
                 for message in chat_logic::unpack_messages(messages.to_vec().as_mut_slice()) {
-                    let Some(chat_logic::Message {
-                        content: Reminder(content),
-                        ..
-                    }) = <_>::decode(&mut &*message)
+                    let Some(chat_logic::Message { content: Reminder(content), .. }) =
+                        <_>::decode(&mut &*message)
                     else {
                         log::error!("server gave us undecodable message");
                         continue;
@@ -272,10 +266,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 anyhow::bail!("chat already exists");
             }
 
-            requests()
-                .dispatch::<CreateChat>((chat, my_id))
-                .await
-                .context("creating chat")?;
+            requests().dispatch::<CreateChat>((chat, my_id)).await.context("creating chat")?;
 
             let meta = node::ChatMeta::new();
             state.vault.update(|v| _ = v.chats.insert(chat, meta));
@@ -297,18 +288,13 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 anyhow::bail!("invalid chat name");
             };
 
-            if state
-                .vault
-                .with_untracked(|v| v.hardened_chats.contains_key(&chat))
-            {
+            if state.vault.with_untracked(|v| v.hardened_chats.contains_key(&chat)) {
                 anyhow::bail!("chat already exists");
             }
 
-            state.vault.update(|v| {
-                _ = v
-                    .hardened_chats
-                    .insert(chat, node::HardenedChatMeta::default())
-            });
+            state
+                .vault
+                .update(|v| _ = v.hardened_chats.insert(chat, node::HardenedChatMeta::default()));
 
             Ok(())
         },
@@ -334,10 +320,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         };
 
         let mut requests = requests();
-        requests
-            .dispatch_chat_action(state, chat, invitee.sign)
-            .await
-            .context("adding user")?;
+        requests.dispatch_chat_action(state, chat, invitee.sign).await.context("adding user")?;
 
         let user_data = requests
             .dispatch::<FetchProfile>(invitee.sign)
@@ -374,9 +357,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         };
 
         let Some(members) = state.vault.with_untracked(|v| {
-            v.hardened_chats
-                .get(&chat)
-                .map(|m| m.members.keys().copied().collect::<Vec<_>>())
+            v.hardened_chats.get(&chat).map(|m| m.members.keys().copied().collect::<Vec<_>>())
         }) else {
             anyhow::bail!("we are not part of this chat");
         };
@@ -400,20 +381,13 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let (cp, secret) = enc::Keypair::from_bytes(my_enc)
             .encapsulate(enc::PublicKey::from_ref(&user_data.enc), OsRng);
 
-        let mut payload = HardenedChatInvitePayload {
-            chat,
-            inviter: my_name,
-            inviter_id: my_id,
-            members,
-        }
-        .to_bytes();
+        let mut payload =
+            HardenedChatInvitePayload { chat, inviter: my_name, inviter_id: my_id, members }
+                .to_bytes();
         crate::encrypt(&mut payload, secret);
 
-        let invite = Mail::HardenedChatInvite {
-            cp: cp.into_bytes(),
-            payload: Reminder(&payload),
-        }
-        .to_bytes();
+        let invite = Mail::HardenedChatInvite { cp: cp.into_bytes(), payload: Reminder(&payload) }
+            .to_bytes();
 
         requests
             .dispatch_mail((invitee.sign, Reminder(&invite)))
@@ -421,14 +395,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
             .context("sending invite")?;
 
         state.vault.update(|v| {
-            let meta = v
-                .hardened_chats
-                .get_mut(&chat)
-                .expect("we checked we are part of the chat");
-            meta.members.insert(name, node::MemberMeta {
-                secret,
-                identity: invitee.sign,
-            });
+            let meta = v.hardened_chats.get_mut(&chat).expect("we checked we are part of the chat");
+            meta.members.insert(name, node::MemberMeta { secret, identity: invitee.sign });
         });
 
         Ok(())
@@ -458,25 +426,17 @@ pub fn Chat(state: crate::State) -> impl IntoView {
     };
 
     let send_normal_message = move |chat, content: String| {
-        let secret = state
-            .chat_secret(chat)
-            .context("sending to chat you dont have secret key of")?;
-        let mut content = RawChatMessage {
-            sender: my_name,
-            content: &content,
-        }
-        .to_bytes();
+        let secret =
+            state.chat_secret(chat).context("sending to chat you dont have secret key of")?;
+        let mut content = RawChatMessage { sender: my_name, content: &content }.to_bytes();
         crate::encrypt(&mut content, secret);
-        let proof = state
-            .next_chat_proof(chat, None)
-            .expect("we checked we are part of the chat");
+        let proof = state.next_chat_proof(chat, None).expect("we checked we are part of the chat");
 
         log::info!("sending message: {:?}", proof.nonce);
 
         handled_spawn_local("sending normal message", async move {
             let mut req = requests();
-            req.dispatch_chat_action(state, chat, Reminder(&content))
-                .await?;
+            req.dispatch_chat_action(state, chat, Reminder(&content)).await?;
             message_input.get_untracked().unwrap().set_value("");
             resize_input();
             Ok(())
@@ -566,20 +526,12 @@ pub fn Chat(state: crate::State) -> impl IntoView {
     };
 
     let normal_chats_view = move || {
-        state.vault.with(|v| {
-            v.chats
-                .keys()
-                .map(|&chat| side_chat(chat, false))
-                .collect_view()
-        })
+        state.vault.with(|v| v.chats.keys().map(|&chat| side_chat(chat, false)).collect_view())
     };
     let hardened_chats_view = move || {
-        state.vault.with(|v| {
-            v.hardened_chats
-                .keys()
-                .map(|&chat| side_chat(chat, true))
-                .collect_view()
-        })
+        state
+            .vault
+            .with(|v| v.hardened_chats.keys().map(|&chat| side_chat(chat, true)).collect_view())
     };
     let normal_chats_are_empty = move || state.vault.with(|v| v.chats.is_empty());
     let hardened_chats_are_empty = move || state.vault.with(|v| v.hardened_chats.is_empty());

@@ -10,7 +10,7 @@ pub const ZETAS: [i16; 128] = [
 ];
 
 pub fn fqmul(a: i16, b: i16) -> i16 {
-    crate::mondgomery::reduce(a as i32 * b as i32)
+    crate::mondgomery::reduce(i32::from(a) * i32::from(b))
 }
 
 pub fn ntt(inout: &mut [i16; 256]) {

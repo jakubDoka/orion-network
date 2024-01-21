@@ -1,5 +1,5 @@
 use {
-    crate::params::*,
+    crate::params::SYMBYTES,
     sha3::{
         digest::{ExtendableOutput, Update, XofReader},
         Digest,

@@ -8,8 +8,6 @@
 
 mod behaviour;
 mod handler;
-#[cfg(feature = "libp2p")]
-mod kad_search;
 pub mod key_share;
 mod packet;
 

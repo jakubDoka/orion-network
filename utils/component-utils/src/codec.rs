@@ -7,10 +7,12 @@ use {
 pub const PACKET_LEN_WIDTH: usize = std::mem::size_of::<PacketLen>();
 pub type PacketLen = u16;
 
+#[must_use]
 pub fn encode_len(len: usize) -> [u8; PACKET_LEN_WIDTH] {
     (len as PacketLen).to_be_bytes()
 }
 
+#[must_use]
 pub fn decode_len(bytes: [u8; PACKET_LEN_WIDTH]) -> usize {
     PacketLen::from_be_bytes(bytes) as usize
 }
@@ -21,9 +23,7 @@ pub struct WritableBuffer<'a, T> {
 
 impl<'a, T: Buffer> std::io::Write for WritableBuffer<'a, T> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.buffer
-            .extend_from_slice(buf)
-            .ok_or(std::io::ErrorKind::OutOfMemory)?;
+        self.buffer.extend_from_slice(buf).ok_or(std::io::ErrorKind::OutOfMemory)?;
         Ok(buf.len())
     }
 
@@ -152,11 +152,7 @@ impl<'a, R: Codec<'a>, E: Codec<'a>> Codec<'a> for Result<R, E> {
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
         let is_ok = <bool>::decode(buffer)?;
-        Some(if is_ok {
-            Ok(<R>::decode(buffer)?)
-        } else {
-            Err(<E>::decode(buffer)?)
-        })
+        Some(if is_ok { Ok(<R>::decode(buffer)?) } else { Err(<E>::decode(buffer)?) })
     }
 }
 
@@ -192,6 +188,7 @@ impl Codec<'_> for () {
 pub struct Base128Bytes(u64, bool);
 
 impl Base128Bytes {
+    #[must_use]
     pub fn new(value: u64) -> Self {
         Self(value, true)
     }
@@ -233,7 +230,7 @@ fn base128_decode(buffer: &mut &[u8]) -> Option<u64> {
     let mut shift = 0;
     let worst_case_size = 10;
     for (advanced, byte) in (*buffer).iter().take(worst_case_size).copied().enumerate() {
-        value |= ((byte & 0b0111_1111) as u64) << shift;
+        value |= u64::from(byte & 0b0111_1111) << shift;
         shift += 7;
         if byte & 0b1000_0000 == 0 {
             *buffer = &buffer[advanced + 1..];
@@ -261,7 +258,7 @@ impl_int!(u16, u32, u64, u128, usize);
 
 impl<'a> Codec<'a> for bool {
     fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
-        buffer.push(*self as u8)
+        buffer.push(u8::from(*self))
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
@@ -445,8 +442,8 @@ impl<'a, T: Codec<'a>, const SIZE: usize> Codec<'a> for [T; SIZE] {
     }
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
-        let tries = [(); SIZE].map(|_| <T>::decode(buffer));
-        if tries.iter().any(|t| t.is_none()) {
+        let tries = [(); SIZE].map(|()| <T>::decode(buffer));
+        if tries.iter().any(std::option::Option::is_none) {
             return None;
         }
         Some(tries.map(|t| t.expect("to be some, since we checked")))
@@ -476,11 +473,7 @@ impl<'a, T: Codec<'a>> Codec<'a> for Option<T> {
 
     fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
         let is_some = <bool>::decode(buffer)?;
-        Some(if is_some {
-            Some(<T>::decode(buffer)?)
-        } else {
-            None
-        })
+        Some(if is_some { Some(<T>::decode(buffer)?) } else { None })
     }
 }
 

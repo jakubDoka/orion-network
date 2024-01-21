@@ -14,9 +14,7 @@ pub struct LinearMap<K, V> {
 
 impl<K, V, const N: usize> From<[(K, V); N]> for LinearMap<K, V> {
     fn from(values: [(K, V); N]) -> Self {
-        Self {
-            values: values.into(),
-        }
+        Self { values: values.into() }
     }
 }
 
@@ -40,10 +38,12 @@ impl<K: Eq, V> LinearMap<K, V> {
         self.values.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.values.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
@@ -77,10 +77,7 @@ impl<K: Eq, V> LinearMap<K, V> {
     }
 
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.values
-            .iter_mut()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v)
+        self.values.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v)
     }
 
     pub fn values(&self) -> impl Iterator<Item = &V> {
@@ -104,7 +101,7 @@ pub struct AsocStream<A, S> {
 }
 
 impl<A, S> AsocStream<A, S> {
-    pub fn new(inner: S, assoc: A) -> Self {
+    pub const fn new(inner: S, assoc: A) -> Self {
         Self { inner, assoc }
     }
 }
@@ -216,13 +213,9 @@ pub struct PacketWriter {
 }
 
 impl PacketWriter {
+    #[must_use]
     pub fn new(cap: usize) -> Self {
-        Self {
-            buffer: Vec::with_capacity(cap),
-            start: 0,
-            end: 0,
-            waker: None,
-        }
+        Self { buffer: Vec::with_capacity(cap), start: 0, end: 0, waker: None }
     }
 
     pub fn write_packet<'a>(&mut self, message: &impl Codec<'a>) -> Option<()> {
@@ -235,16 +228,12 @@ impl PacketWriter {
 
     pub fn guard(&mut self) -> PacketWriterGuard {
         let free_cap = self.buffer.capacity() - self.buffer.len();
-        let space = if self.start > self.end {
-            self.end..self.start
-        } else {
-            0..self.start
-        };
+        let space = if self.start > self.end { self.end..self.start } else { 0..self.start };
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
         if free_cap < space.len() {
-            self.end *= (self.buffer.len() != self.end) as usize;
+            self.end *= usize::from(self.buffer.len() != self.end);
             PacketWriterGuard::Replacing {
                 written: 0,
                 target: &mut self.buffer[space],
@@ -268,8 +257,8 @@ impl PacketWriter {
         dest: &mut (impl futures::AsyncWrite + Unpin),
     ) -> Poll<Result<(), io::Error>> {
         loop {
-            let (left, riht) = self.writable_parts();
-            let Some(some_bytes) = [left, riht].into_iter().find(|s| !s.is_empty()) else {
+            let lr = self.writable_parts();
+            let Some(some_bytes) = <[_; 2]>::from(lr).into_iter().find(|s| !s.is_empty()) else {
                 crate::set_waker(&mut self.waker, cx.waker());
                 if self.start == self.end {
                     self.start = 0;
@@ -286,10 +275,11 @@ impl PacketWriter {
                 return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
             }
             self.start += n;
-            self.start -= self.buffer.len() * (self.start > self.buffer.len()) as usize;
+            self.start -= self.buffer.len() * usize::from(self.start > self.buffer.len());
         }
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }
@@ -308,15 +298,8 @@ impl PacketWriter {
 }
 
 pub enum PacketWriterGuard<'a> {
-    Extending {
-        target: &'a mut Vec<u8>,
-        end: Result<&'a mut usize, usize>,
-    },
-    Replacing {
-        written: usize,
-        target: &'a mut [u8],
-        end: &'a mut usize,
-    },
+    Extending { target: &'a mut Vec<u8>, end: Result<&'a mut usize, usize> },
+    Replacing { written: usize, target: &'a mut [u8], end: &'a mut usize },
 }
 
 impl<'a> PacketWriterGuard<'a> {
@@ -367,7 +350,7 @@ impl<'a> PacketWriterGuard<'a> {
 
         match self {
             PacketWriterGuard::Extending { target, end, .. } => {
-                let end = end.as_mut().map(|v| &mut **v).unwrap_or_else(|e| e);
+                let end = end.as_mut().map_or_else(|e| e, |v| &mut **v);
                 let mut sbuf = RawSliceBuffer {
                     start: unsafe { target.as_mut_ptr().add(*end) },
                     end: unsafe { target.as_mut_ptr().add(target.capacity()) },
@@ -388,9 +371,7 @@ impl<'a> PacketWriterGuard<'a> {
                     Some(slice)
                 }
             }
-            PacketWriterGuard::Replacing {
-                target, written, ..
-            } => {
+            PacketWriterGuard::Replacing { target, written, .. } => {
                 let mut sub_target = &mut **target;
                 let failed = value.encode(&mut sub_target).is_none();
                 let remonder_len = sub_target.len();
@@ -418,10 +399,9 @@ impl<'a> PacketWriterGuard<'a> {
 impl Drop for PacketWriterGuard<'_> {
     fn drop(&mut self) {
         match self {
-            &mut PacketWriterGuard::Extending {
-                end: Ok(&mut end) | Err(end),
-                ref mut target,
-            } => unsafe { target.set_len(end) },
+            &mut PacketWriterGuard::Extending { end: Ok(&mut end) | Err(end), ref mut target } => unsafe {
+                target.set_len(end);
+            },
             PacketWriterGuard::Replacing { end, written, .. } => **end += *written,
         }
     }
@@ -433,7 +413,7 @@ pub struct ClosingStream<S> {
 }
 
 impl<S> ClosingStream<S> {
-    pub fn new(stream: S, error: u8) -> Self {
+    pub const fn new(stream: S, error: u8) -> Self {
         Self { stream, error }
     }
 }
@@ -501,17 +481,11 @@ mod tests {
 
         for i in 0..10 {
             writer.guard().write([0u8; 20]).unwrap();
-            _ = writer.poll(
-                &mut Context::from_waker(noop_waker_ref()),
-                &mut DummyWrite(11 + i),
-            );
+            _ = writer.poll(&mut Context::from_waker(noop_waker_ref()), &mut DummyWrite(11 + i));
         }
 
         for _ in 0..100 {
-            _ = writer.poll(
-                &mut Context::from_waker(noop_waker_ref()),
-                &mut DummyWrite(20),
-            );
+            _ = writer.poll(&mut Context::from_waker(noop_waker_ref()), &mut DummyWrite(20));
             writer.guard().write([0u8; 20]).unwrap();
         }
     }

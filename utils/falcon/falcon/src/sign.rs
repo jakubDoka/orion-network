@@ -919,17 +919,7 @@ unsafe extern "C" fn do_sign_tree(
     PQCLEAN_FALCON512_CLEAN_poly_mulconst(t0, ni, logn);
     tx = t1.offset(n as isize);
     ty = tx.offset(n as isize);
-    ffSampling_fft(
-        samp,
-        samp_ctx,
-        tx,
-        ty,
-        tree,
-        t0,
-        t1,
-        logn,
-        ty.offset(n as isize),
-    );
+    ffSampling_fft(samp, samp_ctx, tx, ty, tree, t0, t1, logn, ty.offset(n as isize));
     rust_memcpy(
         t0 as *mut libc::c_void,
         tx as *const libc::c_void,
@@ -1300,10 +1290,7 @@ unsafe extern "C" fn BerExp(mut p: *mut prng, mut x: fpr, mut ccs: fpr) -> libc:
     let mut w: u32 = 0;
     let mut z: u64 = 0;
     s = fpr_trunc(PQCLEAN_FALCON512_CLEAN_fpr_mul(x, fpr_inv_log2)) as libc::c_int;
-    r = fpr_sub(
-        x,
-        PQCLEAN_FALCON512_CLEAN_fpr_mul(fpr_of(s as i64), fpr_log2),
-    );
+    r = fpr_sub(x, PQCLEAN_FALCON512_CLEAN_fpr_mul(fpr_of(s as i64), fpr_log2));
     sw = s as u32;
     sw ^= (sw ^ 63 as u32) & ((63 as u32).wrapping_sub(sw) >> 31).wrapping_neg();
     s = sw as libc::c_int;

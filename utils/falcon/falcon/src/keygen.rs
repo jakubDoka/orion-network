@@ -144,4179 +144,2609 @@ unsafe extern "C" fn fpr_sqr(mut x: fpr) -> fpr {
 }
 static mut PRIMES: [small_prime; 522] = [
     {
-        let mut init = small_prime {
-            p: 2147473409 as u32,
-            g: 383167813 as u32,
-            s: 10239 as u32,
-        };
+        let mut init = small_prime { p: 2147473409 as u32, g: 383167813 as u32, s: 10239 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147389441 as u32,
-            g: 211808905 as u32,
-            s: 471403745 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147389441 as u32, g: 211808905 as u32, s: 471403745 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147387393 as u32,
-            g: 37672282 as u32,
-            s: 1329335065 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147387393 as u32, g: 37672282 as u32, s: 1329335065 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147377153 as u32,
-            g: 1977035326 as u32,
-            s: 968223422 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147377153 as u32, g: 1977035326 as u32, s: 968223422 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147358721 as u32,
-            g: 1067163706 as u32,
-            s: 132460015 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147358721 as u32, g: 1067163706 as u32, s: 132460015 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147352577 as u32,
-            g: 1606082042 as u32,
-            s: 598693809 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147352577 as u32, g: 1606082042 as u32, s: 598693809 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147346433 as u32,
-            g: 2033915641 as u32,
-            s: 1056257184 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147346433 as u32, g: 2033915641 as u32, s: 1056257184 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147338241 as u32,
-            g: 1653770625 as u32,
-            s: 421286710 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147338241 as u32, g: 1653770625 as u32, s: 421286710 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147309569 as u32,
-            g: 631200819 as u32,
-            s: 1111201074 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147309569 as u32, g: 631200819 as u32, s: 1111201074 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147297281 as u32,
-            g: 2038364663 as u32,
-            s: 1042003613 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147297281 as u32, g: 2038364663 as u32, s: 1042003613 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147295233 as u32,
-            g: 1962540515 as u32,
-            s: 19440033 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147295233 as u32, g: 1962540515 as u32, s: 19440033 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147239937 as u32,
-            g: 2100082663 as u32,
-            s: 353296760 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147239937 as u32, g: 2100082663 as u32, s: 353296760 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147235841 as u32,
-            g: 1991153006 as u32,
-            s: 1703918027 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147235841 as u32, g: 1991153006 as u32, s: 1703918027 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147217409 as u32,
-            g: 516405114 as u32,
-            s: 1258919613 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147217409 as u32, g: 516405114 as u32, s: 1258919613 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147205121 as u32,
-            g: 409347988 as u32,
-            s: 1089726929 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147205121 as u32, g: 409347988 as u32, s: 1089726929 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147196929 as u32,
-            g: 927788991 as u32,
-            s: 1946238668 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147196929 as u32, g: 927788991 as u32, s: 1946238668 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147178497 as u32,
-            g: 1136922411 as u32,
-            s: 1347028164 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147178497 as u32, g: 1136922411 as u32, s: 1347028164 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147100673 as u32,
-            g: 868626236 as u32,
-            s: 701164723 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147100673 as u32, g: 868626236 as u32, s: 701164723 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147082241 as u32,
-            g: 1897279176 as u32,
-            s: 617820870 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147082241 as u32, g: 1897279176 as u32, s: 617820870 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147074049 as u32,
-            g: 1888819123 as u32,
-            s: 158382189 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147074049 as u32, g: 1888819123 as u32, s: 158382189 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147051521 as u32,
-            g: 25006327 as u32,
-            s: 522758543 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147051521 as u32, g: 25006327 as u32, s: 522758543 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147043329 as u32,
-            g: 327546255 as u32,
-            s: 37227845 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147043329 as u32, g: 327546255 as u32, s: 37227845 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2147039233 as u32,
-            g: 766324424 as u32,
-            s: 1133356428 as u32,
-        };
+        let mut init =
+            small_prime { p: 2147039233 as u32, g: 766324424 as u32, s: 1133356428 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146988033 as u32,
-            g: 1862817362 as u32,
-            s: 73861329 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146988033 as u32, g: 1862817362 as u32, s: 73861329 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146963457 as u32,
-            g: 404622040 as u32,
-            s: 653019435 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146963457 as u32, g: 404622040 as u32, s: 653019435 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146959361 as u32,
-            g: 1936581214 as u32,
-            s: 995143093 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146959361 as u32, g: 1936581214 as u32, s: 995143093 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146938881 as u32,
-            g: 1559770096 as u32,
-            s: 634921513 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146938881 as u32, g: 1559770096 as u32, s: 634921513 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146908161 as u32,
-            g: 422623708 as u32,
-            s: 1985060172 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146908161 as u32, g: 422623708 as u32, s: 1985060172 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146885633 as u32,
-            g: 1751189170 as u32,
-            s: 298238186 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146885633 as u32, g: 1751189170 as u32, s: 298238186 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146871297 as u32,
-            g: 578919515 as u32,
-            s: 291810829 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146871297 as u32, g: 578919515 as u32, s: 291810829 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146846721 as u32,
-            g: 1114060353 as u32,
-            s: 915902322 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146846721 as u32, g: 1114060353 as u32, s: 915902322 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146834433 as u32,
-            g: 2069565474 as u32,
-            s: 47859524 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146834433 as u32, g: 2069565474 as u32, s: 47859524 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146818049 as u32,
-            g: 1552824584 as u32,
-            s: 646281055 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146818049 as u32, g: 1552824584 as u32, s: 646281055 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146775041 as u32,
-            g: 1906267847 as u32,
-            s: 1597832891 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146775041 as u32, g: 1906267847 as u32, s: 1597832891 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146756609 as u32,
-            g: 1847414714 as u32,
-            s: 1228090888 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146756609 as u32, g: 1847414714 as u32, s: 1228090888 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146744321 as u32,
-            g: 1818792070 as u32,
-            s: 1176377637 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146744321 as u32, g: 1818792070 as u32, s: 1176377637 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146738177 as u32,
-            g: 1118066398 as u32,
-            s: 1054971214 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146738177 as u32, g: 1118066398 as u32, s: 1054971214 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146736129 as u32,
-            g: 52057278 as u32,
-            s: 933422153 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146736129 as u32, g: 52057278 as u32, s: 933422153 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146713601 as u32,
-            g: 592259376 as u32,
-            s: 1406621510 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146713601 as u32, g: 592259376 as u32, s: 1406621510 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146695169 as u32,
-            g: 263161877 as u32,
-            s: 1514178701 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146695169 as u32, g: 263161877 as u32, s: 1514178701 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146656257 as u32,
-            g: 685363115 as u32,
-            s: 384505091 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146656257 as u32, g: 685363115 as u32, s: 384505091 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146650113 as u32,
-            g: 927727032 as u32,
-            s: 537575289 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146650113 as u32, g: 927727032 as u32, s: 537575289 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146646017 as u32,
-            g: 52575506 as u32,
-            s: 1799464037 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146646017 as u32, g: 52575506 as u32, s: 1799464037 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146643969 as u32,
-            g: 1276803876 as u32,
-            s: 1348954416 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146643969 as u32, g: 1276803876 as u32, s: 1348954416 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146603009 as u32,
-            g: 814028633 as u32,
-            s: 1521547704 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146603009 as u32, g: 814028633 as u32, s: 1521547704 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146572289 as u32,
-            g: 1846678872 as u32,
-            s: 1310832121 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146572289 as u32, g: 1846678872 as u32, s: 1310832121 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146547713 as u32,
-            g: 919368090 as u32,
-            s: 1019041349 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146547713 as u32, g: 919368090 as u32, s: 1019041349 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146508801 as u32,
-            g: 671847612 as u32,
-            s: 38582496 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146508801 as u32, g: 671847612 as u32, s: 38582496 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146492417 as u32,
-            g: 283911680 as u32,
-            s: 532424562 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146492417 as u32, g: 283911680 as u32, s: 532424562 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146490369 as u32,
-            g: 1780044827 as u32,
-            s: 896447978 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146490369 as u32, g: 1780044827 as u32, s: 896447978 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146459649 as u32,
-            g: 327980850 as u32,
-            s: 1327906900 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146459649 as u32, g: 327980850 as u32, s: 1327906900 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146447361 as u32,
-            g: 1310561493 as u32,
-            s: 958645253 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146447361 as u32, g: 1310561493 as u32, s: 958645253 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146441217 as u32,
-            g: 412148926 as u32,
-            s: 287271128 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146441217 as u32, g: 412148926 as u32, s: 287271128 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146437121 as u32,
-            g: 293186449 as u32,
-            s: 2009822534 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146437121 as u32, g: 293186449 as u32, s: 2009822534 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146430977 as u32,
-            g: 179034356 as u32,
-            s: 1359155584 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146430977 as u32, g: 179034356 as u32, s: 1359155584 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146418689 as u32,
-            g: 1517345488 as u32,
-            s: 1790248672 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146418689 as u32, g: 1517345488 as u32, s: 1790248672 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146406401 as u32,
-            g: 1615820390 as u32,
-            s: 1584833571 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146406401 as u32, g: 1615820390 as u32, s: 1584833571 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146404353 as u32,
-            g: 826651445 as u32,
-            s: 607120498 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146404353 as u32, g: 826651445 as u32, s: 607120498 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146379777 as u32,
-            g: 3816988 as u32,
-            s: 1897049071 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146379777 as u32, g: 3816988 as u32, s: 1897049071 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146363393 as u32,
-            g: 1221409784 as u32,
-            s: 1986921567 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146363393 as u32, g: 1221409784 as u32, s: 1986921567 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146355201 as u32,
-            g: 1388081168 as u32,
-            s: 849968120 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146355201 as u32, g: 1388081168 as u32, s: 849968120 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146336769 as u32,
-            g: 1803473237 as u32,
-            s: 1655544036 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146336769 as u32, g: 1803473237 as u32, s: 1655544036 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146312193 as u32,
-            g: 1023484977 as u32,
-            s: 273671831 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146312193 as u32, g: 1023484977 as u32, s: 273671831 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146293761 as u32,
-            g: 1074591448 as u32,
-            s: 467406983 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146293761 as u32, g: 1074591448 as u32, s: 467406983 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146283521 as u32,
-            g: 831604668 as u32,
-            s: 1523950494 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146283521 as u32, g: 831604668 as u32, s: 1523950494 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146203649 as u32,
-            g: 712865423 as u32,
-            s: 1170834574 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146203649 as u32, g: 712865423 as u32, s: 1170834574 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146154497 as u32,
-            g: 1764991362 as u32,
-            s: 1064856763 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146154497 as u32, g: 1764991362 as u32, s: 1064856763 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146142209 as u32,
-            g: 627386213 as u32,
-            s: 1406840151 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146142209 as u32, g: 627386213 as u32, s: 1406840151 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146127873 as u32,
-            g: 1638674429 as u32,
-            s: 2088393537 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146127873 as u32, g: 1638674429 as u32, s: 2088393537 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146099201 as u32,
-            g: 1516001018 as u32,
-            s: 690673370 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146099201 as u32, g: 1516001018 as u32, s: 690673370 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146093057 as u32,
-            g: 1294931393 as u32,
-            s: 315136610 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146093057 as u32, g: 1294931393 as u32, s: 315136610 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146091009 as u32,
-            g: 1942399533 as u32,
-            s: 973539425 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146091009 as u32, g: 1942399533 as u32, s: 973539425 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146078721 as u32,
-            g: 1843461814 as u32,
-            s: 2132275436 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146078721 as u32, g: 1843461814 as u32, s: 2132275436 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146060289 as u32,
-            g: 1098740778 as u32,
-            s: 360423481 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146060289 as u32, g: 1098740778 as u32, s: 360423481 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146048001 as u32,
-            g: 1617213232 as u32,
-            s: 1951981294 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146048001 as u32, g: 1617213232 as u32, s: 1951981294 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146041857 as u32,
-            g: 1805783169 as u32,
-            s: 2075683489 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146041857 as u32, g: 1805783169 as u32, s: 2075683489 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2146019329 as u32,
-            g: 272027909 as u32,
-            s: 1753219918 as u32,
-        };
+        let mut init =
+            small_prime { p: 2146019329 as u32, g: 272027909 as u32, s: 1753219918 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145986561 as u32,
-            g: 1206530344 as u32,
-            s: 2034028118 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145986561 as u32, g: 1206530344 as u32, s: 2034028118 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145976321 as u32,
-            g: 1243769360 as u32,
-            s: 1173377644 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145976321 as u32, g: 1243769360 as u32, s: 1173377644 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145964033 as u32,
-            g: 887200839 as u32,
-            s: 1281344586 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145964033 as u32, g: 887200839 as u32, s: 1281344586 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145906689 as u32,
-            g: 1651026455 as u32,
-            s: 906178216 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145906689 as u32, g: 1651026455 as u32, s: 906178216 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145875969 as u32,
-            g: 1673238256 as u32,
-            s: 1043521212 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145875969 as u32, g: 1673238256 as u32, s: 1043521212 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145871873 as u32,
-            g: 1226591210 as u32,
-            s: 1399796492 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145871873 as u32, g: 1226591210 as u32, s: 1399796492 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145841153 as u32,
-            g: 1465353397 as u32,
-            s: 1324527802 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145841153 as u32, g: 1465353397 as u32, s: 1324527802 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145832961 as u32,
-            g: 1150638905 as u32,
-            s: 554084759 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145832961 as u32, g: 1150638905 as u32, s: 554084759 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145816577 as u32,
-            g: 221601706 as u32,
-            s: 427340863 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145816577 as u32, g: 221601706 as u32, s: 427340863 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145785857 as u32,
-            g: 608896761 as u32,
-            s: 316590738 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145785857 as u32, g: 608896761 as u32, s: 316590738 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145755137 as u32,
-            g: 1712054942 as u32,
-            s: 1684294304 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145755137 as u32, g: 1712054942 as u32, s: 1684294304 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145742849 as u32,
-            g: 1302302867 as u32,
-            s: 724873116 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145742849 as u32, g: 1302302867 as u32, s: 724873116 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145728513 as u32,
-            g: 516717693 as u32,
-            s: 431671476 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145728513 as u32, g: 516717693 as u32, s: 431671476 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145699841 as u32,
-            g: 524575579 as u32,
-            s: 1619722537 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145699841 as u32, g: 524575579 as u32, s: 1619722537 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145691649 as u32,
-            g: 1925625239 as u32,
-            s: 982974435 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145691649 as u32, g: 1925625239 as u32, s: 982974435 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145687553 as u32,
-            g: 463795662 as u32,
-            s: 1293154300 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145687553 as u32, g: 463795662 as u32, s: 1293154300 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145673217 as u32,
-            g: 771716636 as u32,
-            s: 881778029 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145673217 as u32, g: 771716636 as u32, s: 881778029 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145630209 as u32,
-            g: 1509556977 as u32,
-            s: 837364988 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145630209 as u32, g: 1509556977 as u32, s: 837364988 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145595393 as u32,
-            g: 229091856 as u32,
-            s: 851648427 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145595393 as u32, g: 229091856 as u32, s: 851648427 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145587201 as u32,
-            g: 1796903241 as u32,
-            s: 635342424 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145587201 as u32, g: 1796903241 as u32, s: 635342424 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145525761 as u32,
-            g: 715310882 as u32,
-            s: 1677228081 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145525761 as u32, g: 715310882 as u32, s: 1677228081 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145495041 as u32,
-            g: 1040930522 as u32,
-            s: 200685896 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145495041 as u32, g: 1040930522 as u32, s: 200685896 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145466369 as u32,
-            g: 949804237 as u32,
-            s: 1809146322 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145466369 as u32, g: 949804237 as u32, s: 1809146322 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145445889 as u32,
-            g: 1673903706 as u32,
-            s: 95316881 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145445889 as u32, g: 1673903706 as u32, s: 95316881 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145390593 as u32,
-            g: 806941852 as u32,
-            s: 1428671135 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145390593 as u32, g: 806941852 as u32, s: 1428671135 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145372161 as u32,
-            g: 1402525292 as u32,
-            s: 159350694 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145372161 as u32, g: 1402525292 as u32, s: 159350694 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145361921 as u32,
-            g: 2124760298 as u32,
-            s: 1589134749 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145361921 as u32, g: 2124760298 as u32, s: 1589134749 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145359873 as u32,
-            g: 1217503067 as u32,
-            s: 1561543010 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145359873 as u32, g: 1217503067 as u32, s: 1561543010 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145355777 as u32,
-            g: 338341402 as u32,
-            s: 83865711 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145355777 as u32, g: 338341402 as u32, s: 83865711 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145343489 as u32,
-            g: 1381532164 as u32,
-            s: 641430002 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145343489 as u32, g: 1381532164 as u32, s: 641430002 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145325057 as u32,
-            g: 1883895478 as u32,
-            s: 1528469895 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145325057 as u32, g: 1883895478 as u32, s: 1528469895 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145318913 as u32,
-            g: 1335370424 as u32,
-            s: 65809740 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145318913 as u32, g: 1335370424 as u32, s: 65809740 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145312769 as u32,
-            g: 2000008042 as u32,
-            s: 1919775760 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145312769 as u32, g: 2000008042 as u32, s: 1919775760 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145300481 as u32,
-            g: 961450962 as u32,
-            s: 1229540578 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145300481 as u32, g: 961450962 as u32, s: 1229540578 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145282049 as u32,
-            g: 910466767 as u32,
-            s: 1964062701 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145282049 as u32, g: 910466767 as u32, s: 1964062701 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145232897 as u32,
-            g: 816527501 as u32,
-            s: 450152063 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145232897 as u32, g: 816527501 as u32, s: 450152063 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145218561 as u32,
-            g: 1435128058 as u32,
-            s: 1794509700 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145218561 as u32, g: 1435128058 as u32, s: 1794509700 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145187841 as u32,
-            g: 33505311 as u32,
-            s: 1272467582 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145187841 as u32, g: 33505311 as u32, s: 1272467582 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145181697 as u32,
-            g: 269767433 as u32,
-            s: 1380363849 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145181697 as u32, g: 269767433 as u32, s: 1380363849 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145175553 as u32,
-            g: 56386299 as u32,
-            s: 1316870546 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145175553 as u32, g: 56386299 as u32, s: 1316870546 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145079297 as u32,
-            g: 2106880293 as u32,
-            s: 1391797340 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145079297 as u32, g: 2106880293 as u32, s: 1391797340 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145021953 as u32,
-            g: 1347906152 as u32,
-            s: 720510798 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145021953 as u32, g: 1347906152 as u32, s: 720510798 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145015809 as u32,
-            g: 206769262 as u32,
-            s: 1651459955 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145015809 as u32, g: 206769262 as u32, s: 1651459955 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2145003521 as u32,
-            g: 1885513236 as u32,
-            s: 1393381284 as u32,
-        };
+        let mut init =
+            small_prime { p: 2145003521 as u32, g: 1885513236 as u32, s: 1393381284 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144960513 as u32,
-            g: 1810381315 as u32,
-            s: 31937275 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144960513 as u32, g: 1810381315 as u32, s: 31937275 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144944129 as u32,
-            g: 1306487838 as u32,
-            s: 2019419520 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144944129 as u32, g: 1306487838 as u32, s: 2019419520 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144935937 as u32,
-            g: 37304730 as u32,
-            s: 1841489054 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144935937 as u32, g: 37304730 as u32, s: 1841489054 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144894977 as u32,
-            g: 1601434616 as u32,
-            s: 157985831 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144894977 as u32, g: 1601434616 as u32, s: 157985831 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144888833 as u32,
-            g: 98749330 as u32,
-            s: 2128592228 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144888833 as u32, g: 98749330 as u32, s: 2128592228 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144880641 as u32,
-            g: 1772327002 as u32,
-            s: 2076128344 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144880641 as u32, g: 1772327002 as u32, s: 2076128344 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144864257 as u32,
-            g: 1404514762 as u32,
-            s: 2029969964 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144864257 as u32, g: 1404514762 as u32, s: 2029969964 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144827393 as u32,
-            g: 801236594 as u32,
-            s: 406627220 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144827393 as u32, g: 801236594 as u32, s: 406627220 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144806913 as u32,
-            g: 349217443 as u32,
-            s: 1501080290 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144806913 as u32, g: 349217443 as u32, s: 1501080290 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144796673 as u32,
-            g: 1542656776 as u32,
-            s: 2084736519 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144796673 as u32, g: 1542656776 as u32, s: 2084736519 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144778241 as u32,
-            g: 1210734884 as u32,
-            s: 1746416203 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144778241 as u32, g: 1210734884 as u32, s: 1746416203 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144759809 as u32,
-            g: 1146598851 as u32,
-            s: 716464489 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144759809 as u32, g: 1146598851 as u32, s: 716464489 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144757761 as u32,
-            g: 286328400 as u32,
-            s: 1823728177 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144757761 as u32, g: 286328400 as u32, s: 1823728177 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144729089 as u32,
-            g: 1347555695 as u32,
-            s: 1836644881 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144729089 as u32, g: 1347555695 as u32, s: 1836644881 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144727041 as u32,
-            g: 1795703790 as u32,
-            s: 520296412 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144727041 as u32, g: 1795703790 as u32, s: 520296412 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144696321 as u32,
-            g: 1302475157 as u32,
-            s: 852964281 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144696321 as u32, g: 1302475157 as u32, s: 852964281 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144667649 as u32,
-            g: 1075877614 as u32,
-            s: 504992927 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144667649 as u32, g: 1075877614 as u32, s: 504992927 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144573441 as u32,
-            g: 198765808 as u32,
-            s: 1617144982 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144573441 as u32, g: 198765808 as u32, s: 1617144982 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144555009 as u32,
-            g: 321528767 as u32,
-            s: 155821259 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144555009 as u32, g: 321528767 as u32, s: 155821259 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144550913 as u32,
-            g: 814139516 as u32,
-            s: 1819937644 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144550913 as u32, g: 814139516 as u32, s: 1819937644 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144536577 as u32,
-            g: 571143206 as u32,
-            s: 962942255 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144536577 as u32, g: 571143206 as u32, s: 962942255 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144524289 as u32,
-            g: 1746733766 as u32,
-            s: 2471321 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144524289 as u32, g: 1746733766 as u32, s: 2471321 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144512001 as u32,
-            g: 1821415077 as u32,
-            s: 124190939 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144512001 as u32, g: 1821415077 as u32, s: 124190939 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144468993 as u32,
-            g: 917871546 as u32,
-            s: 1260072806 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144468993 as u32, g: 917871546 as u32, s: 1260072806 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144458753 as u32,
-            g: 378417981 as u32,
-            s: 1569240563 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144458753 as u32, g: 378417981 as u32, s: 1569240563 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144421889 as u32,
-            g: 175229668 as u32,
-            s: 1825620763 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144421889 as u32, g: 175229668 as u32, s: 1825620763 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144409601 as u32,
-            g: 1699216963 as u32,
-            s: 351648117 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144409601 as u32, g: 1699216963 as u32, s: 351648117 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144370689 as u32,
-            g: 1071885991 as u32,
-            s: 958186029 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144370689 as u32, g: 1071885991 as u32, s: 958186029 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144348161 as u32,
-            g: 1763151227 as u32,
-            s: 540353574 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144348161 as u32, g: 1763151227 as u32, s: 540353574 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144335873 as u32,
-            g: 1060214804 as u32,
-            s: 919598847 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144335873 as u32, g: 1060214804 as u32, s: 919598847 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144329729 as u32,
-            g: 663515846 as u32,
-            s: 1448552668 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144329729 as u32, g: 663515846 as u32, s: 1448552668 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144327681 as u32,
-            g: 1057776305 as u32,
-            s: 590222840 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144327681 as u32, g: 1057776305 as u32, s: 590222840 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144309249 as u32,
-            g: 1705149168 as u32,
-            s: 1459294624 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144309249 as u32, g: 1705149168 as u32, s: 1459294624 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144296961 as u32,
-            g: 325823721 as u32,
-            s: 1649016934 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144296961 as u32, g: 325823721 as u32, s: 1649016934 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144290817 as u32,
-            g: 738775789 as u32,
-            s: 447427206 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144290817 as u32, g: 738775789 as u32, s: 447427206 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144243713 as u32,
-            g: 962347618 as u32,
-            s: 893050215 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144243713 as u32, g: 962347618 as u32, s: 893050215 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144237569 as u32,
-            g: 1655257077 as u32,
-            s: 900860862 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144237569 as u32, g: 1655257077 as u32, s: 900860862 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144161793 as u32,
-            g: 242206694 as u32,
-            s: 1567868672 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144161793 as u32, g: 242206694 as u32, s: 1567868672 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144155649 as u32,
-            g: 769415308 as u32,
-            s: 1247993134 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144155649 as u32, g: 769415308 as u32, s: 1247993134 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144137217 as u32,
-            g: 320492023 as u32,
-            s: 515841070 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144137217 as u32, g: 320492023 as u32, s: 515841070 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144120833 as u32,
-            g: 1639388522 as u32,
-            s: 770877302 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144120833 as u32, g: 1639388522 as u32, s: 770877302 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144071681 as u32,
-            g: 1761785233 as u32,
-            s: 964296120 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144071681 as u32, g: 1761785233 as u32, s: 964296120 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144065537 as u32,
-            g: 419817825 as u32,
-            s: 204564472 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144065537 as u32, g: 419817825 as u32, s: 204564472 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144028673 as u32,
-            g: 666050597 as u32,
-            s: 2091019760 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144028673 as u32, g: 666050597 as u32, s: 2091019760 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2144010241 as u32,
-            g: 1413657615 as u32,
-            s: 1518702610 as u32,
-        };
+        let mut init =
+            small_prime { p: 2144010241 as u32, g: 1413657615 as u32, s: 1518702610 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143952897 as u32,
-            g: 1238327946 as u32,
-            s: 475672271 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143952897 as u32, g: 1238327946 as u32, s: 475672271 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143940609 as u32,
-            g: 307063413 as u32,
-            s: 1176750846 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143940609 as u32, g: 307063413 as u32, s: 1176750846 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143918081 as u32,
-            g: 2062905559 as u32,
-            s: 786785803 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143918081 as u32, g: 2062905559 as u32, s: 786785803 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143899649 as u32,
-            g: 1338112849 as u32,
-            s: 1562292083 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143899649 as u32, g: 1338112849 as u32, s: 1562292083 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143891457 as u32,
-            g: 68149545 as u32,
-            s: 87166451 as u32,
-        };
+        let mut init = small_prime { p: 2143891457 as u32, g: 68149545 as u32, s: 87166451 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143885313 as u32,
-            g: 921750778 as u32,
-            s: 394460854 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143885313 as u32, g: 921750778 as u32, s: 394460854 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143854593 as u32,
-            g: 719766593 as u32,
-            s: 133877196 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143854593 as u32, g: 719766593 as u32, s: 133877196 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143836161 as u32,
-            g: 1149399850 as u32,
-            s: 1861591875 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143836161 as u32, g: 1149399850 as u32, s: 1861591875 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143762433 as u32,
-            g: 1848739366 as u32,
-            s: 1335934145 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143762433 as u32, g: 1848739366 as u32, s: 1335934145 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143756289 as u32,
-            g: 1326674710 as u32,
-            s: 102999236 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143756289 as u32, g: 1326674710 as u32, s: 102999236 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143713281 as u32,
-            g: 808061791 as u32,
-            s: 1156900308 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143713281 as u32, g: 808061791 as u32, s: 1156900308 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143690753 as u32,
-            g: 388399459 as u32,
-            s: 1926468019 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143690753 as u32, g: 388399459 as u32, s: 1926468019 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143670273 as u32,
-            g: 1427891374 as u32,
-            s: 1756689401 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143670273 as u32, g: 1427891374 as u32, s: 1756689401 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143666177 as u32,
-            g: 1912173949 as u32,
-            s: 986629565 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143666177 as u32, g: 1912173949 as u32, s: 986629565 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143645697 as u32,
-            g: 2041160111 as u32,
-            s: 371842865 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143645697 as u32, g: 2041160111 as u32, s: 371842865 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143641601 as u32,
-            g: 1279906897 as u32,
-            s: 2023974350 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143641601 as u32, g: 1279906897 as u32, s: 2023974350 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143635457 as u32,
-            g: 720473174 as u32,
-            s: 1389027526 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143635457 as u32, g: 720473174 as u32, s: 1389027526 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143621121 as u32,
-            g: 1298309455 as u32,
-            s: 1732632006 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143621121 as u32, g: 1298309455 as u32, s: 1732632006 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143598593 as u32,
-            g: 1548762216 as u32,
-            s: 1825417506 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143598593 as u32, g: 1548762216 as u32, s: 1825417506 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143567873 as u32,
-            g: 620475784 as u32,
-            s: 1073787233 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143567873 as u32, g: 620475784 as u32, s: 1073787233 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143561729 as u32,
-            g: 1932954575 as u32,
-            s: 949167309 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143561729 as u32, g: 1932954575 as u32, s: 949167309 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143553537 as u32,
-            g: 354315656 as u32,
-            s: 1652037534 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143553537 as u32, g: 354315656 as u32, s: 1652037534 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143541249 as u32,
-            g: 577424288 as u32,
-            s: 1097027618 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143541249 as u32, g: 577424288 as u32, s: 1097027618 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143531009 as u32,
-            g: 357862822 as u32,
-            s: 478640055 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143531009 as u32, g: 357862822 as u32, s: 478640055 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143522817 as u32,
-            g: 2017706025 as u32,
-            s: 1550531668 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143522817 as u32, g: 2017706025 as u32, s: 1550531668 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143506433 as u32,
-            g: 2078127419 as u32,
-            s: 1824320165 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143506433 as u32, g: 2078127419 as u32, s: 1824320165 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143488001 as u32,
-            g: 613475285 as u32,
-            s: 1604011510 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143488001 as u32, g: 613475285 as u32, s: 1604011510 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143469569 as u32,
-            g: 1466594987 as u32,
-            s: 502095196 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143469569 as u32, g: 1466594987 as u32, s: 502095196 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143426561 as u32,
-            g: 1115430331 as u32,
-            s: 1044637111 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143426561 as u32, g: 1115430331 as u32, s: 1044637111 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143383553 as u32,
-            g: 9778045 as u32,
-            s: 1902463734 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143383553 as u32, g: 9778045 as u32, s: 1902463734 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143377409 as u32,
-            g: 1557401276 as u32,
-            s: 2056861771 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143377409 as u32, g: 1557401276 as u32, s: 2056861771 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143363073 as u32,
-            g: 652036455 as u32,
-            s: 1965915971 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143363073 as u32, g: 652036455 as u32, s: 1965915971 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143260673 as u32,
-            g: 1464581171 as u32,
-            s: 1523257541 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143260673 as u32, g: 1464581171 as u32, s: 1523257541 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143246337 as u32,
-            g: 1876119649 as u32,
-            s: 764541916 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143246337 as u32, g: 1876119649 as u32, s: 764541916 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143209473 as u32,
-            g: 1614992673 as u32,
-            s: 1920672844 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143209473 as u32, g: 1614992673 as u32, s: 1920672844 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143203329 as u32,
-            g: 981052047 as u32,
-            s: 2049774209 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143203329 as u32, g: 981052047 as u32, s: 2049774209 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143160321 as u32,
-            g: 1847355533 as u32,
-            s: 728535665 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143160321 as u32, g: 1847355533 as u32, s: 728535665 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143129601 as u32,
-            g: 965558457 as u32,
-            s: 603052992 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143129601 as u32, g: 965558457 as u32, s: 603052992 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143123457 as u32,
-            g: 2140817191 as u32,
-            s: 8348679 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143123457 as u32, g: 2140817191 as u32, s: 8348679 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143100929 as u32,
-            g: 1547263683 as u32,
-            s: 694209023 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143100929 as u32, g: 1547263683 as u32, s: 694209023 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143092737 as u32,
-            g: 643459066 as u32,
-            s: 1979934533 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143092737 as u32, g: 643459066 as u32, s: 1979934533 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143082497 as u32,
-            g: 188603778 as u32,
-            s: 2026175670 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143082497 as u32, g: 188603778 as u32, s: 2026175670 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143062017 as u32,
-            g: 1657329695 as u32,
-            s: 377451099 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143062017 as u32, g: 1657329695 as u32, s: 377451099 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143051777 as u32,
-            g: 114967950 as u32,
-            s: 979255473 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143051777 as u32, g: 114967950 as u32, s: 979255473 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143025153 as u32,
-            g: 1698431342 as u32,
-            s: 1449196896 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143025153 as u32, g: 1698431342 as u32, s: 1449196896 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2143006721 as u32,
-            g: 1862741675 as u32,
-            s: 1739650365 as u32,
-        };
+        let mut init =
+            small_prime { p: 2143006721 as u32, g: 1862741675 as u32, s: 1739650365 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142996481 as u32,
-            g: 756660457 as u32,
-            s: 996160050 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142996481 as u32, g: 756660457 as u32, s: 996160050 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142976001 as u32,
-            g: 927864010 as u32,
-            s: 1166847574 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142976001 as u32, g: 927864010 as u32, s: 1166847574 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142965761 as u32,
-            g: 905070557 as u32,
-            s: 661974566 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142965761 as u32, g: 905070557 as u32, s: 661974566 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142916609 as u32,
-            g: 40932754 as u32,
-            s: 1787161127 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142916609 as u32, g: 40932754 as u32, s: 1787161127 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142892033 as u32,
-            g: 1987985648 as u32,
-            s: 675335382 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142892033 as u32, g: 1987985648 as u32, s: 675335382 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142885889 as u32,
-            g: 797497211 as u32,
-            s: 1323096997 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142885889 as u32, g: 797497211 as u32, s: 1323096997 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142871553 as u32,
-            g: 2068025830 as u32,
-            s: 1411877159 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142871553 as u32, g: 2068025830 as u32, s: 1411877159 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142861313 as u32,
-            g: 1217177090 as u32,
-            s: 1438410687 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142861313 as u32, g: 1217177090 as u32, s: 1438410687 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142830593 as u32,
-            g: 409906375 as u32,
-            s: 1767860634 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142830593 as u32, g: 409906375 as u32, s: 1767860634 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142803969 as u32,
-            g: 1197788993 as u32,
-            s: 359782919 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142803969 as u32, g: 1197788993 as u32, s: 359782919 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142785537 as u32,
-            g: 643817365 as u32,
-            s: 513932862 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142785537 as u32, g: 643817365 as u32, s: 513932862 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142779393 as u32,
-            g: 1717046338 as u32,
-            s: 218943121 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142779393 as u32, g: 1717046338 as u32, s: 218943121 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142724097 as u32,
-            g: 89336830 as u32,
-            s: 416687049 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142724097 as u32, g: 89336830 as u32, s: 416687049 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142707713 as u32,
-            g: 5944581 as u32,
-            s: 1356813523 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142707713 as u32, g: 5944581 as u32, s: 1356813523 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142658561 as u32,
-            g: 887942135 as u32,
-            s: 2074011722 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142658561 as u32, g: 887942135 as u32, s: 2074011722 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142638081 as u32,
-            g: 151851972 as u32,
-            s: 1647339939 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142638081 as u32, g: 151851972 as u32, s: 1647339939 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142564353 as u32,
-            g: 1691505537 as u32,
-            s: 1483107336 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142564353 as u32, g: 1691505537 as u32, s: 1483107336 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142533633 as u32,
-            g: 1989920200 as u32,
-            s: 1135938817 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142533633 as u32, g: 1989920200 as u32, s: 1135938817 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142529537 as u32,
-            g: 959263126 as u32,
-            s: 1531961857 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142529537 as u32, g: 959263126 as u32, s: 1531961857 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142527489 as u32,
-            g: 453251129 as u32,
-            s: 1725566162 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142527489 as u32, g: 453251129 as u32, s: 1725566162 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142502913 as u32,
-            g: 1536028102 as u32,
-            s: 182053257 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142502913 as u32, g: 1536028102 as u32, s: 182053257 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142498817 as u32,
-            g: 570138730 as u32,
-            s: 701443447 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142498817 as u32, g: 570138730 as u32, s: 701443447 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142416897 as u32,
-            g: 326965800 as u32,
-            s: 411931819 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142416897 as u32, g: 326965800 as u32, s: 411931819 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142363649 as u32,
-            g: 1675665410 as u32,
-            s: 1517191733 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142363649 as u32, g: 1675665410 as u32, s: 1517191733 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142351361 as u32,
-            g: 968529566 as u32,
-            s: 1575712703 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142351361 as u32, g: 968529566 as u32, s: 1575712703 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142330881 as u32,
-            g: 1384953238 as u32,
-            s: 1769087884 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142330881 as u32, g: 1384953238 as u32, s: 1769087884 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142314497 as u32,
-            g: 1977173242 as u32,
-            s: 1833745524 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142314497 as u32, g: 1977173242 as u32, s: 1833745524 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142289921 as u32,
-            g: 95082313 as u32,
-            s: 1714775493 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142289921 as u32, g: 95082313 as u32, s: 1714775493 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142283777 as u32,
-            g: 109377615 as u32,
-            s: 1070584533 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142283777 as u32, g: 109377615 as u32, s: 1070584533 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142277633 as u32,
-            g: 16960510 as u32,
-            s: 702157145 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142277633 as u32, g: 16960510 as u32, s: 702157145 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142263297 as u32,
-            g: 553850819 as u32,
-            s: 431364395 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142263297 as u32, g: 553850819 as u32, s: 431364395 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142208001 as u32,
-            g: 241466367 as u32,
-            s: 2053967982 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142208001 as u32, g: 241466367 as u32, s: 2053967982 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142164993 as u32,
-            g: 1795661326 as u32,
-            s: 1031836848 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142164993 as u32, g: 1795661326 as u32, s: 1031836848 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142097409 as u32,
-            g: 1212530046 as u32,
-            s: 712772031 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142097409 as u32, g: 1212530046 as u32, s: 712772031 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142087169 as u32,
-            g: 1763869720 as u32,
-            s: 822276067 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142087169 as u32, g: 1763869720 as u32, s: 822276067 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142078977 as u32,
-            g: 644065713 as u32,
-            s: 1765268066 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142078977 as u32, g: 644065713 as u32, s: 1765268066 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142074881 as u32,
-            g: 112671944 as u32,
-            s: 643204925 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142074881 as u32, g: 112671944 as u32, s: 643204925 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142044161 as u32,
-            g: 1387785471 as u32,
-            s: 1297890174 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142044161 as u32, g: 1387785471 as u32, s: 1297890174 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142025729 as u32,
-            g: 783885537 as u32,
-            s: 1000425730 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142025729 as u32, g: 783885537 as u32, s: 1000425730 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2142011393 as u32,
-            g: 905662232 as u32,
-            s: 1679401033 as u32,
-        };
+        let mut init =
+            small_prime { p: 2142011393 as u32, g: 905662232 as u32, s: 1679401033 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141974529 as u32,
-            g: 799788433 as u32,
-            s: 468119557 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141974529 as u32, g: 799788433 as u32, s: 468119557 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141943809 as u32,
-            g: 1932544124 as u32,
-            s: 449305555 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141943809 as u32, g: 1932544124 as u32, s: 449305555 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141933569 as u32,
-            g: 1527403256 as u32,
-            s: 841867925 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141933569 as u32, g: 1527403256 as u32, s: 841867925 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141931521 as u32,
-            g: 1247076451 as u32,
-            s: 743823916 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141931521 as u32, g: 1247076451 as u32, s: 743823916 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141902849 as u32,
-            g: 1199660531 as u32,
-            s: 401687910 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141902849 as u32, g: 1199660531 as u32, s: 401687910 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141890561 as u32,
-            g: 150132350 as u32,
-            s: 1720336972 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141890561 as u32, g: 150132350 as u32, s: 1720336972 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141857793 as u32,
-            g: 1287438162 as u32,
-            s: 663880489 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141857793 as u32, g: 1287438162 as u32, s: 663880489 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141833217 as u32,
-            g: 618017731 as u32,
-            s: 1819208266 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141833217 as u32, g: 618017731 as u32, s: 1819208266 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141820929 as u32,
-            g: 999578638 as u32,
-            s: 1403090096 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141820929 as u32, g: 999578638 as u32, s: 1403090096 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141786113 as u32,
-            g: 81834325 as u32,
-            s: 1523542501 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141786113 as u32, g: 81834325 as u32, s: 1523542501 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141771777 as u32,
-            g: 120001928 as u32,
-            s: 463556492 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141771777 as u32, g: 120001928 as u32, s: 463556492 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141759489 as u32,
-            g: 122455485 as u32,
-            s: 2124928282 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141759489 as u32, g: 122455485 as u32, s: 2124928282 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141749249 as u32,
-            g: 141986041 as u32,
-            s: 940339153 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141749249 as u32, g: 141986041 as u32, s: 940339153 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141685761 as u32,
-            g: 889088734 as u32,
-            s: 477141499 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141685761 as u32, g: 889088734 as u32, s: 477141499 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141673473 as u32,
-            g: 324212681 as u32,
-            s: 1122558298 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141673473 as u32, g: 324212681 as u32, s: 1122558298 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141669377 as u32,
-            g: 1175806187 as u32,
-            s: 1373818177 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141669377 as u32, g: 1175806187 as u32, s: 1373818177 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141655041 as u32,
-            g: 1113654822 as u32,
-            s: 296887082 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141655041 as u32, g: 1113654822 as u32, s: 296887082 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141587457 as u32,
-            g: 991103258 as u32,
-            s: 1585913875 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141587457 as u32, g: 991103258 as u32, s: 1585913875 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141583361 as u32,
-            g: 1401451409 as u32,
-            s: 1802457360 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141583361 as u32, g: 1401451409 as u32, s: 1802457360 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141575169 as u32,
-            g: 1571977166 as u32,
-            s: 712760980 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141575169 as u32, g: 1571977166 as u32, s: 712760980 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141546497 as u32,
-            g: 1107849376 as u32,
-            s: 1250270109 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141546497 as u32, g: 1107849376 as u32, s: 1250270109 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141515777 as u32,
-            g: 196544219 as u32,
-            s: 356001130 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141515777 as u32, g: 196544219 as u32, s: 356001130 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141495297 as u32,
-            g: 1733571506 as u32,
-            s: 1060744866 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141495297 as u32, g: 1733571506 as u32, s: 1060744866 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141483009 as u32,
-            g: 321552363 as u32,
-            s: 1168297026 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141483009 as u32, g: 321552363 as u32, s: 1168297026 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141458433 as u32,
-            g: 505818251 as u32,
-            s: 733225819 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141458433 as u32, g: 505818251 as u32, s: 733225819 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141360129 as u32,
-            g: 1026840098 as u32,
-            s: 948342276 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141360129 as u32, g: 1026840098 as u32, s: 948342276 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141325313 as u32,
-            g: 945133744 as u32,
-            s: 2129965998 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141325313 as u32, g: 945133744 as u32, s: 2129965998 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141317121 as u32,
-            g: 1871100260 as u32,
-            s: 1843844634 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141317121 as u32, g: 1871100260 as u32, s: 1843844634 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141286401 as u32,
-            g: 1790639498 as u32,
-            s: 1750465696 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141286401 as u32, g: 1790639498 as u32, s: 1750465696 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141267969 as u32,
-            g: 1376858592 as u32,
-            s: 186160720 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141267969 as u32, g: 1376858592 as u32, s: 186160720 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141255681 as u32,
-            g: 2129698296 as u32,
-            s: 1876677959 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141255681 as u32, g: 2129698296 as u32, s: 1876677959 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141243393 as u32,
-            g: 2138900688 as u32,
-            s: 1340009628 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141243393 as u32, g: 2138900688 as u32, s: 1340009628 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141214721 as u32,
-            g: 1933049835 as u32,
-            s: 1087819477 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141214721 as u32, g: 1933049835 as u32, s: 1087819477 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141212673 as u32,
-            g: 1898664939 as u32,
-            s: 1786328049 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141212673 as u32, g: 1898664939 as u32, s: 1786328049 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141202433 as u32,
-            g: 990234828 as u32,
-            s: 940682169 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141202433 as u32, g: 990234828 as u32, s: 940682169 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141175809 as u32,
-            g: 1406392421 as u32,
-            s: 993089586 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141175809 as u32, g: 1406392421 as u32, s: 993089586 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141165569 as u32,
-            g: 1263518371 as u32,
-            s: 289019479 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141165569 as u32, g: 1263518371 as u32, s: 289019479 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141073409 as u32,
-            g: 1485624211 as u32,
-            s: 507864514 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141073409 as u32, g: 1485624211 as u32, s: 507864514 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141052929 as u32,
-            g: 1885134788 as u32,
-            s: 311252465 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141052929 as u32, g: 1885134788 as u32, s: 311252465 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141040641 as u32,
-            g: 1285021247 as u32,
-            s: 280941862 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141040641 as u32, g: 1285021247 as u32, s: 280941862 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141028353 as u32,
-            g: 1527610374 as u32,
-            s: 375035110 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141028353 as u32, g: 1527610374 as u32, s: 375035110 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2141011969 as u32,
-            g: 1400626168 as u32,
-            s: 164696620 as u32,
-        };
+        let mut init =
+            small_prime { p: 2141011969 as u32, g: 1400626168 as u32, s: 164696620 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140999681 as u32,
-            g: 632959608 as u32,
-            s: 966175067 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140999681 as u32, g: 632959608 as u32, s: 966175067 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140997633 as u32,
-            g: 2045628978 as u32,
-            s: 1290889438 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140997633 as u32, g: 2045628978 as u32, s: 1290889438 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140993537 as u32,
-            g: 1412755491 as u32,
-            s: 375366253 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140993537 as u32, g: 1412755491 as u32, s: 375366253 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140942337 as u32,
-            g: 719477232 as u32,
-            s: 785367828 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140942337 as u32, g: 719477232 as u32, s: 785367828 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140925953 as u32,
-            g: 45224252 as u32,
-            s: 836552317 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140925953 as u32, g: 45224252 as u32, s: 836552317 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140917761 as u32,
-            g: 1157376588 as u32,
-            s: 1001839569 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140917761 as u32, g: 1157376588 as u32, s: 1001839569 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140887041 as u32,
-            g: 278480752 as u32,
-            s: 2098732796 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140887041 as u32, g: 278480752 as u32, s: 2098732796 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140837889 as u32,
-            g: 1663139953 as u32,
-            s: 924094810 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140837889 as u32, g: 1663139953 as u32, s: 924094810 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140788737 as u32,
-            g: 802501511 as u32,
-            s: 2045368990 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140788737 as u32, g: 802501511 as u32, s: 2045368990 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140766209 as u32,
-            g: 1820083885 as u32,
-            s: 1800295504 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140766209 as u32, g: 1820083885 as u32, s: 1800295504 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140764161 as u32,
-            g: 1169561905 as u32,
-            s: 2106792035 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140764161 as u32, g: 1169561905 as u32, s: 2106792035 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140696577 as u32,
-            g: 127781498 as u32,
-            s: 1885987531 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140696577 as u32, g: 127781498 as u32, s: 1885987531 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140684289 as u32,
-            g: 16014477 as u32,
-            s: 1098116827 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140684289 as u32, g: 16014477 as u32, s: 1098116827 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140653569 as u32,
-            g: 665960598 as u32,
-            s: 1796728247 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140653569 as u32, g: 665960598 as u32, s: 1796728247 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140594177 as u32,
-            g: 1043085491 as u32,
-            s: 377310938 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140594177 as u32, g: 1043085491 as u32, s: 377310938 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140579841 as u32,
-            g: 1732838211 as u32,
-            s: 1504505945 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140579841 as u32, g: 1732838211 as u32, s: 1504505945 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140569601 as u32,
-            g: 302071939 as u32,
-            s: 358291016 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140569601 as u32, g: 302071939 as u32, s: 358291016 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140567553 as u32,
-            g: 192393733 as u32,
-            s: 1909137143 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140567553 as u32, g: 192393733 as u32, s: 1909137143 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140557313 as u32,
-            g: 406595731 as u32,
-            s: 1175330270 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140557313 as u32, g: 406595731 as u32, s: 1175330270 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140549121 as u32,
-            g: 1748850918 as u32,
-            s: 525007007 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140549121 as u32, g: 1748850918 as u32, s: 525007007 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140477441 as u32,
-            g: 499436566 as u32,
-            s: 1031159814 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140477441 as u32, g: 499436566 as u32, s: 1031159814 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140469249 as u32,
-            g: 1886004401 as u32,
-            s: 1029951320 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140469249 as u32, g: 1886004401 as u32, s: 1029951320 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140426241 as u32,
-            g: 1483168100 as u32,
-            s: 1676273461 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140426241 as u32, g: 1483168100 as u32, s: 1676273461 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140420097 as u32,
-            g: 1779917297 as u32,
-            s: 846024476 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140420097 as u32, g: 1779917297 as u32, s: 846024476 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140413953 as u32,
-            g: 522948893 as u32,
-            s: 1816354149 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140413953 as u32, g: 522948893 as u32, s: 1816354149 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140383233 as u32,
-            g: 1931364473 as u32,
-            s: 1296921241 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140383233 as u32, g: 1931364473 as u32, s: 1296921241 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140366849 as u32,
-            g: 1917356555 as u32,
-            s: 147196204 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140366849 as u32, g: 1917356555 as u32, s: 147196204 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140354561 as u32,
-            g: 16466177 as u32,
-            s: 1349052107 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140354561 as u32, g: 16466177 as u32, s: 1349052107 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140348417 as u32,
-            g: 1875366972 as u32,
-            s: 1860485634 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140348417 as u32, g: 1875366972 as u32, s: 1860485634 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140323841 as u32,
-            g: 456498717 as u32,
-            s: 1790256483 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140323841 as u32, g: 456498717 as u32, s: 1790256483 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140321793 as u32,
-            g: 1629493973 as u32,
-            s: 150031888 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140321793 as u32, g: 1629493973 as u32, s: 150031888 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140315649 as u32,
-            g: 1904063898 as u32,
-            s: 395510935 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140315649 as u32, g: 1904063898 as u32, s: 395510935 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140280833 as u32,
-            g: 1784104328 as u32,
-            s: 831417909 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140280833 as u32, g: 1784104328 as u32, s: 831417909 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140250113 as u32,
-            g: 256087139 as u32,
-            s: 697349101 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140250113 as u32, g: 256087139 as u32, s: 697349101 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140229633 as u32,
-            g: 388553070 as u32,
-            s: 243875754 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140229633 as u32, g: 388553070 as u32, s: 243875754 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140223489 as u32,
-            g: 747459608 as u32,
-            s: 1396270850 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140223489 as u32, g: 747459608 as u32, s: 1396270850 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140200961 as u32,
-            g: 507423743 as u32,
-            s: 1895572209 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140200961 as u32, g: 507423743 as u32, s: 1895572209 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140162049 as u32,
-            g: 580106016 as u32,
-            s: 2045297469 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140162049 as u32, g: 580106016 as u32, s: 2045297469 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140149761 as u32,
-            g: 712426444 as u32,
-            s: 785217995 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140149761 as u32, g: 712426444 as u32, s: 785217995 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140137473 as u32,
-            g: 1441607584 as u32,
-            s: 536866543 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140137473 as u32, g: 1441607584 as u32, s: 536866543 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140119041 as u32,
-            g: 346538902 as u32,
-            s: 1740434653 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140119041 as u32, g: 346538902 as u32, s: 1740434653 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140090369 as u32,
-            g: 282642885 as u32,
-            s: 21051094 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140090369 as u32, g: 282642885 as u32, s: 21051094 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140076033 as u32,
-            g: 1407456228 as u32,
-            s: 319910029 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140076033 as u32, g: 1407456228 as u32, s: 319910029 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140047361 as u32,
-            g: 1619330500 as u32,
-            s: 1488632070 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140047361 as u32, g: 1619330500 as u32, s: 1488632070 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140041217 as u32,
-            g: 2089408064 as u32,
-            s: 2012026134 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140041217 as u32, g: 2089408064 as u32, s: 2012026134 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2140008449 as u32,
-            g: 1705524800 as u32,
-            s: 1613440760 as u32,
-        };
+        let mut init =
+            small_prime { p: 2140008449 as u32, g: 1705524800 as u32, s: 1613440760 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139924481 as u32,
-            g: 1846208233 as u32,
-            s: 1280649481 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139924481 as u32, g: 1846208233 as u32, s: 1280649481 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139906049 as u32,
-            g: 989438755 as u32,
-            s: 1185646076 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139906049 as u32, g: 989438755 as u32, s: 1185646076 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139867137 as u32,
-            g: 1522314850 as u32,
-            s: 372783595 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139867137 as u32, g: 1522314850 as u32, s: 372783595 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139842561 as u32,
-            g: 1681587377 as u32,
-            s: 216848235 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139842561 as u32, g: 1681587377 as u32, s: 216848235 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139826177 as u32,
-            g: 2066284988 as u32,
-            s: 1784999464 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139826177 as u32, g: 2066284988 as u32, s: 1784999464 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139824129 as u32,
-            g: 480888214 as u32,
-            s: 1513323027 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139824129 as u32, g: 480888214 as u32, s: 1513323027 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139789313 as u32,
-            g: 847937200 as u32,
-            s: 858192859 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139789313 as u32, g: 847937200 as u32, s: 858192859 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139783169 as u32,
-            g: 1642000434 as u32,
-            s: 1583261448 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139783169 as u32, g: 1642000434 as u32, s: 1583261448 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139770881 as u32,
-            g: 940699589 as u32,
-            s: 179702100 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139770881 as u32, g: 940699589 as u32, s: 179702100 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139768833 as u32,
-            g: 315623242 as u32,
-            s: 964612676 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139768833 as u32, g: 315623242 as u32, s: 964612676 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139666433 as u32,
-            g: 331649203 as u32,
-            s: 764666914 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139666433 as u32, g: 331649203 as u32, s: 764666914 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139641857 as u32,
-            g: 2118730799 as u32,
-            s: 1313764644 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139641857 as u32, g: 2118730799 as u32, s: 1313764644 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139635713 as u32,
-            g: 519149027 as u32,
-            s: 519212449 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139635713 as u32, g: 519149027 as u32, s: 519212449 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139598849 as u32,
-            g: 1526413634 as u32,
-            s: 1769667104 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139598849 as u32, g: 1526413634 as u32, s: 1769667104 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139574273 as u32,
-            g: 551148610 as u32,
-            s: 820739925 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139574273 as u32, g: 551148610 as u32, s: 820739925 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139568129 as u32,
-            g: 1386800242 as u32,
-            s: 472447405 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139568129 as u32, g: 1386800242 as u32, s: 472447405 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139549697 as u32,
-            g: 813760130 as u32,
-            s: 1412328531 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139549697 as u32, g: 813760130 as u32, s: 1412328531 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139537409 as u32,
-            g: 1615286260 as u32,
-            s: 1609362979 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139537409 as u32, g: 1615286260 as u32, s: 1609362979 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139475969 as u32,
-            g: 1352559299 as u32,
-            s: 1696720421 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139475969 as u32, g: 1352559299 as u32, s: 1696720421 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139455489 as u32,
-            g: 1048691649 as u32,
-            s: 1584935400 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139455489 as u32, g: 1048691649 as u32, s: 1584935400 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139432961 as u32,
-            g: 836025845 as u32,
-            s: 950121150 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139432961 as u32, g: 836025845 as u32, s: 950121150 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139424769 as u32,
-            g: 1558281165 as u32,
-            s: 1635486858 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139424769 as u32, g: 1558281165 as u32, s: 1635486858 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139406337 as u32,
-            g: 1728402143 as u32,
-            s: 1674423301 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139406337 as u32, g: 1728402143 as u32, s: 1674423301 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139396097 as u32,
-            g: 1727715782 as u32,
-            s: 1483470544 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139396097 as u32, g: 1727715782 as u32, s: 1483470544 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139383809 as u32,
-            g: 1092853491 as u32,
-            s: 1741699084 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139383809 as u32, g: 1092853491 as u32, s: 1741699084 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139369473 as u32,
-            g: 690776899 as u32,
-            s: 1242798709 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139369473 as u32, g: 690776899 as u32, s: 1242798709 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139351041 as u32,
-            g: 1768782380 as u32,
-            s: 2120712049 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139351041 as u32, g: 1768782380 as u32, s: 2120712049 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139334657 as u32,
-            g: 1739968247 as u32,
-            s: 1427249225 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139334657 as u32, g: 1739968247 as u32, s: 1427249225 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139332609 as u32,
-            g: 1547189119 as u32,
-            s: 623011170 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139332609 as u32, g: 1547189119 as u32, s: 623011170 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139310081 as u32,
-            g: 1346827917 as u32,
-            s: 1605466350 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139310081 as u32, g: 1346827917 as u32, s: 1605466350 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139303937 as u32,
-            g: 369317948 as u32,
-            s: 828392831 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139303937 as u32, g: 369317948 as u32, s: 828392831 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139301889 as u32,
-            g: 1560417239 as u32,
-            s: 1788073219 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139301889 as u32, g: 1560417239 as u32, s: 1788073219 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139283457 as u32,
-            g: 1303121623 as u32,
-            s: 595079358 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139283457 as u32, g: 1303121623 as u32, s: 595079358 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139248641 as u32,
-            g: 1354555286 as u32,
-            s: 573424177 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139248641 as u32, g: 1354555286 as u32, s: 573424177 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139240449 as u32,
-            g: 60974056 as u32,
-            s: 885781403 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139240449 as u32, g: 60974056 as u32, s: 885781403 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139222017 as u32,
-            g: 355573421 as u32,
-            s: 1221054839 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139222017 as u32, g: 355573421 as u32, s: 1221054839 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139215873 as u32,
-            g: 566477826 as u32,
-            s: 1724006500 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139215873 as u32, g: 566477826 as u32, s: 1724006500 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139150337 as u32,
-            g: 871437673 as u32,
-            s: 1609133294 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139150337 as u32, g: 871437673 as u32, s: 1609133294 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139144193 as u32,
-            g: 1478130914 as u32,
-            s: 1137491905 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139144193 as u32, g: 1478130914 as u32, s: 1137491905 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139117569 as u32,
-            g: 1854880922 as u32,
-            s: 964728507 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139117569 as u32, g: 1854880922 as u32, s: 964728507 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139076609 as u32,
-            g: 202405335 as u32,
-            s: 756508944 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139076609 as u32, g: 202405335 as u32, s: 756508944 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139062273 as u32,
-            g: 1399715741 as u32,
-            s: 884826059 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139062273 as u32, g: 1399715741 as u32, s: 884826059 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139045889 as u32,
-            g: 1051045798 as u32,
-            s: 1202295476 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139045889 as u32, g: 1051045798 as u32, s: 1202295476 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139033601 as u32,
-            g: 1707715206 as u32,
-            s: 632234634 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139033601 as u32, g: 1707715206 as u32, s: 632234634 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2139006977 as u32,
-            g: 2035853139 as u32,
-            s: 231626690 as u32,
-        };
+        let mut init =
+            small_prime { p: 2139006977 as u32, g: 2035853139 as u32, s: 231626690 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138951681 as u32,
-            g: 183867876 as u32,
-            s: 838350879 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138951681 as u32, g: 183867876 as u32, s: 838350879 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138945537 as u32,
-            g: 1403254661 as u32,
-            s: 404460202 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138945537 as u32, g: 1403254661 as u32, s: 404460202 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138920961 as u32,
-            g: 310865011 as u32,
-            s: 1282911681 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138920961 as u32, g: 310865011 as u32, s: 1282911681 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138910721 as u32,
-            g: 1328496553 as u32,
-            s: 103472415 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138910721 as u32, g: 1328496553 as u32, s: 103472415 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138904577 as u32,
-            g: 78831681 as u32,
-            s: 993513549 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138904577 as u32, g: 78831681 as u32, s: 993513549 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138902529 as u32,
-            g: 1319697451 as u32,
-            s: 1055904361 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138902529 as u32, g: 1319697451 as u32, s: 1055904361 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138816513 as u32,
-            g: 384338872 as u32,
-            s: 1706202469 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138816513 as u32, g: 384338872 as u32, s: 1706202469 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138810369 as u32,
-            g: 1084868275 as u32,
-            s: 405677177 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138810369 as u32, g: 1084868275 as u32, s: 405677177 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138787841 as u32,
-            g: 401181788 as u32,
-            s: 1964773901 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138787841 as u32, g: 401181788 as u32, s: 1964773901 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138775553 as u32,
-            g: 1850532988 as u32,
-            s: 1247087473 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138775553 as u32, g: 1850532988 as u32, s: 1247087473 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138767361 as u32,
-            g: 874261901 as u32,
-            s: 1576073565 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138767361 as u32, g: 874261901 as u32, s: 1576073565 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138757121 as u32,
-            g: 1187474742 as u32,
-            s: 993541415 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138757121 as u32, g: 1187474742 as u32, s: 993541415 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138748929 as u32,
-            g: 1782458888 as u32,
-            s: 1043206483 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138748929 as u32, g: 1782458888 as u32, s: 1043206483 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138744833 as u32,
-            g: 1221500487 as u32,
-            s: 800141243 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138744833 as u32, g: 1221500487 as u32, s: 800141243 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138738689 as u32,
-            g: 413465368 as u32,
-            s: 1450660558 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138738689 as u32, g: 413465368 as u32, s: 1450660558 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138695681 as u32,
-            g: 739045140 as u32,
-            s: 342611472 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138695681 as u32, g: 739045140 as u32, s: 342611472 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138658817 as u32,
-            g: 1355845756 as u32,
-            s: 672674190 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138658817 as u32, g: 1355845756 as u32, s: 672674190 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138644481 as u32,
-            g: 608379162 as u32,
-            s: 1538874380 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138644481 as u32, g: 608379162 as u32, s: 1538874380 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138632193 as u32,
-            g: 1444914034 as u32,
-            s: 686911254 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138632193 as u32, g: 1444914034 as u32, s: 686911254 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138607617 as u32,
-            g: 484707818 as u32,
-            s: 1435142134 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138607617 as u32, g: 484707818 as u32, s: 1435142134 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138591233 as u32,
-            g: 539460669 as u32,
-            s: 1290458549 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138591233 as u32, g: 539460669 as u32, s: 1290458549 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138572801 as u32,
-            g: 2093538990 as u32,
-            s: 2011138646 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138572801 as u32, g: 2093538990 as u32, s: 2011138646 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138552321 as u32,
-            g: 1149786988 as u32,
-            s: 1076414907 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138552321 as u32, g: 1149786988 as u32, s: 1076414907 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138546177 as u32,
-            g: 840688206 as u32,
-            s: 2108985273 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138546177 as u32, g: 840688206 as u32, s: 2108985273 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138533889 as u32,
-            g: 209669619 as u32,
-            s: 198172413 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138533889 as u32, g: 209669619 as u32, s: 198172413 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138523649 as u32,
-            g: 1975879426 as u32,
-            s: 1277003968 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138523649 as u32, g: 1975879426 as u32, s: 1277003968 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138490881 as u32,
-            g: 1351891144 as u32,
-            s: 1976858109 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138490881 as u32, g: 1351891144 as u32, s: 1976858109 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138460161 as u32,
-            g: 1817321013 as u32,
-            s: 1979278293 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138460161 as u32, g: 1817321013 as u32, s: 1979278293 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138429441 as u32,
-            g: 1950077177 as u32,
-            s: 203441928 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138429441 as u32, g: 1950077177 as u32, s: 203441928 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138400769 as u32,
-            g: 908970113 as u32,
-            s: 628395069 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138400769 as u32, g: 908970113 as u32, s: 628395069 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138398721 as u32,
-            g: 219890864 as u32,
-            s: 758486760 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138398721 as u32, g: 219890864 as u32, s: 758486760 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138376193 as u32,
-            g: 1306654379 as u32,
-            s: 977554090 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138376193 as u32, g: 1306654379 as u32, s: 977554090 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138351617 as u32,
-            g: 298822498 as u32,
-            s: 2004708503 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138351617 as u32, g: 298822498 as u32, s: 2004708503 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138337281 as u32,
-            g: 441457816 as u32,
-            s: 1049002108 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138337281 as u32, g: 441457816 as u32, s: 1049002108 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138320897 as u32,
-            g: 1517731724 as u32,
-            s: 1442269609 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138320897 as u32, g: 1517731724 as u32, s: 1442269609 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138290177 as u32,
-            g: 1355911197 as u32,
-            s: 1647139103 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138290177 as u32, g: 1355911197 as u32, s: 1647139103 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138234881 as u32,
-            g: 531313247 as u32,
-            s: 1746591962 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138234881 as u32, g: 531313247 as u32, s: 1746591962 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138214401 as u32,
-            g: 1899410930 as u32,
-            s: 781416444 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138214401 as u32, g: 1899410930 as u32, s: 781416444 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138202113 as u32,
-            g: 1813477173 as u32,
-            s: 1622508515 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138202113 as u32, g: 1813477173 as u32, s: 1622508515 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138191873 as u32,
-            g: 1086458299 as u32,
-            s: 1025408615 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138191873 as u32, g: 1086458299 as u32, s: 1025408615 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138183681 as u32,
-            g: 1998800427 as u32,
-            s: 827063290 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138183681 as u32, g: 1998800427 as u32, s: 827063290 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138173441 as u32,
-            g: 1921308898 as u32,
-            s: 749670117 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138173441 as u32, g: 1921308898 as u32, s: 749670117 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138103809 as u32,
-            g: 1620902804 as u32,
-            s: 2126787647 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138103809 as u32, g: 1620902804 as u32, s: 2126787647 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138099713 as u32,
-            g: 828647069 as u32,
-            s: 1892961817 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138099713 as u32, g: 828647069 as u32, s: 1892961817 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138085377 as u32,
-            g: 179405355 as u32,
-            s: 1525506535 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138085377 as u32, g: 179405355 as u32, s: 1525506535 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138060801 as u32,
-            g: 615683235 as u32,
-            s: 1259580138 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138060801 as u32, g: 615683235 as u32, s: 1259580138 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138044417 as u32,
-            g: 2030277840 as u32,
-            s: 1731266562 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138044417 as u32, g: 2030277840 as u32, s: 1731266562 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138042369 as u32,
-            g: 2087222316 as u32,
-            s: 1627902259 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138042369 as u32, g: 2087222316 as u32, s: 1627902259 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138032129 as u32,
-            g: 126388712 as u32,
-            s: 1108640984 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138032129 as u32, g: 126388712 as u32, s: 1108640984 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2138011649 as u32,
-            g: 715026550 as u32,
-            s: 1017980050 as u32,
-        };
+        let mut init =
+            small_prime { p: 2138011649 as u32, g: 715026550 as u32, s: 1017980050 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137993217 as u32,
-            g: 1693714349 as u32,
-            s: 1351778704 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137993217 as u32, g: 1693714349 as u32, s: 1351778704 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137888769 as u32,
-            g: 1289762259 as u32,
-            s: 1053090405 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137888769 as u32, g: 1289762259 as u32, s: 1053090405 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137853953 as u32,
-            g: 199991890 as u32,
-            s: 1254192789 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137853953 as u32, g: 199991890 as u32, s: 1254192789 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137833473 as u32,
-            g: 941421685 as u32,
-            s: 896995556 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137833473 as u32, g: 941421685 as u32, s: 896995556 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137817089 as u32,
-            g: 750416446 as u32,
-            s: 1251031181 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137817089 as u32, g: 750416446 as u32, s: 1251031181 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137792513 as u32,
-            g: 798075119 as u32,
-            s: 368077456 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137792513 as u32, g: 798075119 as u32, s: 368077456 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137786369 as u32,
-            g: 878543495 as u32,
-            s: 1035375025 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137786369 as u32, g: 878543495 as u32, s: 1035375025 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137767937 as u32,
-            g: 9351178 as u32,
-            s: 1156563902 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137767937 as u32, g: 9351178 as u32, s: 1156563902 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137755649 as u32,
-            g: 1382297614 as u32,
-            s: 1686559583 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137755649 as u32, g: 1382297614 as u32, s: 1686559583 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137724929 as u32,
-            g: 1345472850 as u32,
-            s: 1681096331 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137724929 as u32, g: 1345472850 as u32, s: 1681096331 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137704449 as u32,
-            g: 834666929 as u32,
-            s: 630551727 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137704449 as u32, g: 834666929 as u32, s: 630551727 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137673729 as u32,
-            g: 1646165729 as u32,
-            s: 1892091571 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137673729 as u32, g: 1646165729 as u32, s: 1892091571 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137620481 as u32,
-            g: 778943821 as u32,
-            s: 48456461 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137620481 as u32, g: 778943821 as u32, s: 48456461 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137618433 as u32,
-            g: 1730837875 as u32,
-            s: 1713336725 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137618433 as u32, g: 1730837875 as u32, s: 1713336725 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137581569 as u32,
-            g: 805610339 as u32,
-            s: 1378891359 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137581569 as u32, g: 805610339 as u32, s: 1378891359 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137538561 as u32,
-            g: 204342388 as u32,
-            s: 1950165220 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137538561 as u32, g: 204342388 as u32, s: 1950165220 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137526273 as u32,
-            g: 1947629754 as u32,
-            s: 1500789441 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137526273 as u32, g: 1947629754 as u32, s: 1500789441 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137516033 as u32,
-            g: 719902645 as u32,
-            s: 1499525372 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137516033 as u32, g: 719902645 as u32, s: 1499525372 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137491457 as u32,
-            g: 230451261 as u32,
-            s: 556382829 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137491457 as u32, g: 230451261 as u32, s: 556382829 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137440257 as u32,
-            g: 979573541 as u32,
-            s: 412760291 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137440257 as u32, g: 979573541 as u32, s: 412760291 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137374721 as u32,
-            g: 927841248 as u32,
-            s: 1954137185 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137374721 as u32, g: 927841248 as u32, s: 1954137185 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137362433 as u32,
-            g: 1243778559 as u32,
-            s: 861024672 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137362433 as u32, g: 1243778559 as u32, s: 861024672 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137313281 as u32,
-            g: 1341338501 as u32,
-            s: 980638386 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137313281 as u32, g: 1341338501 as u32, s: 980638386 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137311233 as u32,
-            g: 937415182 as u32,
-            s: 1793212117 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137311233 as u32, g: 937415182 as u32, s: 1793212117 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137255937 as u32,
-            g: 795331324 as u32,
-            s: 1410253405 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137255937 as u32, g: 795331324 as u32, s: 1410253405 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137243649 as u32,
-            g: 150756339 as u32,
-            s: 1966999887 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137243649 as u32, g: 150756339 as u32, s: 1966999887 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137182209 as u32,
-            g: 163346914 as u32,
-            s: 1939301431 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137182209 as u32, g: 163346914 as u32, s: 1939301431 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137171969 as u32,
-            g: 1952552395 as u32,
-            s: 758913141 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137171969 as u32, g: 1952552395 as u32, s: 758913141 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137159681 as u32,
-            g: 570788721 as u32,
-            s: 218668666 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137159681 as u32, g: 570788721 as u32, s: 218668666 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137147393 as u32,
-            g: 1896656810 as u32,
-            s: 2045670345 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137147393 as u32, g: 1896656810 as u32, s: 2045670345 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137141249 as u32,
-            g: 358493842 as u32,
-            s: 518199643 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137141249 as u32, g: 358493842 as u32, s: 518199643 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137139201 as u32,
-            g: 1505023029 as u32,
-            s: 674695848 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137139201 as u32, g: 1505023029 as u32, s: 674695848 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137133057 as u32,
-            g: 27911103 as u32,
-            s: 830956306 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137133057 as u32, g: 27911103 as u32, s: 830956306 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137122817 as u32,
-            g: 439771337 as u32,
-            s: 1555268614 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137122817 as u32, g: 439771337 as u32, s: 1555268614 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137116673 as u32,
-            g: 790988579 as u32,
-            s: 1871449599 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137116673 as u32, g: 790988579 as u32, s: 1871449599 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137110529 as u32,
-            g: 432109234 as u32,
-            s: 811805080 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137110529 as u32, g: 432109234 as u32, s: 811805080 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137102337 as u32,
-            g: 1357900653 as u32,
-            s: 1184997641 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137102337 as u32, g: 1357900653 as u32, s: 1184997641 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137098241 as u32,
-            g: 515119035 as u32,
-            s: 1715693095 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137098241 as u32, g: 515119035 as u32, s: 1715693095 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137090049 as u32,
-            g: 408575203 as u32,
-            s: 2085660657 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137090049 as u32, g: 408575203 as u32, s: 2085660657 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137085953 as u32,
-            g: 2097793407 as u32,
-            s: 1349626963 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137085953 as u32, g: 2097793407 as u32, s: 1349626963 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137055233 as u32,
-            g: 1556739954 as u32,
-            s: 1449960883 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137055233 as u32, g: 1556739954 as u32, s: 1449960883 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2137030657 as u32,
-            g: 1545758650 as u32,
-            s: 1369303716 as u32,
-        };
+        let mut init =
+            small_prime { p: 2137030657 as u32, g: 1545758650 as u32, s: 1369303716 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136987649 as u32,
-            g: 332602570 as u32,
-            s: 103875114 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136987649 as u32, g: 332602570 as u32, s: 103875114 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136969217 as u32,
-            g: 1499989506 as u32,
-            s: 1662964115 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136969217 as u32, g: 1499989506 as u32, s: 1662964115 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136924161 as u32,
-            g: 857040753 as u32,
-            s: 4738842 as u32,
-        };
+        let mut init = small_prime { p: 2136924161 as u32, g: 857040753 as u32, s: 4738842 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136895489 as u32,
-            g: 1948872712 as u32,
-            s: 570436091 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136895489 as u32, g: 1948872712 as u32, s: 570436091 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136893441 as u32,
-            g: 58969960 as u32,
-            s: 1568349634 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136893441 as u32, g: 58969960 as u32, s: 1568349634 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136887297 as u32,
-            g: 2127193379 as u32,
-            s: 273612548 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136887297 as u32, g: 2127193379 as u32, s: 273612548 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136850433 as u32,
-            g: 111208983 as u32,
-            s: 1181257116 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136850433 as u32, g: 111208983 as u32, s: 1181257116 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136809473 as u32,
-            g: 1627275942 as u32,
-            s: 1680317971 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136809473 as u32, g: 1627275942 as u32, s: 1680317971 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136764417 as u32,
-            g: 1574888217 as u32,
-            s: 14011331 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136764417 as u32, g: 1574888217 as u32, s: 14011331 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136741889 as u32,
-            g: 14011055 as u32,
-            s: 1129154251 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136741889 as u32, g: 14011055 as u32, s: 1129154251 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136727553 as u32,
-            g: 35862563 as u32,
-            s: 1838555253 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136727553 as u32, g: 35862563 as u32, s: 1838555253 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136721409 as u32,
-            g: 310235666 as u32,
-            s: 1363928244 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136721409 as u32, g: 310235666 as u32, s: 1363928244 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136698881 as u32,
-            g: 1612429202 as u32,
-            s: 1560383828 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136698881 as u32, g: 1612429202 as u32, s: 1560383828 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136649729 as u32,
-            g: 1138540131 as u32,
-            s: 800014364 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136649729 as u32, g: 1138540131 as u32, s: 800014364 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136606721 as u32,
-            g: 602323503 as u32,
-            s: 1433096652 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136606721 as u32, g: 602323503 as u32, s: 1433096652 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136563713 as u32,
-            g: 182209265 as u32,
-            s: 1919611038 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136563713 as u32, g: 182209265 as u32, s: 1919611038 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136555521 as u32,
-            g: 324156477 as u32,
-            s: 165591039 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136555521 as u32, g: 324156477 as u32, s: 165591039 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136549377 as u32,
-            g: 195513113 as u32,
-            s: 217165345 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136549377 as u32, g: 195513113 as u32, s: 217165345 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136526849 as u32,
-            g: 1050768046 as u32,
-            s: 939647887 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136526849 as u32, g: 1050768046 as u32, s: 939647887 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136508417 as u32,
-            g: 1886286237 as u32,
-            s: 1619926572 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136508417 as u32, g: 1886286237 as u32, s: 1619926572 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136477697 as u32,
-            g: 609647664 as u32,
-            s: 35065157 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136477697 as u32, g: 609647664 as u32, s: 35065157 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136471553 as u32,
-            g: 679352216 as u32,
-            s: 1452259468 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136471553 as u32, g: 679352216 as u32, s: 1452259468 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136457217 as u32,
-            g: 128630031 as u32,
-            s: 824816521 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136457217 as u32, g: 128630031 as u32, s: 824816521 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136422401 as u32,
-            g: 19787464 as u32,
-            s: 1526049830 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136422401 as u32, g: 19787464 as u32, s: 1526049830 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136420353 as u32,
-            g: 698316836 as u32,
-            s: 1530623527 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136420353 as u32, g: 698316836 as u32, s: 1530623527 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136371201 as u32,
-            g: 1651862373 as u32,
-            s: 1804812805 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136371201 as u32, g: 1651862373 as u32, s: 1804812805 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136334337 as u32,
-            g: 326596005 as u32,
-            s: 336977082 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136334337 as u32, g: 326596005 as u32, s: 336977082 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136322049 as u32,
-            g: 63253370 as u32,
-            s: 1904972151 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136322049 as u32, g: 63253370 as u32, s: 1904972151 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136297473 as u32,
-            g: 312176076 as u32,
-            s: 172182411 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136297473 as u32, g: 312176076 as u32, s: 172182411 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136248321 as u32,
-            g: 381261841 as u32,
-            s: 369032670 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136248321 as u32, g: 381261841 as u32, s: 369032670 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136242177 as u32,
-            g: 358688773 as u32,
-            s: 1640007994 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136242177 as u32, g: 358688773 as u32, s: 1640007994 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136229889 as u32,
-            g: 512677188 as u32,
-            s: 75585225 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136229889 as u32, g: 512677188 as u32, s: 75585225 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136219649 as u32,
-            g: 2095003250 as u32,
-            s: 1970086149 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136219649 as u32, g: 2095003250 as u32, s: 1970086149 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136207361 as u32,
-            g: 1909650722 as u32,
-            s: 537760675 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136207361 as u32, g: 1909650722 as u32, s: 537760675 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136176641 as u32,
-            g: 1334616195 as u32,
-            s: 1533487619 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136176641 as u32, g: 1334616195 as u32, s: 1533487619 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136158209 as u32,
-            g: 2096285632 as u32,
-            s: 1793285210 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136158209 as u32, g: 2096285632 as u32, s: 1793285210 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136143873 as u32,
-            g: 1897347517 as u32,
-            s: 293843959 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136143873 as u32, g: 1897347517 as u32, s: 293843959 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136133633 as u32,
-            g: 923586222 as u32,
-            s: 1022655978 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136133633 as u32, g: 923586222 as u32, s: 1022655978 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136096769 as u32,
-            g: 1464868191 as u32,
-            s: 1515074410 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136096769 as u32, g: 1464868191 as u32, s: 1515074410 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136094721 as u32,
-            g: 2020679520 as u32,
-            s: 2061636104 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136094721 as u32, g: 2020679520 as u32, s: 2061636104 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136076289 as u32,
-            g: 290798503 as u32,
-            s: 1814726809 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136076289 as u32, g: 290798503 as u32, s: 1814726809 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2136041473 as u32,
-            g: 156415894 as u32,
-            s: 1250757633 as u32,
-        };
+        let mut init =
+            small_prime { p: 2136041473 as u32, g: 156415894 as u32, s: 1250757633 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2135996417 as u32,
-            g: 297459940 as u32,
-            s: 1132158924 as u32,
-        };
+        let mut init =
+            small_prime { p: 2135996417 as u32, g: 297459940 as u32, s: 1132158924 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 2135955457 as u32,
-            g: 538755304 as u32,
-            s: 1688831340 as u32,
-        };
+        let mut init =
+            small_prime { p: 2135955457 as u32, g: 538755304 as u32, s: 1688831340 as u32 };
         init
     },
     {
-        let mut init = small_prime {
-            p: 0 as u32,
-            g: 0 as u32,
-            s: 0 as u32,
-        };
+        let mut init = small_prime { p: 0 as u32, g: 0 as u32, s: 0 as u32 };
         init
     },
 ];
@@ -5729,9 +4159,7 @@ unsafe extern "C" fn zint_add_mul_small(
         let mut z: u64 = 0;
         xw = *x.offset(u as isize);
         yw = *y.offset(u as isize);
-        z = (yw as u64 * s as u64)
-            .wrapping_add(xw as u64)
-            .wrapping_add(cc as u64);
+        z = (yw as u64 * s as u64).wrapping_add(xw as u64).wrapping_add(cc as u64);
         *x.offset(u as isize) = z as u32 & 0x7fffffff as u32;
         cc = (z >> 31) as u32;
         u = u.wrapping_add(1);
@@ -5857,12 +4285,8 @@ unsafe extern "C" fn zint_co_reduce(
         let mut zb: u64 = 0;
         wa = *a.offset(u as isize);
         wb = *b.offset(u as isize);
-        za = (wa as u64 * xa as u64)
-            .wrapping_add(wb as u64 * xb as u64)
-            .wrapping_add(cca as u64);
-        zb = (wa as u64 * ya as u64)
-            .wrapping_add(wb as u64 * yb as u64)
-            .wrapping_add(ccb as u64);
+        za = (wa as u64 * xa as u64).wrapping_add(wb as u64 * xb as u64).wrapping_add(cca as u64);
+        zb = (wa as u64 * ya as u64).wrapping_add(wb as u64 * yb as u64).wrapping_add(ccb as u64);
         if u > 0 as size_t {
             *a.offset(u.wrapping_sub(1 as size_t) as isize) = za as u32 & 0x7fffffff as u32;
             *b.offset(u.wrapping_sub(1 as size_t) as isize) = zb as u32 & 0x7fffffff as u32;
@@ -5893,10 +4317,7 @@ unsafe extern "C" fn zint_finish_mod(
     cc = 0 as u32;
     u = 0 as size_t;
     while u < len {
-        cc = (*a.offset(u as isize))
-            .wrapping_sub(*m.offset(u as isize))
-            .wrapping_sub(cc)
-            >> 31;
+        cc = (*a.offset(u as isize)).wrapping_sub(*m.offset(u as isize)).wrapping_sub(cc) >> 31;
         u = u.wrapping_add(1);
         u;
     }
@@ -6012,8 +4433,7 @@ unsafe extern "C" fn zint_bezout(
     rust_memset(
         u0.offset(1 as isize) as *mut libc::c_void,
         0,
-        len.wrapping_sub(1 as size_t)
-            .wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
+        len.wrapping_sub(1 as size_t).wrapping_mul(::core::mem::size_of::<u32>() as libc::c_ulong),
     );
     rust_memset(
         v0 as *mut libc::c_void,
@@ -6412,12 +4832,7 @@ unsafe extern "C" fn poly_sub_scaled_ntt(
         v = 0 as size_t;
         x = fk.offset(u as isize);
         while v < n {
-            *x = modp_montymul(
-                modp_montymul(*t1.offset(v as isize), *x, p, p0i),
-                R2,
-                p,
-                p0i,
-            );
+            *x = modp_montymul(modp_montymul(*t1.offset(v as isize), *x, p, p0i), R2, p, p0i);
             v = v.wrapping_add(1);
             v;
             x = x.offset(tlen as isize);
@@ -7128,22 +5543,8 @@ unsafe extern "C" fn solve_NTRU_intermediate(
             x = x.offset(llen as isize);
             y = y.offset(llen as isize);
         }
-        modp_NTT2_ext(
-            Fp,
-            1 as size_t,
-            gm,
-            logn.wrapping_sub(1 as libc::c_uint),
-            p_0,
-            p0i_0,
-        );
-        modp_NTT2_ext(
-            Gp,
-            1 as size_t,
-            gm,
-            logn.wrapping_sub(1 as libc::c_uint),
-            p_0,
-            p0i_0,
-        );
+        modp_NTT2_ext(Fp, 1 as size_t, gm, logn.wrapping_sub(1 as libc::c_uint), p_0, p0i_0);
+        modp_NTT2_ext(Gp, 1 as size_t, gm, logn.wrapping_sub(1 as libc::c_uint), p_0, p0i_0);
         v_0 = 0 as size_t;
         x = Ft.offset(u as isize);
         y = Gt.offset(u as isize);
@@ -7181,10 +5582,7 @@ unsafe extern "C" fn solve_NTRU_intermediate(
     rt5 = rt4.offset(n as isize);
     rt1 = rt5.offset((n >> 1) as isize);
     k = align_u32(tmp as *mut libc::c_void, rt1 as *mut libc::c_void) as *mut int32_t;
-    rt2 = align_fpr(
-        tmp as *mut libc::c_void,
-        k.offset(n as isize) as *mut libc::c_void,
-    );
+    rt2 = align_fpr(tmp as *mut libc::c_void, k.offset(n as isize) as *mut libc::c_void);
     if rt2 < rt1.offset(n as isize) {
         rt2 = rt1.offset(n as isize);
     }
@@ -7194,20 +5592,8 @@ unsafe extern "C" fn solve_NTRU_intermediate(
     } else {
         rlen = slen;
     }
-    poly_big_to_fp(
-        rt3,
-        ft.offset(slen as isize).offset(-(rlen as isize)),
-        rlen,
-        slen,
-        logn,
-    );
-    poly_big_to_fp(
-        rt4,
-        gt.offset(slen as isize).offset(-(rlen as isize)),
-        rlen,
-        slen,
-        logn,
-    );
+    poly_big_to_fp(rt3, ft.offset(slen as isize).offset(-(rlen as isize)), rlen, slen, logn);
+    poly_big_to_fp(rt4, gt.offset(slen as isize).offset(-(rlen as isize)), rlen, slen, logn);
     scale_fg = 31 * slen.wrapping_sub(rlen) as libc::c_int;
     minbl_fg = BITLENGTH[depth as usize].avg - 6 * BITLENGTH[depth as usize].std;
     maxbl_fg = BITLENGTH[depth as usize].avg + 6 * BITLENGTH[depth as usize].std;
@@ -7233,20 +5619,8 @@ unsafe extern "C" fn solve_NTRU_intermediate(
             rlen = FGlen;
         }
         scale_FG = 31 * FGlen.wrapping_sub(rlen) as libc::c_int;
-        poly_big_to_fp(
-            rt1,
-            Ft.offset(FGlen as isize).offset(-(rlen as isize)),
-            rlen,
-            llen,
-            logn,
-        );
-        poly_big_to_fp(
-            rt2,
-            Gt.offset(FGlen as isize).offset(-(rlen as isize)),
-            rlen,
-            llen,
-            logn,
-        );
+        poly_big_to_fp(rt1, Ft.offset(FGlen as isize).offset(-(rlen as isize)), rlen, llen, logn);
+        poly_big_to_fp(rt2, Gt.offset(FGlen as isize).offset(-(rlen as isize)), rlen, llen, logn);
         PQCLEAN_FALCON512_CLEAN_FFT(rt1, logn);
         PQCLEAN_FALCON512_CLEAN_FFT(rt2, logn);
         PQCLEAN_FALCON512_CLEAN_poly_mul_fft(rt1, rt3, logn);
@@ -7506,22 +5880,8 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
             x = x.offset(llen as isize);
             y = y.offset(llen as isize);
         }
-        modp_NTT2_ext(
-            Fp,
-            1 as size_t,
-            gm,
-            logn.wrapping_sub(1 as libc::c_uint),
-            p_0,
-            p0i_0,
-        );
-        modp_NTT2_ext(
-            Gp,
-            1 as size_t,
-            gm,
-            logn.wrapping_sub(1 as libc::c_uint),
-            p_0,
-            p0i_0,
-        );
+        modp_NTT2_ext(Fp, 1 as size_t, gm, logn.wrapping_sub(1 as libc::c_uint), p_0, p0i_0);
+        modp_NTT2_ext(Gp, 1 as size_t, gm, logn.wrapping_sub(1 as libc::c_uint), p_0, p0i_0);
         v_0 = 0 as size_t;
         x = Ft.offset(u as isize);
         y = Gt.offset(u as isize);
@@ -7569,10 +5929,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
     }
     zint_rebuild_CRT(Ft, llen, llen, n << 1, PRIMES.as_ptr(), 1, t1);
     zint_rebuild_CRT(ft, slen, slen, n << 1, PRIMES.as_ptr(), 1, t1);
-    rt1 = align_fpr(
-        tmp as *mut libc::c_void,
-        gt.offset((slen * n) as isize) as *mut libc::c_void,
-    );
+    rt1 = align_fpr(tmp as *mut libc::c_void, gt.offset((slen * n) as isize) as *mut libc::c_void);
     rt2 = rt1.offset(n as isize);
     poly_big_to_fp(rt1, Ft, llen, llen, logn);
     poly_big_to_fp(rt2, Gt, llen, llen, logn);
@@ -7583,10 +5940,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
     );
     ft = tmp;
     gt = ft.offset((slen * n) as isize);
-    rt3 = align_fpr(
-        tmp as *mut libc::c_void,
-        gt.offset((slen * n) as isize) as *mut libc::c_void,
-    );
+    rt3 = align_fpr(tmp as *mut libc::c_void, gt.offset((slen * n) as isize) as *mut libc::c_void);
     rust_memmove(
         rt3 as *mut libc::c_void,
         rt1 as *const libc::c_void,
@@ -7637,10 +5991,7 @@ unsafe extern "C" fn solve_NTRU_binary_depth1(
     PQCLEAN_FALCON512_CLEAN_iFFT(rt2, logn);
     Ft = tmp;
     Gt = Ft.offset(n as isize);
-    rt3 = align_fpr(
-        tmp as *mut libc::c_void,
-        Gt.offset(n as isize) as *mut libc::c_void,
-    );
+    rt3 = align_fpr(tmp as *mut libc::c_void, Gt.offset(n as isize) as *mut libc::c_void);
     rust_memmove(
         rt3 as *mut libc::c_void,
         rt1 as *const libc::c_void,
@@ -7701,22 +6052,8 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
         u = u.wrapping_add(1);
         u;
     }
-    modp_NTT2_ext(
-        Fp,
-        1 as size_t,
-        gm,
-        logn.wrapping_sub(1 as libc::c_uint),
-        p,
-        p0i,
-    );
-    modp_NTT2_ext(
-        Gp,
-        1 as size_t,
-        gm,
-        logn.wrapping_sub(1 as libc::c_uint),
-        p,
-        p0i,
-    );
+    modp_NTT2_ext(Fp, 1 as size_t, gm, logn.wrapping_sub(1 as libc::c_uint), p, p0i);
+    modp_NTT2_ext(Gp, 1 as size_t, gm, logn.wrapping_sub(1 as libc::c_uint), p, p0i);
     u = 0 as size_t;
     while u < n {
         *ft.offset(u as isize) = modp_set(*f.offset(u as isize) as int32_t, p);
@@ -7801,16 +6138,10 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     while u < n {
         let mut w_0: u32 = 0;
         w_0 = modp_montymul(*t5.offset(u as isize), R2, p, p0i);
-        *t2.offset(u as isize) = modp_add(
-            *t2.offset(u as isize),
-            modp_montymul(w_0, *Gp.offset(u as isize), p, p0i),
-            p,
-        );
-        *t3.offset(u as isize) = modp_add(
-            *t3.offset(u as isize),
-            modp_montymul(w_0, *t4.offset(u as isize), p, p0i),
-            p,
-        );
+        *t2.offset(u as isize) =
+            modp_add(*t2.offset(u as isize), modp_montymul(w_0, *Gp.offset(u as isize), p, p0i), p);
+        *t3.offset(u as isize) =
+            modp_add(*t3.offset(u as isize), modp_montymul(w_0, *t4.offset(u as isize), p, p0i), p);
         u = u.wrapping_add(1);
         u;
     }
@@ -7873,16 +6204,10 @@ unsafe extern "C" fn solve_NTRU_binary_depth0(
     while u < n {
         let mut kw: u32 = 0;
         kw = modp_montymul(*t1.offset(u as isize), R2, p, p0i);
-        *Fp.offset(u as isize) = modp_sub(
-            *Fp.offset(u as isize),
-            modp_montymul(kw, *t4.offset(u as isize), p, p0i),
-            p,
-        );
-        *Gp.offset(u as isize) = modp_sub(
-            *Gp.offset(u as isize),
-            modp_montymul(kw, *t5.offset(u as isize), p, p0i),
-            p,
-        );
+        *Fp.offset(u as isize) =
+            modp_sub(*Fp.offset(u as isize), modp_montymul(kw, *t4.offset(u as isize), p, p0i), p);
+        *Gp.offset(u as isize) =
+            modp_sub(*Gp.offset(u as isize), modp_montymul(kw, *t5.offset(u as isize), p, p0i), p);
         u = u.wrapping_add(1);
         u;
     }
@@ -8068,9 +6393,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_keygen(
         poly_small_mkgauss(rc, f, logn);
         poly_small_mkgauss(rc, g, logn);
         lim = (1)
-            << *PQCLEAN_FALCON512_CLEAN_max_fg_bits
-                .as_ptr()
-                .offset(logn as isize) as libc::c_int
+            << *PQCLEAN_FALCON512_CLEAN_max_fg_bits.as_ptr().offset(logn as isize) as libc::c_int
                 - 1;
         u = 0 as size_t;
         while u < n {
@@ -8133,9 +6456,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_keygen(
             continue;
         }
         lim = ((1)
-            << *PQCLEAN_FALCON512_CLEAN_max_FG_bits
-                .as_ptr()
-                .offset(logn as isize) as libc::c_int
+            << *PQCLEAN_FALCON512_CLEAN_max_FG_bits.as_ptr().offset(logn as isize) as libc::c_int
                 - 1)
             - 1;
         if !(solve_NTRU(logn, F, G, f, g, lim, tmp as *mut u32) == 0) {

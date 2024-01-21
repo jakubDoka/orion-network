@@ -1,9 +1,13 @@
 [package]
+repository = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
 name = "codec-derive"
 version = "0.0.0"
 authors = ["mlokr <jdoka@crownsterling.io>"]
-description = "A `cargo generate` template for quick-starting a procedural macro crate"
-keywords = ["template", "proc_macro", "procmacro"]
+description = "proc macro for generating codec impls"
 edition = "2021"
 
 [lib]
@@ -11,6 +15,9 @@ proc-macro = true
 
 [dependencies]
 quote = "1"
-proc-macro2 = "1.0"
-syn = "2.0.44"
+proc-macro2 = "1"
+syn = "2"
 
+
+[lints]
+workspace = true

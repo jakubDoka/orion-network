@@ -1,7 +1,13 @@
 [package]
+repository = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
 name = "storage-spec"
 version = "0.1.0"
 edition = "2021"
+description = "storage declarations that both server and client need to know"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,7 +16,10 @@ arrayvec = "0.7.4"
 blake3 = "1.5.0"
 crypto = { version = "0.1.0", path = "../crypto" }
 futures = "0.3.30"
-galois = { version = "6.0.0", path = "../../utils/galois", features = ["simd-accel"] }
+berkleamp-welch = { version = "6.0.0", path = "../../utils/berkleamp-welch", features = ["simd-accel"] }
 
 [dev-dependencies]
 getrandom = "0.2.12"
+
+[lints]
+workspace = true

@@ -1,7 +1,13 @@
 [package]
+repository = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
 name = "crypto"
 version = "0.1.0"
 edition = "2021"
+description = "collection of swappable cryptographic primitives"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -16,3 +22,6 @@ rand_core = { version = "0.6.4", default-features = false }
 
 [dev-dependencies]
 rand_core = { version = "0.6.4", features = ["getrandom"] }
+
+[lints]
+workspace = true

@@ -1,5 +1,12 @@
 use {
-    crate::{params::*, poly::Poly, polyvec::Polyvec},
+    crate::{
+        params::{
+            INDCPA_BYTES, INDCPA_MSGBYTES, INDCPA_PUBLICKEYBYTES, INDCPA_SECRETKEYBYTES, K, N,
+            POLYCOMPRESSEDBYTES, POLYVECBYTES, POLYVECCOMPRESSEDBYTES, Q, SYMBYTES,
+        },
+        poly::Poly,
+        polyvec::Polyvec,
+    },
     core::array,
     sha3::digest::{crypto_common::BlockSizeUser, typenum::Unsigned, ExtendableOutput, XofReader},
 };
@@ -40,8 +47,8 @@ pub fn unpack_ciphertext(c: [u8; INDCPA_BYTES]) -> (Polyvec, Poly) {
 pub fn rej_uniform(r: &mut [i16], buf: &[u8]) -> usize {
     let mut ctr = r.iter_mut();
     for &[a, b, c] in buf.array_chunks::<3>() {
-        let val0 = (a as u16 | ((b as u16) << 8)) & 0xfff;
-        let val1 = ((b as u16 >> 4) | ((c as u16) << 4)) & 0xfff;
+        let val0 = (u16::from(a) | (u16::from(b) << 8)) & 0xfff;
+        let val1 = ((u16::from(b) >> 4) | (u16::from(c) << 4)) & 0xfff;
 
         if val0 < Q as u16 {
             if let Some(r) = ctr.next() {
@@ -67,7 +74,7 @@ pub fn gen_matrix(seed: &[u8; SYMBYTES], transposed: bool) -> [Polyvec; K] {
     let mut output = [[[0i16; N]; K]; K];
     for (i, a) in output.iter_mut().enumerate() {
         for (j, a) in a.iter_mut().enumerate() {
-            let mut state = sha3::Shake128::default();
+            let mut state: sha3::Shake128 = Default::default();
             if transposed {
                 crate::symetric::xof_absorb(&mut state, seed, i as u8, j as u8);
             } else {
@@ -83,7 +90,7 @@ pub fn gen_matrix(seed: &[u8; SYMBYTES], transposed: bool) -> [Polyvec; K] {
                 for k in 0..off {
                     buf[k] = buf[buflen - off + k];
                 }
-                xof_reader.read(&mut buf[off..off + 1]);
+                xof_reader.read(&mut buf[off..=off]);
                 buflen = off + XOF_BLOCKBYTES;
                 ctr += crate::indcpa::rej_uniform(&mut a[ctr..], &buf[..buflen]);
             }
@@ -112,10 +119,7 @@ pub fn keypair_derand(
     pkpv = crate::polyvec::add(pkpv, e);
     crate::polyvec::reduce(&mut pkpv);
 
-    (
-        crate::indcpa::pack_pk(&pkpv, *pubicseed),
-        crate::indcpa::pack_sk(skpv),
-    )
+    (crate::indcpa::pack_pk(&pkpv, *pubicseed), crate::indcpa::pack_sk(skpv))
 }
 
 pub fn enc(

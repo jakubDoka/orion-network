@@ -156,10 +156,7 @@ impl Keypair {
                 return None;
             }
         }
-        Some(Self {
-            pk: PublicKey(pk),
-            sk,
-        })
+        Some(Self { pk: PublicKey(pk), sk })
     }
 
     pub fn sign(&self, message: &[u8], mut rng: impl CryptoRngCore) -> Option<[u8; BYTES]> {

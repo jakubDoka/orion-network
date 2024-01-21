@@ -1,5 +1,6 @@
 use {
     super::*,
+    chat_logic::{Proof, *},
     libp2p::futures::{channel::mpsc, stream::FuturesUnordered, FutureExt},
     rand_core::OsRng,
     std::{fmt::Debug, usize},

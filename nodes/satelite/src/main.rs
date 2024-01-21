@@ -58,7 +58,7 @@ impl Satelite {
         }
     }
 
-    fn swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {}
+    fn swarm_event(&mut self, _event: SwarmEvent<BehaviourEvent>) {}
 }
 
 #[derive(NetworkBehaviour, Default)]

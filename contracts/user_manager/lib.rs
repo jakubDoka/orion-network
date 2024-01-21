@@ -7,10 +7,7 @@ mod user_manager {
     pub type CryptoHash = [u8; 32];
 
     #[derive(scale::Decode, scale::Encode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     pub struct Profile {
         pub sign: CryptoHash,
         pub enc: CryptoHash,
@@ -54,14 +51,8 @@ mod user_manager {
 
         #[ink(message)]
         pub fn pick_name(&mut self, name: RawUserName) {
-            assert!(self
-                .owner_to_username
-                .insert(Self::env().caller(), &name)
-                .is_none());
-            assert!(self
-                .username_to_owner
-                .insert(name, &Self::env().caller())
-                .is_none());
+            assert!(self.owner_to_username.insert(Self::env().caller(), &name).is_none());
+            assert!(self.username_to_owner.insert(name, &Self::env().caller()).is_none());
             assert!(self
                 .identity_to_username
                 .insert(
@@ -76,14 +67,8 @@ mod user_manager {
 
         #[ink(message)]
         pub fn give_up_name(&mut self, name: RawUserName) {
-            assert_eq!(
-                self.username_to_owner.take(name),
-                Some(Self::env().caller())
-            );
-            assert_eq!(
-                self.owner_to_username.take(Self::env().caller()),
-                Some(name)
-            );
+            assert_eq!(self.username_to_owner.take(name), Some(Self::env().caller()));
+            assert_eq!(self.owner_to_username.take(Self::env().caller()), Some(name));
             assert_eq!(
                 self.identity_to_username.take(
                     self.identities
@@ -100,14 +85,8 @@ mod user_manager {
             self.give_up_name(name);
             assert!(self.owner_to_username.insert(target, &name).is_none());
             assert!(self.username_to_owner.insert(name, &target).is_none());
-            let identity = self
-                .identities
-                .get(target)
-                .expect("target to have identity");
-            assert!(self
-                .identity_to_username
-                .insert(identity.sign, &name)
-                .is_none());
+            let identity = self.identities.get(target).expect("target to have identity");
+            assert!(self.identity_to_username.insert(identity.sign, &name).is_none());
         }
 
         #[ink(message)]
@@ -117,9 +96,7 @@ mod user_manager {
 
         #[ink(message)]
         pub fn get_profile_by_name(&self, name: RawUserName) -> Option<Profile> {
-            self.username_to_owner
-                .get(name)
-                .and_then(|account| self.identities.get(account))
+            self.username_to_owner.get(name).and_then(|account| self.identities.get(account))
         }
 
         #[ink(message)]

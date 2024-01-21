@@ -32,6 +32,7 @@ impl Keypair {
         Self { post, pre }
     }
 
+    #[must_use]
     pub fn public_key(&self) -> PublicKey {
         PublicKey {
             post: *self.post.public_key(),
@@ -47,6 +48,7 @@ impl Keypair {
         Signature { post, pre }
     }
 
+    #[must_use]
     pub fn pre_quantum(&self) -> Ed {
         self.pre
     }
@@ -63,10 +65,7 @@ impl PublicKey {
         VerifyingKey::from_bytes(&self.pre)
             .and_then(|vk| vk.verify_strict(data, &signature.pre))
             .map_err(|_| SignatureError::PreQuantum)?;
-        self.post
-            .verify(data, &signature.post)
-            .then_some(())
-            .ok_or(SignatureError::PostQuantum)?;
+        self.post.verify(data, &signature.post).then_some(()).ok_or(SignatureError::PostQuantum)?;
         Ok(())
     }
 }
@@ -80,8 +79,8 @@ pub enum SignatureError {
 impl core::fmt::Display for SignatureError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SignatureError::PostQuantum => write!(f, "post quantum signature verification failed"),
-            SignatureError::PreQuantum => write!(f, "pre quantum signature verification failed"),
+            Self::PostQuantum => write!(f, "post quantum signature verification failed"),
+            Self::PreQuantum => write!(f, "pre quantum signature verification failed"),
         }
     }
 }
@@ -100,8 +99,6 @@ mod test {
         let signature = keypair.sign(data, OsRng);
         let public_key = keypair.public_key();
         public_key.verify(data, &signature).unwrap();
-        public_key
-            .verify(b"deez nust", &signature)
-            .expect_err("invalid signature");
+        public_key.verify(b"deez nust", &signature).expect_err("invalid signature");
     }
 }

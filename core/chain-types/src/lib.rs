@@ -67,13 +67,13 @@ impl From<(IpAddr, u16)> for NodeAddress {
                 let mut bytes = [0; 4 + 2];
                 bytes[..4].copy_from_slice(&ip.octets());
                 bytes[4..].copy_from_slice(&port.to_be_bytes());
-                NodeAddress::Ip4(bytes)
+                Self::Ip4(bytes)
             }
             IpAddr::V6(ip) => {
                 let mut bytes = [0; 16 + 2];
                 bytes[..16].copy_from_slice(&ip.octets());
                 bytes[16..].copy_from_slice(&port.to_be_bytes());
-                NodeAddress::Ip6(bytes)
+                Self::Ip6(bytes)
             }
         }
     }

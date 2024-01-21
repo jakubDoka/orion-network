@@ -1,6 +1,12 @@
 use {
-    super::*,
-    chat_logic::*,
+    super::{Codec, Protocol, ProtocolResult, RequestOrigin, Scope, SyncHandler},
+    chat_logic::{
+        advance_nonce, retain_messages_in_vec, unpack_messages, unpack_messages_ref, BlockNumber,
+        ChatAction, ChatActionError, ChatEvent, ChatName, CreateChat, CreateChatError, Cursor,
+        FetchLatestBlock, FetchLatestBlockError, FetchMessages, FetchMessagesError, Identity,
+        InvalidBlockReason, Message, Nonce, PerformChatAction, ProposeMsgBlock,
+        ProposeMsgBlockError, SendBlock, SendBlockError, REPLICATION_FACTOR,
+    },
     component_utils::{encode_len, Buffer, NoCapOverflow, Reminder},
     std::{
         collections::{HashMap, VecDeque},
@@ -141,7 +147,7 @@ impl SyncHandler for ProposeMsgBlock {
         others[index] = phash;
 
         if others.iter().filter(|h| **h == phash).count()
-            > REPLICATION_FACTOR.get() / 2 - we_match as usize
+            > REPLICATION_FACTOR.get() / 2 - usize::from(we_match)
         {
             chat_data.stage = if let Some(block) = proposed.take()
                 && block.hash == phash
@@ -164,7 +170,10 @@ impl SyncHandler for SendBlock {
         sc: Scope<'a>,
         (chat, number, Reminder(block)): Self::Request<'_>,
     ) -> ProtocolResult<'a, Self> {
-        use {InvalidBlockReason::*, SendBlockError::*};
+        use {
+            InvalidBlockReason::{MajorityMismatch, NotExpected, Outdated},
+            SendBlockError::{ChatNotFound, InvalidBlock, NoReplicator},
+        };
 
         let index = sc
             .other_replicators_for(chat)
@@ -394,10 +403,10 @@ impl Chat {
 
     fn last_finalized_block(&self) -> BlockNumber {
         self.block_number
-            - matches!(
+            - u64::from(matches!(
                 self.stage,
                 BlockStage::Unfinalized { proposed: Some(_), .. } | BlockStage::Recovering { .. }
-            ) as BlockNumber
+            ))
     }
 }
 

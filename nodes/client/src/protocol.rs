@@ -10,23 +10,14 @@ pub struct RequestDispatch {
 
 impl Clone for RequestDispatch {
     fn clone(&self) -> Self {
-        Self {
-            buffer: Vec::new(),
-            sink: self.sink.clone(),
-        }
+        Self { buffer: Vec::new(), sink: self.sink.clone() }
     }
 }
 
 impl RequestDispatch {
     pub fn new() -> (Self, RequestStream) {
         let (sink, stream) = libp2p::futures::channel::mpsc::channel(5);
-        (
-            Self {
-                buffer: Vec::new(),
-                sink,
-            },
-            stream,
-        )
+        (Self { buffer: Vec::new(), sink }, stream)
     }
 
     async fn dispatch_low<P: Protocol>(
@@ -69,9 +60,7 @@ impl RequestDispatch {
     ) -> anyhow::Result<()> {
         let action = action.into();
 
-        let proof = state
-            .next_chat_proof(chat, None)
-            .context("extracting chat proof")?;
+        let proof = state.next_chat_proof(chat, None).context("extracting chat proof")?;
         let Err(RequestError::Handler(ReplError::Inner(ChatActionError::InvalidAction(
             correct_nonce,
         )))) = self.dispatch::<PerformChatAction>((proof, action)).await
@@ -79,24 +68,19 @@ impl RequestDispatch {
             return Ok(());
         };
 
-        let proof = state
-            .next_chat_proof(chat, Some(correct_nonce))
-            .context("extracting chat proof")?;
-        self.dispatch::<PerformChatAction>((proof, action))
-            .await
-            .map_err(Into::into)
+        let proof =
+            state.next_chat_proof(chat, Some(correct_nonce)).context("extracting chat proof")?;
+        self.dispatch::<PerformChatAction>((proof, action)).await.map_err(Into::into)
     }
 
     pub async fn dispatch_mail(
         &mut self,
         request: <Repl<SendMail> as Protocol>::Request<'_>,
     ) -> Result<<Repl<SendMail> as Protocol>::Response<'_>, RequestError<Repl<SendMail>>> {
-        self.dispatch::<SendMail>(request)
-            .await
-            .or_else(|e| match e {
-                RequestError::Handler(ReplError::Inner(SendMailError::SentDirectly)) => Ok(()),
-                e => Err(e),
-            })
+        self.dispatch::<SendMail>(request).await.or_else(|e| match e {
+            RequestError::Handler(ReplError::Inner(SendMailError::SentDirectly)) => Ok(()),
+            e => Err(e),
+        })
     }
 
     pub async fn dispatch_direct<P: Protocol>(
@@ -142,16 +126,8 @@ impl RequestDispatch {
             .map_err(|_| RequestError::ChannelClosed)?;
 
         Ok((
-            Subscription {
-                buffer: Vec::new(),
-                events: rx,
-                phantom: std::marker::PhantomData,
-            },
-            SubsOwner {
-                id,
-                send_back: self.sink.clone(),
-                phantom: std::marker::PhantomData,
-            },
+            Subscription { buffer: Vec::new(), events: rx, phantom: std::marker::PhantomData },
+            SubsOwner { id, send_back: self.sink.clone(), phantom: std::marker::PhantomData },
         ))
     }
 }
@@ -164,19 +140,13 @@ pub struct SubsOwner<H: Topic> {
 
 impl<H: Topic> Clone for SubsOwner<H> {
     fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            send_back: self.send_back.clone(),
-            phantom: std::marker::PhantomData,
-        }
+        Self { id: self.id, send_back: self.send_back.clone(), phantom: std::marker::PhantomData }
     }
 }
 
 impl<H: Topic> Drop for SubsOwner<H> {
     fn drop(&mut self) {
-        let _ = self
-            .send_back
-            .try_send(RequestInit::CloseSubscription(self.id));
+        let _ = self.send_back.try_send(RequestInit::CloseSubscription(self.id));
     }
 }
 
@@ -191,9 +161,9 @@ pub enum RequestInit {
 impl RequestInit {
     pub fn topic(&self) -> PossibleTopic {
         match self {
-            RequestInit::Request(r) => r.topic.unwrap(),
-            RequestInit::Subscription(s) => s.topic,
-            RequestInit::CloseSubscription(_) => unreachable!(),
+            Self::Request(r) => r.topic.unwrap(),
+            Self::Subscription(s) => s.topic,
+            Self::CloseSubscription(_) => unreachable!(),
         }
     }
 }
@@ -245,10 +215,10 @@ pub enum RequestError<H: Protocol> {
 impl<H: Protocol> std::fmt::Debug for RequestError<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RequestError::InvalidResponse => write!(f, "invalid response"),
-            RequestError::ChannelClosed => write!(f, "channel closed"),
-            RequestError::ServerIsOwervhelmed => write!(f, "server is owervhelmed"),
-            RequestError::Handler(e) => write!(f, "handler error: {}", e),
+            Self::InvalidResponse => write!(f, "invalid response"),
+            Self::ChannelClosed => write!(f, "channel closed"),
+            Self::ServerIsOwervhelmed => write!(f, "server is owervhelmed"),
+            Self::Handler(e) => write!(f, "handler error: {}", e),
         }
     }
 }

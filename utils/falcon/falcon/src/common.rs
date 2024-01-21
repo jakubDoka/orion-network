@@ -142,9 +142,7 @@ pub unsafe extern "C" fn PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(
                     d = &mut *tt1.offset(u.wrapping_sub(p).wrapping_sub(n) as isize)
                         as *mut uint16_t;
                 } else {
-                    d = &mut *tt2
-                        .as_mut_ptr()
-                        .offset(u.wrapping_sub(p).wrapping_sub(n2) as isize)
+                    d = &mut *tt2.as_mut_ptr().offset(u.wrapping_sub(p).wrapping_sub(n2) as isize)
                         as *mut uint16_t;
                 }
                 dv = *d as libc::c_uint;

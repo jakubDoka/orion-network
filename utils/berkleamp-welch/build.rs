@@ -40,7 +40,12 @@ fn gen_exp_table(log_table: &[u8; FIELD_SIZE]) -> [u8; EXP_TABLE_SIZE] {
     result
 }
 
-fn multiply(log_table: &[u8; FIELD_SIZE], exp_table: &[u8; EXP_TABLE_SIZE], a: u8, b: u8) -> u8 {
+const fn multiply(
+    log_table: &[u8; FIELD_SIZE],
+    exp_table: &[u8; EXP_TABLE_SIZE],
+    a: u8,
+    b: u8,
+) -> u8 {
     if a == 0 || b == 0 {
         0
     } else {
@@ -75,12 +80,13 @@ fn gen_mul_table_half(
 
     for a in 0..low.len() {
         for b in 0..low.len() {
-            let mut result = 0;
-            if !(a == 0 || b == 0) {
+            let result = if !(a == 0 || b == 0) {
                 let log_a = log_table[a];
                 let log_b = log_table[b];
-                result = exp_table[log_a as usize + log_b as usize];
-            }
+                exp_table[log_a as usize + log_b as usize]
+            } else {
+                0
+            };
             if (b & 0x0F) == b {
                 low[a][b] = result;
             }
@@ -175,12 +181,12 @@ fn compile_simd_c() {
     match env::var("RUST_REED_SOLOMON_ERASURE_ARCH") {
         Ok(arch) => {
             // Use explicitly specified environment variable as architecture.
-            build.flag(&format!("-march={}", arch));
+            build.flag(&format!("-march={arch}"));
         }
         Err(_error) => {
             // On x86-64 enabling Haswell architecture unlocks useful instructions and improves performance
             // dramatically while allowing it to run ony modern CPU.
-            if let "x86_64" = env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
+            if env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() == "x86_64" {
                 build.flag("-march=haswell");
             }
         }

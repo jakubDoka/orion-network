@@ -1,23 +1,21 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
 #[ink::contract]
+#[allow(clippy::module_name_repetitions)]
 mod node_staker {
     use ink::prelude::vec::Vec;
 
     pub type Ed = [u8; 32];
     pub type CryptoHash = [u8; 32];
 
-    pub const STAKE_AMOUNT: Balance = 1000000;
+    pub const STAKE_AMOUNT: Balance = 1_000_000;
     pub const INIT_VOTE_POOL: u32 = 3;
     pub const STAKE_DURATION_MILIS: Timestamp = 1000 * 60 * 60 * 24 * 30;
     pub const BASE_SLASH: Balance = 2;
     pub const SLASH_FACTOR: u32 = 1;
 
     #[derive(scale::Decode, scale::Encode, Clone, Copy)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     pub enum NodeAddress {
         Ip4([u8; 4 + 2]),
         Ip6([u8; 16 + 2]),
@@ -41,10 +39,7 @@ mod node_staker {
     }
 
     #[derive(scale::Decode, scale::Encode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     struct Votes {
         pool: u32,
         rating: u32,
@@ -52,28 +47,19 @@ mod node_staker {
 
     impl Default for Votes {
         fn default() -> Self {
-            Self {
-                pool: INIT_VOTE_POOL,
-                rating: 0,
-            }
+            Self { pool: INIT_VOTE_POOL, rating: 0 }
         }
     }
 
     #[derive(scale::Decode, scale::Encode, Debug, PartialEq, Eq, Hash, Clone, Copy)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     pub struct NodeIdentity {
         pub sign: CryptoHash,
         pub enc: CryptoHash,
     }
 
     #[derive(scale::Decode, scale::Encode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     pub struct NodeData {
         pub sign: CryptoHash,
         pub enc: CryptoHash,
@@ -81,10 +67,7 @@ mod node_staker {
     }
 
     #[derive(scale::Decode, scale::Encode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     struct Stake {
         owner: AccountId,
         amount: Balance,
@@ -96,15 +79,12 @@ mod node_staker {
 
     impl Stake {
         fn apply_slashes(&self) -> u128 {
-            let mut amount = self.amount;
-
             if self.votes.rating > 0 {
-                amount = self
-                    .amount
-                    .saturating_sub(BASE_SLASH << (self.votes.rating * SLASH_FACTOR) as Balance);
+                self.amount
+                    .saturating_sub(BASE_SLASH << u128::from(self.votes.rating * SLASH_FACTOR))
+            } else {
+                self.amount
             }
-
-            amount
         }
     }
 
@@ -127,13 +107,11 @@ mod node_staker {
         /// Constructor that initializes the `bool` value to the given `init_value`.
         #[ink(constructor)]
         pub fn new() -> Self {
-            Self {
-                stakes: ink::storage::Mapping::new(),
-                stake_list: Vec::new(),
-            }
+            Self { stakes: ink::storage::Mapping::new(), stake_list: Vec::new() }
         }
 
         #[ink(message, payable)]
+        #[allow(clippy::needless_pass_by_value)]
         pub fn join(&mut self, data: NodeData, addr: NodeAddress) {
             let amount = self.env().transferred_value();
             assert!(amount == STAKE_AMOUNT, "wrong amount");
@@ -145,17 +123,11 @@ mod node_staker {
                 id: data.id,
                 addr,
             };
-            let id = NodeIdentity {
-                sign: data.sign,
-                enc: data.enc,
-            };
+            let id = NodeIdentity { sign: data.sign, enc: data.enc };
             assert!(self.stakes.insert(id, &stake).is_none(), "already joined");
             self.stake_list.push(id);
 
-            self.env().emit_event(Joined {
-                identity: data.id,
-                addr,
-            });
+            self.env().emit_event(Joined { identity: data.id, addr });
         }
 
         #[ink(message)]
@@ -163,10 +135,7 @@ mod node_staker {
             let mut stake = self.stakes.get(identity).expect("no stake to wote with");
             assert!(stake.owner == self.env().caller(), "not owner");
             let mut target_stake = self.stakes.get(target).expect("target does not exist");
-            assert!(
-                target_stake.owner != Self::env().caller(),
-                "cannot vote for self"
-            );
+            assert!(target_stake.owner != Self::env().caller(), "cannot vote for self");
             stake.votes.pool = stake
                 .votes
                 .pool
@@ -187,14 +156,7 @@ mod node_staker {
                 .iter()
                 .map(|id| {
                     let stake = self.stakes.get(id).unwrap();
-                    (
-                        NodeData {
-                            sign: id.sign,
-                            enc: id.enc,
-                            id: stake.id,
-                        },
-                        stake.addr,
-                    )
+                    (NodeData { sign: id.sign, enc: id.enc, id: stake.id }, stake.addr)
                 })
                 .collect()
         }
@@ -204,10 +166,7 @@ mod node_staker {
             assert!(stake.owner == self.env().caller(), "not owner");
             stake.addr = addr;
             self.stakes.insert(identity, &stake);
-            self.env().emit_event(AddrChanged {
-                identity: stake.id,
-                addr,
-            });
+            self.env().emit_event(AddrChanged { identity: stake.id, addr });
         }
 
         #[ink(message)]
@@ -253,17 +212,11 @@ mod node_staker {
             [accounts.alice, accounts.bob]
         }
 
-        fn identities() -> [NodeIdentity; 2] {
-            [
-                NodeIdentity {
-                    sign: [0x01; 32],
-                    enc: [0x01; 32],
-                },
-                NodeIdentity {
-                    sign: [0x02; 32],
-                    enc: [0x02; 32],
-                },
-            ]
+        const fn identities() -> [NodeIdentity; 2] {
+            [NodeIdentity { sign: [0x01; 32], enc: [0x01; 32] }, NodeIdentity {
+                sign: [0x02; 32],
+                enc: [0x02; 32],
+            }]
         }
 
         fn join(staker: &mut NodeStaker, amount: Balance, identity: NodeIdentity, to: AccountId) {
@@ -271,17 +224,13 @@ mod node_staker {
             ink_env::set_value_transferred::<Env>(amount);
             ink_env::set_block_timestamp::<Env>(0);
             staker.join(
-                NodeData {
-                    sign: identity.sign,
-                    enc: identity.enc,
-                    id: Ed::default(),
-                },
+                NodeData { sign: identity.sign, enc: identity.enc, id: Ed::default() },
                 NodeAddress::Ip4([0; 6]),
             );
             ink_env::set_account_balance::<Env>(
                 ink_env::callee::<Env>(),
                 ink_env::get_account_balance::<Env>(ink_env::callee::<Env>()).unwrap() + amount,
-            )
+            );
         }
 
         fn vote(
@@ -342,10 +291,7 @@ mod node_staker {
             join(&mut node_staker, STAKE_AMOUNT, identity, alice);
             join(&mut node_staker, STAKE_AMOUNT, target, bob);
             vote(&mut node_staker, identity, target, -1, alice);
-            assert_eq!(
-                node_staker.stakes.get(identity).unwrap().votes.pool,
-                INIT_VOTE_POOL - 1
-            );
+            assert_eq!(node_staker.stakes.get(identity).unwrap().votes.pool, INIT_VOTE_POOL - 1);
             assert_eq!(node_staker.stakes.get(target).unwrap().votes.rating, 1);
         }
 
@@ -361,7 +307,7 @@ mod node_staker {
                 &mut node_staker,
                 identity,
                 target,
-                -(INIT_VOTE_POOL as i32 + 1),
+                -(i32::try_from(INIT_VOTE_POOL).unwrap() + 1),
                 alice,
             );
         }
@@ -435,10 +381,8 @@ mod node_staker {
 
             let get_balance = build_message::<NodeStakerRef>(contract_acc_id.clone())
                 .call(|contract| contract.join([0x01; 32]));
-            let res = client
-                .call_dry_run(&ink_e2e::alice(), &get_balance, STAKE_AMOUNT, None)
-                .await;
-            dbg!(&res.debug_message());
+            let res =
+                client.call_dry_run(&ink_e2e::alice(), &get_balance, STAKE_AMOUNT, None).await;
             res.return_value();
 
             Ok(())

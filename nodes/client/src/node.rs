@@ -12,6 +12,7 @@ use {
         enc::{self, ChoosenCiphertext, Ciphertext},
         sign, FixedAesPayload, Serialized, TransmutationCircle,
     },
+    dht::Route,
     leptos::signal_prelude::*,
     libp2p::{
         core::upgrade::Version,
@@ -20,7 +21,6 @@ use {
         swarm::{NetworkBehaviour, SwarmEvent},
         PeerId, Swarm, *,
     },
-    dht::Route,
     onion::{EncryptedStream, PathId, SharedSecret},
     rand::{rngs::OsRng, seq::IteratorRandom},
     std::{
@@ -111,10 +111,7 @@ impl ChatMeta {
     }
 
     pub fn from_secret(secret: SharedSecret) -> Self {
-        Self {
-            secret,
-            action_no: Default::default(),
-        }
+        Self { secret, action_no: Default::default() }
     }
 }
 
@@ -144,7 +141,7 @@ macro_rules! gen_theme {
     ($(
         $name:ident: $value:literal,
     )*) => {
-        #[derive(Clone, Copy, PartialEq, Codec)]
+        #[derive(Clone, Copy, PartialEq, Eq, Codec)]
         pub struct Theme { $(
             pub $name: u32,
         )* }
@@ -173,11 +170,11 @@ macro_rules! gen_theme {
 }
 
 gen_theme! {
-    primary: 0x000000ff,
-    secondary: 0x333333ff,
-    highlight: 0xffffffff,
-    font: 0xffffffff,
-    error: 0xff0000ff,
+    primary: 0x0000_00ff,
+    secondary: 0x3333_33ff,
+    highlight: 0xffff_ffff,
+    font: 0xffff_ffff,
+    error: 0xff00_00ff,
 }
 
 pub struct Node {
@@ -269,16 +266,11 @@ impl Node {
             .collect::<anyhow::Result<Vec<_>>>()?;
         swarm.behaviour_mut().dht.table.bulk_insert(nodes);
 
-        for route in swarm
-            .behaviour_mut()
-            .dht
-            .table
-            .iter()
-            .map(Route::peer_id)
-            .collect::<Vec<_>>()
-        {
+        let routes = swarm.behaviour_mut().dht.table.iter().map(Route::peer_id).collect::<Vec<_>>();
+        for route in routes {
             _ = swarm.dial(route);
         }
+
         loop {
             // TODO: add timeout instead
             match swarm.select_next_some().await {
@@ -484,11 +476,7 @@ impl Node {
             .map(Route::peer_id)
             .collect::<Vec<_>>();
 
-        if let Some(sub) = self
-            .subscriptions
-            .iter_mut()
-            .find(|s| peers.contains(&s.peer_id))
-        {
+        if let Some(sub) = self.subscriptions.iter_mut().find(|s| peers.contains(&s.peer_id)) {
             log::debug!("shortcut topic found");
             sub.topics.push(search_key);
             self.handle_command(command);
@@ -523,10 +511,7 @@ impl Node {
     }
 
     fn handle_subscription_request(&mut self, sub: SubscriptionInit) {
-        let Some(subs) = self
-            .subscriptions
-            .iter_mut()
-            .find(|s| s.topics.contains(&sub.topic))
+        let Some(subs) = self.subscriptions.iter_mut().find(|s| s.topics.contains(&sub.topic))
         else {
             self.handle_topic_search(RequestInit::Subscription(sub));
             return;
@@ -544,10 +529,8 @@ impl Node {
             RequestInit::Request(req) => self.handle_request(req),
             RequestInit::Subscription(sub) => self.handle_subscription_request(sub),
             RequestInit::CloseSubscription(id) => {
-                let Some(sub) = self
-                    .subscriptions
-                    .iter_mut()
-                    .find(|s| s.subscriptions.contains_key(&id))
+                let Some(sub) =
+                    self.subscriptions.iter_mut().find(|s| s.subscriptions.contains_key(&id))
                 else {
                     return;
                 };
@@ -608,10 +591,7 @@ impl Node {
             return;
         }
 
-        log::error!(
-            "request does not exits even though we recieived it {:?}",
-            cid
-        );
+        log::error!("request does not exits even though we recieived it {:?}", cid);
     }
 }
 
@@ -648,9 +628,7 @@ impl futures::Stream for Subscription {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        self.stream
-            .poll_next_unpin(cx)
-            .map(|opt| opt.map(|v| (self.id, v)))
+        self.stream.poll_next_unpin(cx).map(|opt| opt.map(|v| (self.id, v)))
     }
 }
 

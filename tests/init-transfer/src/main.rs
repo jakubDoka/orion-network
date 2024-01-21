@@ -8,11 +8,7 @@ async fn main() {
         }
     }
 
-    let Config {
-        test_wallets,
-        balance,
-        chain_node,
-    } = Config::from_env();
+    let Config { test_wallets, balance, chain_node } = Config::from_env();
 
     let client =
         chain_api::Client::with_signer(chain_node.as_str(), chain_api::dev_keypair("//Bob"))

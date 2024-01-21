@@ -3,7 +3,7 @@
 #![feature(mem_copy_fn)]
 #![feature(macro_metavar_expr)]
 #![feature(slice_take)]
-#![allow(clippy::multiple_crate_versions, clippy::future_not_send)]
+#![allow(clippy::multiple_crate_versions)]
 
 use {
     self::{protocol::RequestDispatch, web_sys::wasm_bindgen::JsValue},
@@ -309,7 +309,7 @@ fn App() -> impl IntoView {
             }
             Mail::HardenedChatInvite { cp, payload } => {
                 log::debug!("handling hardened chat invite");
-                let enc = enc;
+                let enc = enc.clone();
                 let secret = enc
                     .decapsulate(Ciphertext::from_bytes(cp))
                     .context("failed to decapsulate hardened invite")?;

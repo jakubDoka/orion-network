@@ -64,7 +64,7 @@ where
         event: &'a Self::Event,
     ) -> super::HandlerResult<'a, Self> {
         let (response, ongoing, matched) = match self {
-            Repl::Resolving(handler, topic, request) => {
+            Self::Resolving(handler, topic, request) => {
                 let response = match handler.resume(
                     cx.reborrow(),
                     event
@@ -79,7 +79,7 @@ where
 
                 return Err(Self::new_replicating(response, request, topic, cx.cx));
             }
-            Repl::Replicating { ref response, ref mut ongoing, ref mut matched, .. } => {
+            Self::Replicating { ref response, ref mut ongoing, ref mut matched, .. } => {
                 (response, ongoing, matched)
             }
         };
@@ -90,7 +90,7 @@ where
         log::debug!("rpc event: {:?}", res);
         match res {
             Ok((remote_resp, _)) => {
-                *matched += (remote_resp.as_slice() == response.as_slice()) as usize;
+                *matched += usize::from(remote_resp.as_slice() == response.as_slice());
 
                 if *matched > REPLICATION_FACTOR.get() / 2 {
                     let Some(resp): Option<Result<_, _>> =

@@ -12,13 +12,8 @@ use {
 pub const OK: u8 = 0;
 pub const MISSING_PEER: u8 = 1;
 pub const OCCUPIED_PEER: u8 = 2;
-pub const ASOC_DATA: &[u8] = concat!(
-    "asoc-",
-    env!("CARGO_PKG_VERSION"),
-    "-",
-    env!("CARGO_PKG_NAME"),
-)
-.as_bytes();
+pub const ASOC_DATA: &[u8] =
+    concat!("asoc-", env!("CARGO_PKG_VERSION"), "-", env!("CARGO_PKG_NAME"),).as_bytes();
 pub const TAG_SIZE: usize = <Aes256Gcm as AeadCore>::TagSize::USIZE;
 pub const NONCE_SIZE: usize = <Aes256Gcm as AeadCore>::NonceSize::USIZE;
 pub const CONFIRM_PACKET_SIZE: usize = TAG_SIZE + NONCE_SIZE;
@@ -95,9 +90,7 @@ pub fn peel_wih_key(key: &SharedSecret, mut buffer: &mut [u8]) -> Option<usize> 
 
     let cipher = Aes256Gcm::new(&GenericArray::from(*key));
 
-    cipher
-        .decrypt_in_place_detached(&nonce, ASOC_DATA, buffer, &tag)
-        .ok()?;
+    cipher.decrypt_in_place_detached(&nonce, ASOC_DATA, buffer, &tag).ok()?;
 
     Some(buffer.len())
 }

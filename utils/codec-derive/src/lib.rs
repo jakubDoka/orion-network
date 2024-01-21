@@ -49,9 +49,7 @@ fn modify_generics(
     if generics.lifetimes().next().is_none() {
         let default_lt =
             syn::LifetimeParam::new(syn::Lifetime::new("'a", proc_macro2::Span::call_site()));
-        generics
-            .params
-            .insert(0, syn::GenericParam::Lifetime(default_lt));
+        generics.params.insert(0, syn::GenericParam::Lifetime(default_lt));
     }
     let mut lts = generics.lifetimes();
     let lt = lts.next().unwrap().clone();
@@ -98,12 +96,10 @@ fn derive_codec_enum(e: syn::DataEnum) -> [proc_macro2::TokenStream; 2] {
 
     let encode_variant = e.variants.iter().map(|v| match &v.fields {
         syn::Fields::Named(n) => {
-            let field_names = n.named.iter().filter_map(|f| {
-                FieldAttrFlags::new(&f.attrs)
-                    .ignore
-                    .not()
-                    .then_some(&f.ident)
-            });
+            let field_names = n
+                .named
+                .iter()
+                .filter_map(|f| FieldAttrFlags::new(&f.attrs).ignore.not().then_some(&f.ident));
             quote! { #(Codec::<'a>::encode(#field_names, buffer)?;)* }
         }
         syn::Fields::Unnamed(u) => {
@@ -176,11 +172,7 @@ fn derive_codec_struct(s: syn::DataStruct) -> [proc_macro2::TokenStream; 2] {
 }
 
 fn derive_codec_unnamed_struct(u: syn::FieldsUnnamed) -> [proc_macro2::TokenStream; 2] {
-    let flags = u
-        .unnamed
-        .iter()
-        .map(|f| FieldAttrFlags::new(&f.attrs))
-        .collect::<Vec<_>>();
+    let flags = u.unnamed.iter().map(|f| FieldAttrFlags::new(&f.attrs)).collect::<Vec<_>>();
 
     let field_names = flags.iter().enumerate().map(|(i, f)| {
         if f.ignore {
@@ -214,11 +206,7 @@ fn derive_codec_unnamed_struct(u: syn::FieldsUnnamed) -> [proc_macro2::TokenStre
 }
 
 fn derive_codec_named_struct(n: syn::FieldsNamed) -> [proc_macro2::TokenStream; 2] {
-    let flags = n
-        .named
-        .iter()
-        .map(|f| FieldAttrFlags::new(&f.attrs))
-        .collect::<Vec<_>>();
+    let flags = n.named.iter().map(|f| FieldAttrFlags::new(&f.attrs)).collect::<Vec<_>>();
 
     let field_names = flags.iter().zip(&n.named).map(|(f, nf)| {
         let name = &nf.ident;
@@ -228,10 +216,8 @@ fn derive_codec_named_struct(n: syn::FieldsNamed) -> [proc_macro2::TokenStream; 
             quote! { #name }
         }
     });
-    let used_fields = flags
-        .iter()
-        .zip(&n.named)
-        .filter_map(|(f, nf)| f.ignore.not().then_some(&nf.ident));
+    let used_fields =
+        flags.iter().zip(&n.named).filter_map(|(f, nf)| f.ignore.not().then_some(&nf.ident));
 
     let decode_fields = flags.iter().zip(&n.named).map(|(f, nf)| {
         let name = &nf.ident;
@@ -272,11 +258,8 @@ impl FieldAttrFlags {
                 _ => None,
             })
             .flat_map(|ml| {
-                ml.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-                    .unwrap()
+                ml.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated).unwrap()
             })
-            .fold(Self::default(), |s, m| Self {
-                ignore: s.ignore || m.path().is_ident("skip"),
-            })
+            .fold(Self::default(), |s, m| Self { ignore: s.ignore || m.path().is_ident("skip") })
     }
 }

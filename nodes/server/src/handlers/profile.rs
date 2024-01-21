@@ -1,6 +1,12 @@
 use {
-    super::*,
-    chat_logic::{Protocol, *},
+    super::{
+        CallId, Codec, Handler, HandlerResult, ProtocolResult, RequestOrigin, Scope, SyncHandler,
+    },
+    chat_logic::{
+        advance_nonce, CreateAccountError, CreateProfile, FetchFullProfile, FetchProfile,
+        FetchProfileError, FetchVault, FetchVaultError, Identity, Profile, Protocol, ReadMail,
+        ReadMailError, SendMailError, SetVault, SetVaultError,
+    },
     component_utils::Reminder,
     std::collections::hash_map::Entry,
 };
@@ -12,19 +18,14 @@ impl SyncHandler for FetchProfile {
         cx.storage
             .profiles
             .get(&request)
-            .map(|profile| profile.into())
+            .map(std::convert::Into::into)
             .ok_or(FetchProfileError::NotFound)
     }
 }
 
 impl SyncHandler for FetchFullProfile {
     fn execute<'a>(sc: Scope<'a>, req: Self::Request<'_>) -> ProtocolResult<'a, Self> {
-        sc.cx
-            .storage
-            .profiles
-            .get(&req)
-            .map(Into::into)
-            .ok_or(FetchProfileError::NotFound)
+        sc.cx.storage.profiles.get(&req).map(Into::into).ok_or(FetchProfileError::NotFound)
     }
 }
 
@@ -87,11 +88,7 @@ impl SyncHandler for FetchVault {
     fn execute<'a>(sc: Scope<'a>, request: Self::Request<'_>) -> ProtocolResult<'a, Self> {
         let profile = sc.cx.storage.profiles.get(&request);
         crate::ensure!(let Some(profile) = profile, FetchVaultError::NotFound);
-        Ok((
-            profile.vault_version,
-            profile.mail_action,
-            Reminder(profile.vault.as_slice()),
-        ))
+        Ok((profile.vault_version, profile.mail_action, Reminder(profile.vault.as_slice())))
     }
 }
 
@@ -117,12 +114,12 @@ pub struct SendMail {
 }
 
 impl SendMail {
-    fn clear_presence(self, mut cx: Scope) -> HandlerResult<SendMail> {
+    fn clear_presence(self, mut cx: Scope) -> HandlerResult<Self> {
         cx.storage.online.remove(&self.for_who);
         Ok(Ok(()))
     }
 
-    fn pop_pushed_mail(self, mut cx: Scope) -> HandlerResult<SendMail> {
+    fn pop_pushed_mail(self, mut cx: Scope) -> HandlerResult<Self> {
         if let Some(profile) = cx.storage.profiles.get_mut(&self.for_who) {
             profile.mail.clear();
         };
@@ -173,7 +170,7 @@ impl Handler for SendMail {
 
                 let packet = (sc.prefix, req).to_bytes();
                 if let Ok(dm) = sc.cx.swarm.behaviour_mut().rpc.request(peer, packet) {
-                    Err(SendMail { dm, for_who })
+                    Err(Self { dm, for_who })
                 } else {
                     Ok(Ok(()))
                 }
@@ -190,8 +187,8 @@ impl Handler for SendMail {
             Err(_) => return self.clear_presence(sc),
         };
 
-        if let Some(Err(SendMailError::SentDirectly)) =
-            ProtocolResult::<'a, Self::Protocol>::decode(&mut request)
+        if ProtocolResult::<'a, Self::Protocol>::decode(&mut request)
+            == Some(Err(SendMailError::SentDirectly))
         {
             self.pop_pushed_mail(sc)
         } else {

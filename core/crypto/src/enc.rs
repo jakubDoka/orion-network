@@ -53,11 +53,9 @@ impl Keypair {
         Self { post, pre }
     }
 
+    #[must_use]
     pub fn public_key(&self) -> PublicKey {
-        PublicKey {
-            post: self.post.publickey(),
-            pre: x25519_dalek::PublicKey::from(&self.pre),
-        }
+        PublicKey { post: self.post.publickey(), pre: x25519_dalek::PublicKey::from(&self.pre) }
     }
 
     pub fn encapsulate(
@@ -109,10 +107,7 @@ impl Keypair {
         let x_secret = self.pre.diffie_hellman(&ciphertext.x);
         let data = ciphertext.pl.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
         let payload = ChoosenPayload::from_bytes(data);
-        let secret = self
-            .post
-            .dec(&payload.kyb)
-            .ok_or(DecapsulationError::Kyber)?;
+        let secret = self.post.dec(&payload.kyb).ok_or(DecapsulationError::Kyber)?;
         Ok(payload.key.decrypt(secret, ASOC_DATA)?)
     }
 }
@@ -126,8 +121,8 @@ pub enum DecapsulationError {
 impl core::fmt::Display for DecapsulationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            DecapsulationError::Kyber => write!(f, "kyber error"),
-            DecapsulationError::Aes => write!(f, "aes error"),
+            Self::Kyber => write!(f, "kyber error"),
+            Self::Aes => write!(f, "aes error"),
         }
     }
 }
@@ -136,7 +131,7 @@ impl core::error::Error for DecapsulationError {}
 
 impl From<aes_gcm::Error> for DecapsulationError {
     fn from(_: aes_gcm::Error) -> Self {
-        DecapsulationError::Aes
+        Self::Aes
     }
 }
 

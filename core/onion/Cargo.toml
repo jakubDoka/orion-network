@@ -1,7 +1,13 @@
 [package]
+repository = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
 name = "onion"
 version = "0.1.0"
 edition = "2021"
+description = "libp2p protocols for onion-like routing with pqc security"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -18,7 +24,7 @@ thiserror = "1.0.50"
 void = "1.0.2"
 
 [dev-dependencies]
-env_logger = "0.10.0"
+env_logger = "0.11.0"
 libp2p = { version = "0.53.0", features = ["tokio", "tcp", "noise", "yamux", "macros"] }
 dht = { path = "../dht" }
 rand = "0.8.5"
@@ -26,3 +32,6 @@ tokio = { version = "1.32.0", features = ["rt", "macros", "time", "rt-multi-thre
 
 [features]
 wasm = ["instant/wasm-bindgen"]
+
+[lints]
+workspace = true

@@ -102,16 +102,18 @@ impl<F: FnOnce()> DropFn<F> {
 
 impl<F: FnOnce()> Drop for DropFn<F> {
     fn drop(&mut self) {
-        self.0.take().expect("we drop only once")()
+        self.0.take().expect("we drop only once")();
     }
 }
 
+#[must_use]
 pub fn arrstr_to_array<const SIZE: usize>(s: arrayvec::ArrayString<SIZE>) -> [u8; SIZE] {
     let mut arr = [0xff; SIZE];
     arr[..s.len()].copy_from_slice(s.as_bytes());
     arr
 }
 
+#[must_use]
 pub fn array_to_arrstr<const SIZE: usize>(arr: [u8; SIZE]) -> Option<arrayvec::ArrayString<SIZE>> {
     let mut s = arrayvec::ArrayString::<SIZE>::new();
     let len = arr.iter().rposition(|&x| x != 0xff).map_or(0, |x| x + 1);

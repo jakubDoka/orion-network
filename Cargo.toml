@@ -19,6 +19,16 @@ exclude = [
 	"forked/infectious",
 ]
 
+[workspace.lints.clippy]
+all = "warn"
+
+[workspace.package]
+repository = "https://github.com/jakubDoka/orion-network"
+readme = "README.md"
+keywords = ["network", "decentralized", "polkadot", "pqc"]
+categories = ["networking", "cryptography", "blockchain"]
+license = "MIT"
+
 [profile.native-optimized]
 inherits = "release"
 lto = true
@@ -38,3 +48,4 @@ overflow-checks = false
 
 [profile.dev.package.argon2]
 opt-level = 3
+

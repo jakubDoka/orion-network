@@ -1,5 +1,10 @@
 [package]
-name = "galois"
+repository = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+keywords = { workspace = true }
+name = "berkleamp-welch"
 version = "6.0.0"
 edition = "2021"
 build = "build.rs"
@@ -15,3 +20,6 @@ getrandom = "0.2.12"
 
 [build-dependencies]
 cc = { version = "1.0", optional = true }
+
+[lints]
+workspace = true

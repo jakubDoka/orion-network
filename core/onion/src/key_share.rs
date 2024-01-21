@@ -27,10 +27,7 @@ impl NetworkBehaviour for Behaviour {
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        Ok(Handler {
-            connect: false,
-            key: None,
-        })
+        Ok(Handler { connect: false, key: None })
     }
 
     fn handle_established_outbound_connection(
@@ -40,10 +37,7 @@ impl NetworkBehaviour for Behaviour {
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        Ok(Handler {
-            connect: !self.keys.contains_key(&peer),
-            key: None,
-        })
+        Ok(Handler { connect: !self.keys.contains_key(&peer), key: None })
     }
 
     fn on_swarm_event(&mut self, _event: libp2p::swarm::FromSwarm) {}

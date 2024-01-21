@@ -6,7 +6,7 @@ use {
     ink_metadata::{InkProject, MetadataVersion, Selector},
     proc_macro::TokenStream,
     proc_macro_error::{abort_call_site, proc_macro_error},
-    subxt_codegen::{CratePath, DerivesRegistry, TypeGenerator, TypeSubstitutes},
+    subxt_codegen::__private::{DerivesRegistry, TypeGenerator, TypeSubstitutes},
 };
 
 #[proc_macro]
@@ -25,16 +25,16 @@ pub fn contract(input: TokenStream) -> TokenStream {
     let ink_metadata: InkProject = serde_json::from_value(serde_json::Value::Object(metadata.abi))
         .unwrap_or_else(|e| abort_call_site!("Failed to deserialize ink metadata: {}", e));
     if &MetadataVersion::V4 == ink_metadata.version() {
-        let contract_mod = generate_contract_mod(contract_name, ink_metadata);
+        let contract_mod = generate_contract_mod(&contract_name, &ink_metadata);
         contract_mod.into()
     } else {
         abort_call_site!("Invalid contract metadata version")
     }
 }
 
-fn generate_contract_mod(contract_name: String, metadata: InkProject) -> proc_macro2::TokenStream {
-    let crate_path = CratePath::default();
-    let mut type_substitutes = TypeSubstitutes::new(&crate_path);
+fn generate_contract_mod(contract_name: &str, metadata: &InkProject) -> proc_macro2::TokenStream {
+    let crate_path = syn::parse_quote!(::subxt);
+    let mut type_substitutes = TypeSubstitutes::new();
 
     let path_account: syn::Path = syn::parse_quote!(#crate_path::utils::AccountId32);
     let path_u256: syn::Path = syn::parse_quote!(::primitive_types::U256);
@@ -47,36 +47,36 @@ fn generate_contract_mod(contract_name: String, metadata: InkProject) -> proc_ma
         .expect("Error in type substitutions");
 
     type_substitutes
-        .insert(
-            syn::parse_quote!(ink_env::types::U256),
-            path_u256.try_into().unwrap(),
-        )
+        .insert(syn::parse_quote!(ink_env::types::U256), path_u256.try_into().unwrap())
         .expect("Error in type substitutions");
+
+    let mut derives_registry = DerivesRegistry::new();
+    derives_registry.extend_for_all(
+        [quote::quote!(::parity_scale_codec::Encode), quote::quote!(::parity_scale_codec::Decode)]
+            .map(syn::parse2)
+            .map(Result::unwrap),
+        [],
+    );
 
     let type_generator = TypeGenerator::new(
         metadata.registry(),
         "contract_types",
         type_substitutes,
-        DerivesRegistry::new(&crate_path),
+        derives_registry,
         crate_path,
         false,
     );
-    let types_mod = type_generator
-        .generate_types_mod()
-        .expect("Error in type generation");
+    let types_mod = type_generator.generate_types_mod().expect("Error in type generation");
     let types_mod_ident = types_mod.ident();
 
     let contract_name = quote::format_ident!("{}", contract_name);
-    let constructors = generate_constructors(&metadata, &type_generator);
-    let messages = generate_messages(&metadata, &type_generator);
-    let events = generate_events(&metadata, &type_generator);
-    let root_event = generate_root_event(&metadata);
-    let glob = types_mod
-        .children()
-        .any(|child| *child.0 == contract_name)
-        .then(|| {
-            quote::quote! { pub use #types_mod_ident::#contract_name::#contract_name::*; }
-        });
+    let constructors = generate_constructors(metadata, &type_generator);
+    let messages = generate_messages(metadata, &type_generator);
+    let events = generate_events(metadata, &type_generator);
+    let root_event = generate_root_event(metadata);
+    let glob = types_mod.children().any(|child| *child.0 == contract_name).then(|| {
+        quote::quote! { pub use #types_mod_ident::#contract_name::#contract_name::*; }
+    });
 
     quote::quote!(
         pub mod #contract_name {
@@ -119,7 +119,7 @@ fn generate_events(
                 .iter()
                 .map(|arg| (arg.label().as_str(), arg.ty().ty().id))
                 .collect::<Vec<_>>();
-            generate_event_impl(type_gen, name, args)
+            generate_event_impl(type_gen, name, &args)
         })
         .collect()
 }
@@ -143,22 +143,18 @@ fn generate_root_event(metadata: &ink_metadata::InkProject) -> proc_macro2::Toke
 fn generate_event_impl(
     type_gen: &TypeGenerator<'_>,
     name: &str,
-    args: Vec<(&str, u32)>,
+    args: &[(&str, u32)],
 ) -> proc_macro2::TokenStream {
     let name_ident = quote::format_ident!("{}", name);
     let (fields, _field_names): (Vec<_>, Vec<_>) = args
         .iter()
         .enumerate()
-        .map(|(i, (name, type_id))| {
+        .map(|(i, &(name, type_id))| {
             // In Solidity, event arguments may not have names.
             // If an argument without a name is included in the metadata, a name is generated for it
-            let name = if name.is_empty() {
-                format!("arg{}", i)
-            } else {
-                name.to_string()
-            };
+            let name = if name.is_empty() { format!("arg{i}") } else { name.to_string() };
             let name = quote::format_ident!("{}", name.as_str());
-            let ty = type_gen.resolve_type_path(*type_id);
+            let ty = type_gen.resolve_type_path(type_id);
             (quote::quote!( pub #name: #ty ), name)
         })
         .unzip();
@@ -233,11 +229,7 @@ fn generate_message_impl(
         .map(|(i, (name, type_id))| {
             // In Solidity, function arguments may not have names.
             // If an argument without a name is included in the metadata, a name is generated for it
-            let name = if name.is_empty() {
-                format!("arg{i}")
-            } else {
-                name.to_string()
-            };
+            let name = if name.is_empty() { format!("arg{i}") } else { (*name).to_string() };
             let name = quote::format_ident!("{}", name.as_str());
             let ty = type_gen.resolve_type_path(*type_id);
             (quote::quote!( #name: #ty ), name)
@@ -267,12 +259,7 @@ fn hex_lits(selector: &ink_metadata::Selector) -> [syn::LitInt; 4] {
     let hex_lits = selector
         .to_bytes()
         .iter()
-        .map(|byte| {
-            syn::LitInt::new(
-                &format!("0x{:02X}_u8", byte),
-                proc_macro2::Span::call_site(),
-            )
-        })
+        .map(|byte| syn::LitInt::new(&format!("0x{byte:02X}_u8"), proc_macro2::Span::call_site()))
         .collect::<Vec<_>>();
     hex_lits.try_into().expect("Invalid selector bytes length")
 }
@@ -316,12 +303,10 @@ mod tests {
             .mutates(false)
             .payable(true)
             .args(vec![MessageParamSpec::new("to")
-                .of_type(TypeSpec::with_name_segs::<AccountId, _>(
-                    ::core::iter::Iterator::map(
-                        ::core::iter::IntoIterator::into_iter(["AccountId"]),
-                        ::core::convert::AsRef::as_ref,
-                    ),
-                ))
+                .of_type(TypeSpec::with_name_segs::<AccountId, _>(::core::iter::Iterator::map(
+                    ::core::iter::IntoIterator::into_iter(["AccountId"]),
+                    ::core::convert::AsRef::as_ref,
+                )))
                 .done()])
             .returns(ReturnTypeSpec::new(None))
             .docs(Vec::new())
@@ -359,7 +344,7 @@ mod tests {
             }
         );
 
-        let generated_output = generate_contract_mod("Test".to_string(), metadata).to_string();
-        assert_eq!(generated_output, expected_output.to_string())
+        let generated_output = generate_contract_mod("Test", &metadata).to_string();
+        assert_eq!(generated_output, expected_output.to_string());
     }
 }

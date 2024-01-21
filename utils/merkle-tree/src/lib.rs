@@ -28,8 +28,6 @@ impl<T: MerkleHash> MerkleTree<T> {
     }
 
     pub fn from_base(base: impl IntoIterator<Item = T>) -> Self {
-        let mut nodes = base.into_iter().intersperse(Default::default()).collect::<Vec<_>>();
-
         fn comute_recur<T: MerkleHash>(nodes: &mut [T]) -> T {
             if let &mut [node] = nodes {
                 return node;
@@ -43,11 +41,14 @@ impl<T: MerkleHash> MerkleTree<T> {
             *mid
         }
 
+        let mut nodes = base.into_iter().intersperse(Default::default()).collect::<Vec<_>>();
+
         comute_recur(&mut nodes);
 
         Self { nodes }
     }
 
+    #[must_use]
     pub fn root(&self) -> &T {
         &self.nodes[(self.nodes.len().next_power_of_two() / 2) - 1]
     }
@@ -147,7 +148,7 @@ mod test {
         ];
 
         let mut tree = MerkleTree::new(1);
-        for &seq in seq.iter() {
+        for &seq in seq {
             assert_eq!(tree.nodes, seq);
             tree.psuh(1);
         }
