@@ -33,12 +33,12 @@ pub use {
 };
 
 component_utils::compose_protocols! {
-    fn Subscribe<'a>(PossibleTopic) -> Result<(), Infallible>;
+    fn Subscribe(PossibleTopic) -> Result<(), Infallible>;
 
-    fn CreateChat<'a>(ChatName, Identity) -> Result<(), CreateChatError>;
+    fn CreateChat(ChatName, Identity) -> Result<(), CreateChatError>;
     fn PerformChatAction<'a>(Proof<ChatName>, ChatAction<'a>) -> Result<(), ChatActionError>;
     fn FetchMessages<'a>(ChatName, Cursor) -> Result<(Cursor, Reminder<'a>), FetchMessagesError>;
-    fn ProposeMsgBlock<'a>(ChatName, BlockNumber, crypto::Hash) -> Result<(), ProposeMsgBlockError>;
+    fn ProposeMsgBlock(ChatName, BlockNumber, crypto::Hash) -> Result<(), ProposeMsgBlockError>;
     fn SendBlock<'a>(ChatName, BlockNumber, Reminder<'a>) -> Result<(), SendBlockError>;
     fn FetchLatestBlock<'a>(ChatName) -> Result<(BlockNumber, Reminder<'a>), FetchLatestBlockError>;
 
@@ -47,7 +47,7 @@ component_utils::compose_protocols! {
     fn FetchVault<'a>(Identity) -> Result<(Nonce, Nonce, Reminder<'a>), FetchVaultError>;
     fn ReadMail<'a>(Proof<Mail>) -> Result<Reminder<'a>, ReadMailError>;
     fn SendMail<'a>(Identity, Reminder<'a>) -> Result<(), SendMailError>;
-    fn FetchProfile<'a>(Identity) -> Result<FetchProfileResp, FetchProfileError>;
+    fn FetchProfile(Identity) -> Result<FetchProfileResp, FetchProfileError>;
     fn FetchFullProfile<'a>(Identity) -> Result<BorrowedProfile<'a>, FetchProfileError>;
 }
 

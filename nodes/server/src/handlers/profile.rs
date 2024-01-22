@@ -2,7 +2,7 @@ use {
     super::{
         CallId, Codec, Handler, HandlerResult, ProtocolResult, RequestOrigin, Scope, SyncHandler,
     },
-    chat-spec::{
+    chat_spec::{
         advance_nonce, CreateAccountError, CreateProfile, FetchFullProfile, FetchProfile,
         FetchProfileError, FetchVault, FetchVaultError, Identity, Profile, Protocol, ReadMail,
         ReadMailError, SendMailError, SetVault, SetVaultError,
@@ -130,7 +130,7 @@ impl SendMail {
 
 impl Handler for SendMail {
     type Event = rpc::Event;
-    type Protocol = chat-spec::SendMail;
+    type Protocol = chat_spec::SendMail;
 
     fn execute<'a>(
         sc: Scope<'a>,

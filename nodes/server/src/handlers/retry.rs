@@ -1,6 +1,6 @@
 use {
     super::{codec, CallId, Codec, Handler, HandlerResult, ProtocolResult, Scope, TryUnwrap},
-    chat-spec::{
+    chat_spec::{
         unpack_messages_ref, BlockNumber, FetchFullProfile, FetchLatestBlock, Identity,
         PossibleTopic, Protocol, ReplVec, ToPossibleTopic, REPLICATION_FACTOR,
     },

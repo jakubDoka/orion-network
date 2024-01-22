@@ -7,7 +7,7 @@
 #[macro_export]
 macro_rules! compose_protocols {
     ($id:literal fn $for:ident($($req:ty),*) -> Result<$resp:ty, $error:ty>) => {
-        $crate::compose_protocols!(fn $for<'a>($($req),*) -> Result<$resp, $error>);
+        $crate::compose_protocols!($id fn $for<'a>($($req),*) -> Result<$resp, $error>);
     };
 
     ($id:literal fn $for:ident<$lt:lifetime>($($req:ty),*) -> Result<$resp:ty, $error:ty>) => {

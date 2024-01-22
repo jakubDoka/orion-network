@@ -1,6 +1,6 @@
 use {
     super::*,
-    chat-spec::{Proof, *},
+    chat_spec::{Proof, *},
     component_utils::{crypto::ToProofContext, Protocol},
     libp2p::futures::{channel::mpsc, stream::FuturesUnordered, FutureExt},
     rand_core::OsRng,
@@ -21,7 +21,7 @@ async fn repopulate_account() {
     let target = nodes.iter_mut().next().unwrap();
     target.storage.profiles.clear();
     stream
-        .test_req::<chat-spec::SendMail>(&mut nodes, (user.identity(), Reminder(&[0xff])), Ok(()))
+        .test_req::<chat_spec::SendMail>(&mut nodes, (user.identity(), Reminder(&[0xff])), Ok(()))
         .await;
 
     assert_nodes(&nodes, |node| {
@@ -31,7 +31,7 @@ async fn repopulate_account() {
     let target = nodes.iter_mut().next().unwrap();
     target.storage.profiles.clear();
     stream
-        .test_req::<chat-spec::FetchVault>(&mut nodes, user.identity(), Ok((0, 0, Reminder(&[]))))
+        .test_req::<chat_spec::FetchVault>(&mut nodes, user.identity(), Ok((0, 0, Reminder(&[]))))
         .await;
 
     assert_nodes(&nodes, |node| node.storage.profiles.contains_key(&user.identity()));
@@ -52,18 +52,18 @@ async fn direct_messaging() {
     stream2.create_user(&mut nodes, &mut user2).await;
 
     stream1
-        .test_req::<chat-spec::SendMail>(&mut nodes, (user2.identity(), Reminder(&[1])), Ok(()))
+        .test_req::<chat_spec::SendMail>(&mut nodes, (user2.identity(), Reminder(&[1])), Ok(()))
         .await;
 
     stream2
-        .test_req::<chat-spec::ReadMail>(
+        .test_req::<chat_spec::ReadMail>(
             &mut nodes,
-            user2.proof(chat-spec::Mail),
+            user2.proof(chat_spec::Mail),
             Ok(Reminder(&[0, 1, 1])),
         )
         .await;
 
-    stream2.test_req::<chat-spec::Subscribe>(&mut nodes, user2.identity().into(), Ok(())).await;
+    stream2.test_req::<chat_spec::Subscribe>(&mut nodes, user2.identity().into(), Ok(())).await;
 
     futures::future::select(
         nodes.next(),
@@ -72,7 +72,7 @@ async fn direct_messaging() {
     .await;
 
     stream1
-        .test_req::<chat-spec::SendMail>(
+        .test_req::<chat_spec::SendMail>(
             &mut nodes,
             (user2.identity(), Reminder(&[2])),
             Err(SendMailError::SentDirectly),
@@ -84,7 +84,7 @@ async fn direct_messaging() {
     drop(stream2);
 
     stream1
-        .test_req::<chat-spec::SendMail>(&mut nodes, (user2.identity(), Reminder(&[3])), Ok(()))
+        .test_req::<chat_spec::SendMail>(&mut nodes, (user2.identity(), Reminder(&[3])), Ok(()))
         .await;
 }
 
@@ -172,7 +172,7 @@ impl Stream {
         body: P::Request<'_>,
         expected: ProtocolResult<'_, P>,
     ) where
-        for<'a> ProtocolResult<'a, chat-spec::Repl<P>>: PartialEq + Debug,
+        for<'a> ProtocolResult<'a, chat_spec::Repl<P>>: PartialEq + Debug,
     {
         self.inner.write((P::PREFIX, CallId::whatever(), body)).unwrap();
 
@@ -215,15 +215,15 @@ async fn response<P: Protocol>(
     tiemout_milis: u64,
     expected: ProtocolResult<'_, P>,
 ) where
-    for<'a> ProtocolResult<'a, chat-spec::Repl<P>>: PartialEq + Debug,
+    for<'a> ProtocolResult<'a, chat_spec::Repl<P>>: PartialEq + Debug,
 {
     futures::select! {
         _ = nodes.select_next_some() => unreachable!(),
         res = stream.next().fuse() => {
             let res = res.unwrap().1.unwrap();
             {
-                let (_, resp) = <(CallId, ProtocolResult<chat-spec::Repl<P>>)>::decode(&mut unsafe { std::mem::transmute(res.as_slice()) }).unwrap();
-                assert_eq!(resp, expected.map_err(chat-spec::ReplError::Inner));
+                let (_, resp) = <(CallId, ProtocolResult<chat_spec::Repl<P>>)>::decode(&mut unsafe { std::mem::transmute(res.as_slice()) }).unwrap();
+                assert_eq!(resp, expected.map_err(chat_spec::ReplError::Inner));
             }
         }
         _ = tokio::time::sleep(Duration::from_millis(tiemout_milis)).fuse() => {

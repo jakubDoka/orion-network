@@ -5,7 +5,7 @@ use {
         protocol::SubsOwner,
     },
     anyhow::Context,
-    chat-spec::{
+    chat_spec::{
         username_to_raw, ChatEvent, ChatName, CreateChat, FetchMessages, FetchProfile, UserName,
     },
     component_utils::{Codec, DropFn, Reminder},
@@ -67,7 +67,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
 
     #[derive(Clone)]
     enum Cursor {
-        Normal(chat-spec::Cursor),
+        Normal(chat_spec::Cursor),
         Hardened(db::MessageCursor),
     }
 
@@ -75,7 +75,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
     let (show_chat, set_show_chat) = create_signal(false);
     let (is_hardened, set_is_hardened) = create_signal(false);
     let messages = create_node_ref::<leptos::html::Div>();
-    let (cursor, set_cursor) = create_signal(Cursor::Normal(chat-spec::Cursor::INIT));
+    let (cursor, set_cursor) = create_signal(Cursor::Normal(chat_spec::Cursor::INIT));
     let (red_all_messages, set_red_all_messages) = create_signal(false);
 
     let hide_chat = move |_| set_show_chat(false);
@@ -133,8 +133,8 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 let (new_cursor, Reminder(messages)) =
                     requests.dispatch::<FetchMessages>((chat, cursor)).await?;
                 let secret = state.chat_secret(chat).context("getting chat secret")?;
-                for message in chat-spec::unpack_messages(messages.to_vec().as_mut_slice()) {
-                    let Some(chat-spec::Message { content: Reminder(content), .. }) =
+                for message in chat_spec::unpack_messages(messages.to_vec().as_mut_slice()) {
+                    let Some(chat_spec::Message { content: Reminder(content), .. }) =
                         <_>::decode(&mut &*message)
                     else {
                         log::error!("server gave us undecodable message");
@@ -154,7 +154,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                     };
                     prepend_message(sender, content.into());
                 }
-                set_red_all_messages(new_cursor == chat-spec::Cursor::INIT);
+                set_red_all_messages(new_cursor == chat_spec::Cursor::INIT);
                 set_cursor(Cursor::Normal(new_cursor));
             }
             Cursor::Hardened(cursor) => {
@@ -237,7 +237,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
         let select_chat = move |_| {
             set_show_chat(true);
             set_red_all_messages(false);
-            set_cursor(Cursor::Normal(chat-spec::Cursor::INIT));
+            set_cursor(Cursor::Normal(chat_spec::Cursor::INIT));
             set_current_chat(Some(chat));
             set_is_hardened(hardened);
             crate::navigate_to(format_args!("/chat/{chat}"));
@@ -292,9 +292,7 @@ pub fn Chat(state: crate::State) -> impl IntoView {
                 anyhow::bail!("chat already exists");
             }
 
-            state
-                .vault
-                .update(|v| _ = v.hardened_chats.insert(chat, node::HardenedChatMeta::default()));
+            state.vault.update(|v| _ = v.hardened_chats.insert(chat, Default::default()));
 
             Ok(())
         },

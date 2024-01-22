@@ -1,15 +1,12 @@
 use {
+    self::storage::Storage,
     anyhow::Context,
     component_utils::futures::StreamExt,
     libp2p::swarm::{NetworkBehaviour, SwarmEvent},
     std::net::Ipv4Addr,
 };
 
-type Db = storage_spec::db::MemoryDatabase;
-#[allow(clippy::unnecessary_wraps)]
-fn connect_db(_: &Config) -> anyhow::Result<Db> {
-    Ok(storage_spec::db::MemoryDatabase::default())
-}
+mod storage;
 
 config::env_config! {
     struct Config {
@@ -22,18 +19,18 @@ config::env_config! {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Config::from_env();
-    let db = connect_db(&config)?;
+    let db = Storage::new();
     let mut satelite = Satelite::new(config, db)?;
     satelite.run().await
 }
 
 pub struct Satelite {
     swarm: libp2p::Swarm<Behaviour>,
-    db: Db,
+    db: Storage,
 }
 
 impl Satelite {
-    fn new(config: Config, db: Db) -> anyhow::Result<Self> {
+    fn new(config: Config, store: Storage) -> anyhow::Result<Self> {
         let identity: libp2p::identity::Keypair =
             libp2p::identity::ed25519::Keypair::try_from_bytes(&mut config.identity_ed.to_bytes())
                 .context("invalid identity")?
@@ -48,7 +45,7 @@ impl Satelite {
             })
             .build();
 
-        Ok(Self { swarm, db })
+        Ok(Self { swarm, db: store })
     }
 
     async fn run(&mut self) -> ! {

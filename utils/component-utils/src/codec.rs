@@ -1,7 +1,7 @@
 use {
     arrayvec::{ArrayString, ArrayVec},
     core::{convert::Infallible, marker::PhantomData},
-    std::{sync::Arc, u32, usize},
+    std::{ops::Range, sync::Arc, u32, usize},
 };
 
 pub const PACKET_LEN_WIDTH: usize = std::mem::size_of::<PacketLen>();
@@ -29,6 +29,17 @@ impl<'a, T: Buffer> std::io::Write for WritableBuffer<'a, T> {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+impl<'a, T: Codec<'a>> Codec<'a> for Range<T> {
+    fn encode(&self, buffer: &mut impl Buffer) -> Option<()> {
+        self.start.encode(buffer)?;
+        self.end.encode(buffer)
+    }
+
+    fn decode(buffer: &mut &'a [u8]) -> Option<Self> {
+        Some(Self { start: T::decode(buffer)?, end: T::decode(buffer)? })
     }
 }
 

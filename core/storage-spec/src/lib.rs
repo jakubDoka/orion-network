@@ -1,78 +1,58 @@
 #![feature(slice_take)]
+#![feature(macro_metavar_expr)]
 #![feature(array_windows)]
 #![feature(slice_flatten)]
-use std::collections::HashMap;
 
-pub mod db;
+use arrayvec::ArrayVec;
+
+pub mod metabase;
 pub mod protocol;
+pub mod sorted_compact_vec;
 
-pub const SHARD_SIZE_BYTES: usize = 1024 * 4;
-pub const SHARD_SIZE: usize = SHARD_SIZE_BYTES / std::mem::size_of::<Elem>();
-pub const DATA_SHARDS: usize = if cfg!(debug_assertions) { 4 } else { 16 };
-pub const PARITY_SHARDS: usize = if cfg!(debug_assertions) { 4 } else { 16 };
-pub const MAX_SHARDS: usize = DATA_SHARDS + PARITY_SHARDS;
-pub const SHARD_SECURITY: usize = 32;
-pub const BLOCK_SIZE: usize = 1024 * 1024 * 4;
-pub const BLOCK_SHARDS: usize = BLOCK_SIZE / SHARD_SIZE_BYTES;
-pub const SHARD_PROOF_SIZE: usize = BLOCK_SHARDS.ilog2() as usize;
+pub const PIECE_SIZE: usize = 1024;
+pub const DATA_PIECES: usize = if cfg!(debug_assertions) { 4 } else { 16 };
+pub const PARITY_PIECES: usize = if cfg!(debug_assertions) { 4 } else { 16 };
+pub const MAX_PIECES: usize = DATA_PIECES + PARITY_PIECES;
+pub const BLOCK_FRAGMENT_SIZE: usize = 1024 * 1024 * 8;
+pub const BLOCK_SIZE: usize = MAX_PIECES * BLOCK_FRAGMENT_SIZE;
+pub const BLOCK_PIECES: usize = BLOCK_FRAGMENT_SIZE / PIECE_SIZE;
 
-pub type ReconstructBundle<'data> = [ReconstructShard<'data>; DATA_SHARDS];
-pub type Shard = [Elem; SHARD_SIZE];
-pub type DataShards = [Shard; DATA_SHARDS];
-pub type ParityShards = [Shard; PARITY_SHARDS];
-pub type AllShards = [([Elem; SHARD_SIZE], bool); DATA_SHARDS];
-pub type ShardHash = [u8; SHARD_SECURITY];
-pub type NodeIdentity = [u8; 32];
-pub type NodeId = u32; // we will reuse ids
-pub type Group = [NodeId; MAX_SHARDS];
-pub type FileAddress = [u8; 32]; // blake3 hash of the file
-pub type ShardIndex = u8;
-pub type ShardProof = [ShardHash; SHARD_PROOF_SIZE];
+pub type ReconstructBundle<'data> = [ReconstructPiece<'data>; DATA_PIECES];
+pub type Piece = [u8; PIECE_SIZE];
+pub type Data = [Piece; DATA_PIECES];
+pub type Parity = [Piece; PARITY_PIECES];
+pub type StoreIdentity = [u8; 32];
+pub type StoreId = u32;
+pub type BlockId = u32;
+pub type BlockSpace = u32;
+pub type BlockHolders = [StoreId; MAX_PIECES];
+pub type ObjectId = crypto::Hash;
 
-type Elem = u8;
-
-pub use {
-    berkleamp_welch::Share as ReconstructShard,
-    crypto::sign::{
-        Keypair as FileTempSignKey, PublicKey as FileVerifyKey, Signature as BlockSignature,
-    },
-};
+use self::sorted_compact_vec::SortedCompactVec;
+pub use berkleamp_welch::{DecodeError, RebuildError, ResourcesError, Share as ReconstructPiece};
 
 #[derive(Clone, Copy)]
+pub struct Block {
+    pub free_space: BlockSpace,
+    pub group: BlockHolders,
+}
+
+#[derive(Clone, Copy)]
+pub struct Store {
+    pub identity: StoreIdentity,
+}
+
+#[derive(Clone)]
 pub struct FileMeta {
-    pub shard_count: u64,
-    pub verification_key: FileVerifyKey,
-}
-
-#[derive(Clone, Copy)]
-pub struct BlockMeta {
-    pub group: Group,
+    pub in_block_start: BlockSpace,
+    pub in_block_end: BlockSpace,
+    pub piece_count: u64,
+    pub blocks: SortedCompactVec,
 }
 
 #[must_use]
-pub fn shard_as_bytes(shard: &Shard) -> &[u8; SHARD_SIZE * std::mem::size_of::<Elem>()] {
+pub fn shard_as_bytes(shard: &Piece) -> &[u8; PIECE_SIZE] {
     unsafe { std::mem::transmute(shard) }
-}
-
-/// if the shard is valid, return the index of the shard
-#[must_use]
-pub fn validate_shard(hash: &ShardHash, shard: &Shard) -> Option<ShardIndex> {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(shard_as_bytes(shard));
-    (0..MAX_SHARDS as Elem).find(|&i| {
-        let mut hasher = hasher.clone();
-        hasher.update(&[i]);
-        &hasher.finalize().as_bytes()[..SHARD_SECURITY] == hash
-    })
-}
-
-/// See `validate_shard`
-#[must_use]
-pub fn hash_shard(index: ShardIndex, shard: &Shard) -> ShardHash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(shard_as_bytes(shard));
-    hasher.update(&[index]);
-    hasher.finalize().as_bytes()[..SHARD_SECURITY].try_into().unwrap()
 }
 
 pub struct Codec {
@@ -82,12 +62,12 @@ pub struct Codec {
 
 impl Default for Codec {
     fn default() -> Self {
-        Self { inner: berkleamp_welch::Fec::new(DATA_SHARDS, PARITY_SHARDS), buffer: vec![] }
+        Self { inner: berkleamp_welch::Fec::new(DATA_PIECES, PARITY_PIECES), buffer: vec![] }
     }
 }
 
 impl Codec {
-    pub fn encode(&self, data: &DataShards, parity: &mut ParityShards) {
+    pub fn encode(&self, data: &Data, parity: &mut Parity) {
         self.inner.encode(data.flatten(), parity.flatten_mut()).unwrap();
     }
 
@@ -96,5 +76,12 @@ impl Codec {
         shards: &mut ReconstructBundle,
     ) -> Result<(), berkleamp_welch::RebuildError> {
         self.inner.rebuild(shards, &mut self.buffer).map(drop)
+    }
+
+    pub fn find_cheaters(
+        &mut self,
+        shards: &mut ArrayVec<ReconstructPiece, MAX_PIECES>,
+    ) -> Result<(), berkleamp_welch::DecodeError> {
+        self.inner.decode(shards, true, &mut self.buffer).map(drop)
     }
 }

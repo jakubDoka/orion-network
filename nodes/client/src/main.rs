@@ -17,7 +17,7 @@ use {
     anyhow::Context,
     argon2::Argon2,
     chain_api::UserIdentity,
-    chat-spec::{
+    chat_spec::{
         username_to_raw, ChatName, FetchProfile, Identity, Nonce, Proof, ReadMail, SetVault,
         UserName,
     },
@@ -136,7 +136,7 @@ impl State {
         self,
         chat_name: ChatName,
         nonce: Option<Nonce>,
-    ) -> Option<chat-spec::Proof<ChatName>> {
+    ) -> Option<chat_spec::Proof<ChatName>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
@@ -150,7 +150,7 @@ impl State {
             .flatten()
     }
 
-    pub fn next_profile_proof(self, vault: &[u8]) -> Option<chat-spec::Proof<Reminder>> {
+    pub fn next_profile_proof(self, vault: &[u8]) -> Option<chat_spec::Proof<Reminder>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
@@ -166,12 +166,12 @@ impl State {
         self.vault.with_untracked(|vault| vault.chats.get(&chat_name).map(|c| c.secret))
     }
 
-    fn next_mail_proof(&self) -> Option<chat-spec::Proof<chat-spec::Mail>> {
+    fn next_mail_proof(&self) -> Option<chat_spec::Proof<chat_spec::Mail>> {
         self.keys
             .try_with_untracked(|keys| {
                 let keys = keys.as_ref()?;
                 self.mail_action.try_update_value(|nonce| {
-                    Some(Proof::new(&keys.sign, nonce, chat-spec::Mail, OsRng))
+                    Some(Proof::new(&keys.sign, nonce, chat_spec::Mail, OsRng))
                 })
             })
             .flatten()
@@ -397,7 +397,7 @@ fn App() -> impl IntoView {
                 let Reminder(list) = dispatch_clone.dispatch::<ReadMail>(proof).await?;
 
                 let mut new_messages = Vec::new();
-                for mail in chat-spec::unpack_mail(list) {
+                for mail in chat_spec::unpack_mail(list) {
                     handle_error(
                         handle_mail(
                             mail,

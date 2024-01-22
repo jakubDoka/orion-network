@@ -1,7 +1,7 @@
 use {
     super::{Handler, TryUnwrap},
     crate::REPLICATION_FACTOR,
-    chat-spec::{PossibleTopic, Protocol, ReplError, ReplVec, ToPossibleTopic},
+    chat_spec::{PossibleTopic, Protocol, ReplError, ReplVec, ToPossibleTopic},
     component_utils::{Codec, FindAndRemove},
     rpc::CallId,
 };
@@ -36,11 +36,11 @@ where
     for<'a> &'a H::Event: TryUnwrap<&'a rpc::Event> + TryUnwrap<&'a H::Event>,
 {
     type Event = H::Event;
-    type Protocol = chat-spec::Repl<H::Protocol>;
+    type Protocol = chat_spec::Repl<H::Protocol>;
 
     fn execute<'a>(
         mut scope: super::Scope<'a>,
-        req: <Self::Protocol as chat-spec::Protocol>::Request<'_>,
+        req: <Self::Protocol as chat_spec::Protocol>::Request<'_>,
     ) -> super::HandlerResult<'a, Self> {
         let topic: PossibleTopic = req.to_possible_topic();
 

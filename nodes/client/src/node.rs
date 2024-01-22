@@ -2,7 +2,7 @@ use {
     crate::{protocol::*, BootPhase, UserKeys},
     anyhow::Context,
     chain_api::RawUserName,
-    chat-spec::{
+    chat_spec::{
         username_to_raw, CallId, ChatName, CreateProfile, FetchVault, Identity, Nonce,
         PossibleTopic, Proof, RawChatName, Repl, UserName, REPLICATION_FACTOR,
     },
