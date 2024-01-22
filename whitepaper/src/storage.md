@@ -39,9 +39,9 @@ expansion     = 2
 |round-loss|     = |full-blocks| * |piece| * |block| - |file| = 5b
 ```
 
-Parameter choice should minimize `|round-loss|` and `|block-id-overhead|`, but also maximize `|total-addressable-storage|`. Satellites should have a  incomplete block allocations where for small files or reminders of big files. An object in a satellite should hold `[[block; fragmentation]]`, `piece-count`, and one `block-start-offset` and `block-end-offset` to find a tail and head withing the block. A block should hold `store-id` + `block-id` of the block for verification.
+Parameter choice should minimize `|round-loss|` and `|block-id-overhead|`, but also maximize `|total-addressable-storage|`. Satellites should have a  incomplete block allocations where for small files or reminders of big files. An object in a satellite should hold `[[block; fragmentation]]`, `piece-count`, and one `in-block-start-offset` and `in-block-end-offset` to find a tail and head withing the block. A block should hold `store-id` + `block-id` to locate it.
 
-Satellite only allocates the space on nodes so that user can directly upload to the storage nodes based of the metadata satellite sends. Storage nodes will also receive confirmation from satellite and prepare for the data from client.
+Satellite only allocates the space on nodes so that user can directly upload to the storage nodes based of the metadata satellite sends. Metadata should be signed by the satellite so each storage node can verify users request.
 
 ## File Download
 
