@@ -11,7 +11,7 @@ Fist lets define some terms:
 - **expansion**: amount of redundancy of data measured as `|stored data| / |original data|`
 - **fragmentation**: amount of erasure codes output from encoding
 - **satellite**: server managing distribution of files in the network
-- **store**: server storing and serving blocks/pieces
+- **store/storage node/node**: server storing and serving blocks/pieces
 
 ## Uploading File
 
