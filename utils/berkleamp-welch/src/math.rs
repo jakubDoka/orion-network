@@ -16,7 +16,7 @@ pub fn standardize_matrix(mx: &mut [u8], r: usize, c: usize) {
         }
 
         let inv = galois::div(1, p_val).expect("we checked");
-        mx[i * c..i * c + c].iter_mut().for_each(|x| *x = galois::mul(inv, *x));
+        galois::mul_slice_in_place(inv, &mut mx[i * c..i * c + c]);
 
         for j in i + 1..r {
             matrix_add_mul_rows(mx, c, i, j, mx[j * c + i]);
@@ -45,8 +45,8 @@ pub fn invert_matrix_with(mx: &mut [u8], k: usize, out: &mut [u8]) {
         }
 
         let inv = galois::div(1, p_val).expect("we checked");
-        mx[i * k..i * k + k].iter_mut().for_each(|x| *x = galois::mul(inv, *x));
-        out[i * k..i * k + k].iter_mut().for_each(|x| *x = galois::mul(inv, *x));
+        galois::mul_slice_in_place(inv, &mut mx[i * k..i * k + k]);
+        galois::mul_slice_in_place(inv, &mut out[i * k..i * k + k]);
 
         debug_assert!(mx[i * k + i] == 1, "{mx:?}");
 
@@ -110,7 +110,7 @@ pub fn invert_matrix(mx: &mut [u8], k: usize) -> Option<()> {
         if c != 1 {
             let c = galois::div(1, c)?;
             pivot_row[i] = 1;
-            pivot_row.iter_mut().for_each(|x| *x = galois::mul(c, *x));
+            galois::mul_slice_in_place(c, pivot_row);
         }
 
         if pivot_row[..i].iter().chain(pivot_row[i + 1..].iter()).all(|&x| x == 0) {
@@ -233,7 +233,7 @@ impl Poly {
     }
 
     pub fn scale(mut self, factor: u8) -> Self {
-        self.as_mut_slice().iter_mut().for_each(|x| *x = galois::mul(factor, *x));
+        galois::mul_slice_in_place(factor, self.as_mut_slice());
         self
     }
 

@@ -1,18 +1,15 @@
 include!(concat!(env!("OUT_DIR"), "/table.rs"));
 
-/// Add two elements.
 #[inline]
 pub fn add(a: u8, b: u8) -> u8 {
     a ^ b
 }
 
-/// Multiply two elements.
 #[inline]
 pub fn mul(a: u8, b: u8) -> u8 {
     MUL_TABLE[a as usize][b as usize]
 }
 
-/// Divide one element by another. `b`, the divisor, may not be 0.
 #[inline]
 pub fn div(a: u8, b: u8) -> Option<u8> {
     if b == 0 {
@@ -36,7 +33,6 @@ pub fn div(a: u8, b: u8) -> Option<u8> {
     Some(EXP_TABLE[log_result as usize])
 }
 
-/// Compute a^n.
 #[inline]
 pub fn exp(a: u8, n: usize) -> u8 {
     if n == 0 {
@@ -56,136 +52,82 @@ pub fn exp(a: u8, n: usize) -> u8 {
 #[allow(unused)]
 const PURE_RUST_UNROLL: usize = 4;
 
-#[cfg(not(all(
-    feature = "simd-accel",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(target_env = "msvc"),
-    not(any(target_os = "android", target_os = "ios"))
-)))]
-#[inline]
+#[cfg(target_feature = "avx2")]
+const LANES: usize = 32;
+#[cfg(any(
+    all(target_feature = "ssse3", not(target_feature = "avx2")),
+    target_feature = "simd128"
+))]
+const LANES: usize = 16;
+
+#[cfg(any(target_feature = "avx2", target_feature = "ssse3", target_feature = "simd128"))]
 pub fn mul_slice_xor(c: u8, input: &[u8], out: &mut [u8]) {
+    use core::simd::Simd;
+
+    assert_eq!(input.len(), out.len());
+
+    let low = [MUL_TABLE_LOW[c as usize]; LANES / 16];
+    let high = [MUL_TABLE_HIGH[c as usize]; LANES / 16];
+    let low = Simd::<_, LANES>::from_slice(low.flatten());
+    let high = Simd::<_, LANES>::from_slice(high.flatten());
+    let mask = Simd::<_, LANES>::splat(0xf);
+
+    let mut input = input.array_chunks::<LANES>();
+    let mut out = out.array_chunks_mut::<LANES>();
+
+    for (i, o) in input.by_ref().zip(out.by_ref()) {
+        let is = Simd::from_array(*i);
+        let os = Simd::from_array(*o);
+        let res = os ^ low.swizzle_dyn(is & mask) ^ high.swizzle_dyn((is >> 4) & mask);
+        *o = Simd::to_array(res);
+    }
+
+    mul_slice_xor_low(c, input.remainder(), out.into_remainder());
+}
+
+#[cfg(any(target_feature = "avx2", target_feature = "ssse3", target_feature = "simd128"))]
+pub fn mul_slice_in_place(c: u8, out: &mut [u8]) {
+    use core::simd::Simd;
+
+    let low = [MUL_TABLE_LOW[c as usize]; LANES / 16];
+    let high = [MUL_TABLE_HIGH[c as usize]; LANES / 16];
+    let low = Simd::<_, LANES>::from_slice(low.flatten());
+    let high = Simd::<_, LANES>::from_slice(high.flatten());
+    let mask = Simd::<_, LANES>::splat(0xf);
+
+    let mut out = out.array_chunks_mut::<LANES>();
+
+    for o in out.by_ref() {
+        let os = Simd::from_array(*o);
+        let res = os ^ low.swizzle_dyn(os & mask) ^ high.swizzle_dyn((os >> 4) & mask);
+        *o = Simd::to_array(res);
+    }
+
+    mul_slice_in_place_low(c, out.into_remainder());
+}
+
+#[cfg(not(any(target_feature = "avx2", target_feature = "ssse3", target_feature = "simd128")))]
+pub fn mul_slice_xor(c: u8, input: &[u8], out: &mut [u8]) {
+    mul_slice_xor_low(c, input, out);
+}
+
+fn mul_slice_xor_low(c: u8, input: &[u8], out: &mut [u8]) {
     assert_eq!(input.len(), out.len());
 
     let mt = &MUL_TABLE[c as usize];
-    let mut input_chunks = input.array_chunks::<PURE_RUST_UNROLL>();
-    let mut out_chunks = out.array_chunks_mut::<PURE_RUST_UNROLL>();
-
-    for (inp, out) in input_chunks.by_ref().zip(out_chunks.by_ref()) {
-        for i in 0..PURE_RUST_UNROLL {
-            out[i] ^= mt[inp[i] as usize];
-        }
-    }
-
-    for (i, o) in input_chunks.remainder().iter().zip(out_chunks.into_remainder()) {
+    for (i, o) in input.iter().zip(out) {
         *o ^= mt[*i as usize];
     }
 }
 
-#[cfg(not(all(
-    feature = "simd-accel",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(target_env = "msvc"),
-    not(any(target_os = "android", target_os = "ios"))
-)))]
-#[inline]
-pub fn mul_slice(c: u8, input: &[u8], out: &mut [u8]) {
-    assert_eq!(input.len(), out.len());
+#[cfg(not(any(target_feature = "avx2", target_feature = "ssse3", target_feature = "simd128")))]
+pub fn mul_slice_in_place(c: u8, out: &mut [u8]) {
+    mul_slice_in_place_low(c, out);
+}
 
+fn mul_slice_in_place_low(c: u8, out: &mut [u8]) {
     let mt = &MUL_TABLE[c as usize];
-
-    let mut input_chunks = input.array_chunks::<PURE_RUST_UNROLL>();
-    let mut out_chunks = out.array_chunks_mut::<PURE_RUST_UNROLL>();
-
-    for (inp, out) in input_chunks.by_ref().zip(out_chunks.by_ref()) {
-        for i in 0..PURE_RUST_UNROLL {
-            out[i] = mt[inp[i] as usize];
-        }
-    }
-
-    for (i, o) in input_chunks.remainder().iter().zip(out_chunks.into_remainder()) {
-        *o = mt[*i as usize];
-    }
-}
-
-#[cfg(all(
-    feature = "simd-accel",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(target_env = "msvc"),
-    not(any(target_os = "android", target_os = "ios"))
-))]
-extern "C" {
-    fn _reedsolomon_gal_mul(
-        low: *const u8,
-        high: *const u8,
-        input: *const u8,
-        out: *mut u8,
-        len: usize,
-    ) -> usize;
-
-    fn reedsolomon_gal_mul_xor(
-        low: *const u8,
-        high: *const u8,
-        input: *const u8,
-        out: *mut u8,
-        len: usize,
-    ) -> usize;
-}
-
-#[cfg(all(
-    feature = "simd-accel",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(target_env = "msvc"),
-    not(any(target_os = "android", target_os = "ios"))
-))]
-#[inline]
-pub fn _mul_slice(c: u8, input: &[u8], out: &mut [u8]) {
-    assert_eq!(input.len(), out.len());
-
-    let len = input.len();
-
-    let low = MUL_TABLE_LOW[c as usize].as_ptr();
-    let high = MUL_TABLE_HIGH[c as usize].as_ptr();
-
-    let input_ptr: *const u8 = &input[0];
-    let out_ptr: *mut u8 = &mut out[0];
-    let size: usize = input.len();
-
-    let bytes_done: usize = unsafe { _reedsolomon_gal_mul(low, high, input_ptr, out_ptr, size) };
-
-    unsafe {
-        let mt = &MUL_TABLE[c as usize];
-        let range = bytes_done..len;
-        for (i, o) in input.get_unchecked(range.clone()).iter().zip(out.get_unchecked_mut(range)) {
-            *o = mt[*i as usize];
-        }
-    }
-}
-
-#[cfg(all(
-    feature = "simd-accel",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(target_env = "msvc"),
-    not(any(target_os = "android", target_os = "ios"))
-))]
-#[inline]
-pub fn mul_slice_xor(c: u8, input: &[u8], out: &mut [u8]) {
-    assert_eq!(input.len(), out.len());
-
-    let low = MUL_TABLE_LOW[c as usize].as_ptr();
-    let high = MUL_TABLE_HIGH[c as usize].as_ptr();
-
-    let input_ptr = input.as_ptr();
-    let out_ptr = out.as_mut_ptr();
-    let size = input.len();
-
-    let bytes_done: usize = unsafe { reedsolomon_gal_mul_xor(low, high, input_ptr, out_ptr, size) };
-
-    if bytes_done == size {
-        return;
-    }
-
-    let mt = &MUL_TABLE[c as usize];
-    for i in bytes_done..size {
-        out[i] ^= mt[input[i] as usize];
+    for o in out {
+        *o = mt[*o as usize];
     }
 }

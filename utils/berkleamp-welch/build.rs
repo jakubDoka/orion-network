@@ -2,9 +2,6 @@
 
 use std::{env, fs::File, io::Write, path::Path};
 
-#[cfg(feature = "simd-accel")]
-extern crate cc;
-
 const FIELD_SIZE: usize = 256;
 
 const GENERATING_POLYNOMIAL: usize = 29;
@@ -168,42 +165,6 @@ fn write_tables() {
     }
 }
 
-#[cfg(all(
-    feature = "simd-accel",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(target_env = "msvc"),
-    not(any(target_os = "android", target_os = "ios"))
-))]
-fn compile_simd_c() {
-    let mut build = cc::Build::new();
-    build.opt_level(3);
-
-    match env::var("RUST_REED_SOLOMON_ERASURE_ARCH") {
-        Ok(arch) => {
-            // Use explicitly specified environment variable as architecture.
-            build.flag(&format!("-march={arch}"));
-        }
-        Err(_error) => {
-            // On x86-64 enabling Haswell architecture unlocks useful instructions and improves performance
-            // dramatically while allowing it to run ony modern CPU.
-            if env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() == "x86_64" {
-                build.flag("-march=haswell");
-            }
-        }
-    }
-
-    build.flag("-std=c11").file("simd_c/reedsolomon.c").compile("reedsolomon");
-}
-
-#[cfg(not(all(
-    feature = "simd-accel",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(target_env = "msvc"),
-    not(any(target_os = "android", target_os = "ios"))
-)))]
-fn compile_simd_c() {}
-
 fn main() {
-    compile_simd_c();
     write_tables();
 }

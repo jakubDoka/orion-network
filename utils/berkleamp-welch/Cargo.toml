@@ -9,17 +9,11 @@ version = "6.0.0"
 edition = "2021"
 build = "build.rs"
 
-[features]
-simd-accel = ["cc"]
-
 [dependencies]
 
 [dev-dependencies]
 quickcheck = "1"
 getrandom = "0.2.12"
-
-[build-dependencies]
-cc = { version = "1.0", optional = true }
 
 [lints]
 workspace = true

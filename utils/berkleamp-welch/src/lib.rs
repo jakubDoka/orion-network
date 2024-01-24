@@ -1,7 +1,10 @@
 #![feature(array_chunks)]
 #![feature(slice_take)]
 #![feature(array_windows)]
-#![allow(clippy::many_single_char_names)]
+#![feature(portable_simd)]
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
+#![feature(slice_flatten)]
 
 mod fec;
 mod galois;

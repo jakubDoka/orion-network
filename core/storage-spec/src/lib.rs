@@ -2,6 +2,11 @@
 #![feature(macro_metavar_expr)]
 #![feature(array_windows)]
 #![feature(slice_flatten)]
+#![feature(portable_simd)]
+#![allow(internal_features)]
+#![feature(ptr_internals)]
+#![feature(trait_alias)]
+#![feature(inline_const)]
 
 use arrayvec::ArrayVec;
 
@@ -21,34 +26,9 @@ pub type ReconstructBundle<'data> = [ReconstructPiece<'data>; DATA_PIECES];
 pub type Piece = [u8; PIECE_SIZE];
 pub type Data = [Piece; DATA_PIECES];
 pub type Parity = [Piece; PARITY_PIECES];
-pub type StoreIdentity = [u8; 32];
-pub type StoreId = u32;
-pub type BlockId = u32;
-pub type BlockSpace = u32;
-pub type BlockHolders = [StoreId; MAX_PIECES];
 pub type ObjectId = crypto::Hash;
 
-use self::sorted_compact_vec::SortedCompactVec;
 pub use berkleamp_welch::{DecodeError, RebuildError, ResourcesError, Share as ReconstructPiece};
-
-#[derive(Clone, Copy)]
-pub struct Block {
-    pub free_space: BlockSpace,
-    pub group: BlockHolders,
-}
-
-#[derive(Clone, Copy)]
-pub struct Store {
-    pub identity: StoreIdentity,
-}
-
-#[derive(Clone)]
-pub struct FileMeta {
-    pub in_block_start: BlockSpace,
-    pub in_block_end: BlockSpace,
-    pub piece_count: u64,
-    pub blocks: SortedCompactVec,
-}
 
 #[must_use]
 pub fn shard_as_bytes(shard: &Piece) -> &[u8; PIECE_SIZE] {
