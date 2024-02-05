@@ -11,11 +11,13 @@ impl_transmute! {
     ChoosenCiphertext,
 }
 
+#[derive(Clone)]
 pub struct Ciphertext {
     pl: [u8; kyber::CIPHERTEXTBYTES],
     x: x25519_dalek::PublicKey,
 }
 
+#[derive(Clone)]
 pub struct ChoosenCiphertext {
     pl: FixedAesPayload<32>,
     cp: Ciphertext,
@@ -71,10 +73,10 @@ impl Keypair {
         mut rng: impl CryptoRngCore,
     ) -> ChoosenCiphertext {
         let (cp, key) = self.encapsulate(public_key, &mut rng);
-        ChoosenCiphertext { pl: FixedAesPayload::new(secret, key, ASOC_DATA, rng), cp }
+        ChoosenCiphertext { pl: FixedAesPayload::new(secret, &key, ASOC_DATA, rng), cp }
     }
 
-    pub fn decapsulate(&self, ciphertext: Ciphertext) -> Result<SharedSecret, DecapsulationError> {
+    pub fn decapsulate(&self, ciphertext: &Ciphertext) -> Result<SharedSecret, DecapsulationError> {
         let x_secret = self.pre.diffie_hellman(&ciphertext.x).to_bytes();
         let k_secret = self.post.dec(&ciphertext.pl).ok_or(DecapsulationError::Kyber)?;
         Ok(array::from_fn(|i| k_secret[i] ^ x_secret[i]))
@@ -82,9 +84,9 @@ impl Keypair {
 
     pub fn decapsulate_choosen(
         &self,
-        ciphertext: ChoosenCiphertext,
+        ciphertext: &ChoosenCiphertext,
     ) -> Result<SharedSecret, DecapsulationError> {
-        let secret = self.decapsulate(ciphertext.cp)?;
+        let secret = self.decapsulate(&ciphertext.cp)?;
         Ok(ciphertext.pl.decrypt(secret, ASOC_DATA)?)
     }
 }
@@ -122,7 +124,7 @@ pub struct PublicKey {
 
 #[cfg(test)]
 mod tests {
-    use rand_core::OsRng;
+    use {crate::SHARED_SECRET_SIZE, rand_core::OsRng};
 
     #[test]
     fn test_enc_dec() {
@@ -130,7 +132,7 @@ mod tests {
         let alice = Keypair::new(OsRng);
         let bob = Keypair::new(OsRng);
         let (ciphertext, secret) = alice.encapsulate(&bob.public_key(), OsRng);
-        let dec = bob.decapsulate(ciphertext).unwrap();
+        let dec = bob.decapsulate(&ciphertext).unwrap();
         assert_eq!(secret, dec);
     }
 
@@ -141,7 +143,7 @@ mod tests {
         let bob = Keypair::new(OsRng);
         let secret = [42u8; SHARED_SECRET_SIZE];
         let ciphertext = alice.encapsulate_choosen(&bob.public_key(), secret, OsRng);
-        let dec = bob.decapsulate_choosen(ciphertext).unwrap();
+        let dec = bob.decapsulate_choosen(&ciphertext).unwrap();
         assert_eq!(secret, dec);
     }
 }

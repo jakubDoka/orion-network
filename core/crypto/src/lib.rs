@@ -107,12 +107,12 @@ pub struct FixedAesPayload<const SIZE: usize> {
 impl<const SIZE: usize> FixedAesPayload<SIZE> {
     pub fn new(
         mut data: [u8; SIZE],
-        key: SharedSecret,
+        key: &SharedSecret,
         asoc_data: &[u8],
         rng: impl CryptoRngCore,
     ) -> Self {
         let nonce = Aes256Gcm::generate_nonce(rng);
-        let cipher = Aes256Gcm::new(&GenericArray::from(key));
+        let cipher = Aes256Gcm::new(&GenericArray::from(*key));
         let tag = cipher
             .encrypt_in_place_detached(&nonce, asoc_data, &mut data)
             .expect("cannot fail from the implementation");
