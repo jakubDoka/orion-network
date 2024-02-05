@@ -16,7 +16,7 @@ arrayvec = "0.7.4"
 blake3 = "1.5.0"
 crypto = { version = "0.1.0", path = "../crypto" }
 futures = "0.3.30"
-berkleamp-welch = { version = "6.0.0", path = "../../utils/berkleamp-welch", features = ["simd-accel"] }
+berkleamp-welch = { version = "0.1.0", path = "../../utils/berkleamp-welch", features = ["simd"] }
 component-utils = { version = "0.1.0", path = "../../utils/component-utils" }
 
 [dev-dependencies]

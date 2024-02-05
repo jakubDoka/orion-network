@@ -157,7 +157,7 @@ fn write_tables() {
     write_table!(1D => f, inv_table,      "INV_TABLE",      "u8");
     write_table!(2D => f, mul_table,      "MUL_TABLE",      "u8");
 
-    if cfg!(feature = "simd-accel") {
+    if cfg!(feature = "simd") {
         let (mul_table_low, mul_table_high) = gen_mul_table_half(&log_table, &exp_table);
 
         write_table!(2D => f, mul_table_low,  "MUL_TABLE_LOW",  "u8");

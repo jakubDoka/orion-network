@@ -52,6 +52,16 @@ pub fn exp(a: u8, n: usize) -> u8 {
 #[allow(unused)]
 const PURE_RUST_UNROLL: usize = 4;
 
+#[cfg(not(any(
+    not(feature = "simd"),
+    target_feature = "avx2",
+    target_feature = "ssse3",
+    target_feature = "simd128"
+)))]
+compile_error!(
+    "`simd` feature is useless without `avx2`, `ssse3` or `simd128` target feature enabled"
+);
+
 #[cfg(target_feature = "avx2")]
 const LANES: usize = 32;
 #[cfg(any(

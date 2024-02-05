@@ -5,18 +5,12 @@ members = [
 	"utils/*",
 	"tests/*",
 	"contracts/*",
-	"forked/*",
 	"core/*",
 	"utils/falcon/falcon"
 ]
 exclude = [
-	"forked/substrate-contracts-node",
-	"forked/substrate-node-template",
-	"forked/rust-libp2p",
-	"forked/rust-yamux",
-	"forked/PQClean",
+	"forked/node-template",
 	"utils/falcon",
-	"forked/infectious",
 ]
 
 [workspace.lints.clippy]

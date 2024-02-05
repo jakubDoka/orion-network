@@ -1,5 +1,6 @@
 use {
-    crate::{FixedAesPayload, SharedSecret, TransmutationCircle, ASOC_DATA, SHARED_SECRET_SIZE},
+    crate::{FixedAesPayload, SharedSecret, ASOC_DATA},
+    core::array,
     rand_core::CryptoRngCore,
 };
 
@@ -7,25 +8,17 @@ impl_transmute! {
     Keypair,
     PublicKey,
     Ciphertext,
-    ChoosenPayload,
     ChoosenCiphertext,
 }
 
-type EncriptedKey = FixedAesPayload<{ SHARED_SECRET_SIZE }>;
-
 pub struct Ciphertext {
-    pl: FixedAesPayload<{ kyber::CIPHERTEXTBYTES }>,
+    pl: [u8; kyber::CIPHERTEXTBYTES],
     x: x25519_dalek::PublicKey,
 }
 
 pub struct ChoosenCiphertext {
-    pl: FixedAesPayload<{ core::mem::size_of::<ChoosenPayload>() }>,
-    x: x25519_dalek::PublicKey,
-}
-
-struct ChoosenPayload {
-    key: EncriptedKey,
-    kyb: [u8; kyber::CIPHERTEXTBYTES],
+    pl: FixedAesPayload<32>,
+    cp: Ciphertext,
 }
 
 #[derive(Clone)]
@@ -65,15 +58,10 @@ impl Keypair {
     ) -> (Ciphertext, SharedSecret) {
         let mut seed = [0; kyber::ENC_SEEDBYTES];
         rng.fill_bytes(&mut seed);
-        let (data, secret) = public_key.post.enc(&seed);
-        let x_secret = self.pre.diffie_hellman(&public_key.pre);
-        (
-            Ciphertext {
-                pl: FixedAesPayload::new(data, x_secret.to_bytes(), ASOC_DATA, rng),
-                x: x25519_dalek::PublicKey::from(&self.pre),
-            },
-            secret,
-        )
+        let (data, k_secret) = public_key.post.enc(&seed);
+        let x_secret = self.pre.diffie_hellman(&public_key.pre).to_bytes();
+        let secret = array::from_fn(|i| k_secret[i] ^ x_secret[i]);
+        (Ciphertext { pl: data, x: x25519_dalek::PublicKey::from(&self.pre) }, secret)
     }
 
     pub fn encapsulate_choosen(
@@ -82,33 +70,22 @@ impl Keypair {
         secret: SharedSecret,
         mut rng: impl CryptoRngCore,
     ) -> ChoosenCiphertext {
-        let mut seed = [0; kyber::ENC_SEEDBYTES];
-        rng.fill_bytes(&mut seed);
-        let (kyb, ksecret) = public_key.post.enc(&seed);
-        let x_secret = self.pre.diffie_hellman(&public_key.pre);
-        let key = EncriptedKey::new(secret, ksecret, ASOC_DATA, &mut rng);
-        let data = ChoosenPayload { key, kyb };
-        ChoosenCiphertext {
-            pl: FixedAesPayload::new(data.into_bytes(), x_secret.to_bytes(), ASOC_DATA, rng),
-            x: x25519_dalek::PublicKey::from(&self.pre),
-        }
+        let (cp, key) = self.encapsulate(public_key, &mut rng);
+        ChoosenCiphertext { pl: FixedAesPayload::new(secret, key, ASOC_DATA, rng), cp }
     }
 
     pub fn decapsulate(&self, ciphertext: Ciphertext) -> Result<SharedSecret, DecapsulationError> {
-        let x_secret = self.pre.diffie_hellman(&ciphertext.x);
-        let data = ciphertext.pl.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
-        self.post.dec(&data).ok_or(DecapsulationError::Kyber)
+        let x_secret = self.pre.diffie_hellman(&ciphertext.x).to_bytes();
+        let k_secret = self.post.dec(&ciphertext.pl).ok_or(DecapsulationError::Kyber)?;
+        Ok(array::from_fn(|i| k_secret[i] ^ x_secret[i]))
     }
 
     pub fn decapsulate_choosen(
         &self,
         ciphertext: ChoosenCiphertext,
     ) -> Result<SharedSecret, DecapsulationError> {
-        let x_secret = self.pre.diffie_hellman(&ciphertext.x);
-        let data = ciphertext.pl.decrypt(x_secret.to_bytes(), ASOC_DATA)?;
-        let payload = ChoosenPayload::from_bytes(data);
-        let secret = self.post.dec(&payload.kyb).ok_or(DecapsulationError::Kyber)?;
-        Ok(payload.key.decrypt(secret, ASOC_DATA)?)
+        let secret = self.decapsulate(ciphertext.cp)?;
+        Ok(ciphertext.pl.decrypt(secret, ASOC_DATA)?)
     }
 }
 

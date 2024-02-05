@@ -1,9 +1,4 @@
 [package]
-repository = { workspace = true }
-license = { workspace = true }
-readme = { workspace = true }
-categories = { workspace = true }
-keywords = { workspace = true }
 name = "user_manager"
 version = "0.1.0"
 authors = ["[your_name] <[your_email]>"]
@@ -31,5 +26,3 @@ std = [
 ink-as-dependency = []
 e2e-tests = []
 
-[lints]
-workspace = true
