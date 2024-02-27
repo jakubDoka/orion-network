@@ -50,7 +50,7 @@ rebuild_workspace() {
 }
 
 forked/substrate-node-template/target/release/node-template --dev > /dev/null 2>&1 &
-sleep 1
+sleep 10
 subxt metadata > core/chain-types/metadata.scale
 
 (cd nodes/client/wallet-integration && npm i || exit 1)

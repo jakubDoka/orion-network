@@ -163,7 +163,7 @@ impl<T: SortedElement> SortedCompactVec<T> {
         if *changed.len == n {
             self.data.remove(i)
         } else {
-            *changed.len = *changed.len - n;
+            *changed.len -= n;
             Some(changed.end()..changed.end() + n)
         }
     }
@@ -428,7 +428,7 @@ mod test {
     #[test]
     fn test_sorted_vec_expansion() {
         let mut vec = super::SortedCompactVec::allocated();
-        let max_free = 100000;
+        let max_free: usize = 100000;
         for i in 0..max_free {
             if i % 2 != 0 {
                 assert!(vec.push_range(i * 3..i * 3 + 3));
@@ -438,13 +438,13 @@ mod test {
         let now = Instant::now();
         let iters = 10000;
         for _ in 0..iters {
-            assert_eq!(vec.pop_exact(max_free as usize + 2), None);
+            assert_eq!(vec.pop_exact(max_free + 2), None);
         }
         println!("pop_exact: {:?}", now.elapsed().checked_div(iters).unwrap());
 
         let now = Instant::now();
         for _ in 0..iters {
-            assert_eq!(vec.pop_exact_slow(max_free as usize + 2), None);
+            assert_eq!(vec.pop_exact_slow(max_free + 2), None);
         }
         println!("pop_exact_slow: {:?}", now.elapsed().checked_div(iters).unwrap());
     }

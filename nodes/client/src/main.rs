@@ -209,7 +209,12 @@ fn App() -> impl IntoView {
         let invite = Mail::HardenedJoinRequest {
             cp: cp.into_bytes(),
             payload: unsafe {
-                std::mem::transmute(FixedAesPayload::new(payload, secret, crypto::ASOC_DATA, OsRng))
+                std::mem::transmute(FixedAesPayload::new(
+                    payload,
+                    &secret,
+                    crypto::ASOC_DATA,
+                    OsRng,
+                ))
             },
         }
         .to_bytes();
@@ -276,7 +281,7 @@ fn App() -> impl IntoView {
         match mail {
             Mail::ChatInvite { chat, cp } => {
                 let secret = enc
-                    .decapsulate_choosen(ChoosenCiphertext::from_bytes(cp))
+                    .decapsulate_choosen(&ChoosenCiphertext::from_bytes(cp))
                     .context("failed to decapsulate invite")?;
 
                 state.vault.update(|v| _ = v.chats.insert(chat, ChatMeta::from_secret(secret)));
@@ -284,7 +289,7 @@ fn App() -> impl IntoView {
             Mail::HardenedJoinRequest { cp, payload } => {
                 log::debug!("handling hardened join request");
                 let secret = enc
-                    .decapsulate(Ciphertext::from_bytes(cp))
+                    .decapsulate(&Ciphertext::from_bytes(cp))
                     .context("failed to decapsulate invite")?;
 
                 let payload: FixedAesPayload<{ std::mem::size_of::<JoinRequestPayload>() }> =
@@ -313,7 +318,7 @@ fn App() -> impl IntoView {
                 log::debug!("handling hardened chat invite");
                 let enc = enc;
                 let secret = enc
-                    .decapsulate(Ciphertext::from_bytes(cp))
+                    .decapsulate(&Ciphertext::from_bytes(cp))
                     .context("failed to decapsulate hardened invite")?;
 
                 let mut payload = payload.0.to_owned();

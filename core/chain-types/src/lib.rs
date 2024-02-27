@@ -22,6 +22,7 @@ pub trait InkMessage: codec::Encode {
     }
 }
 
+#[allow(clippy::needless_return)]
 #[subxt::subxt(runtime_metadata_path = "metadata.scale", generate_docs)]
 mod polkadot {}
 contract_macro::contract!("../../target/ink/node_staker/node_staker.contract");

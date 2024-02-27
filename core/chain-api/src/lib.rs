@@ -6,12 +6,9 @@ use {
         polkadot::{
             self,
             contracts::calls::types::Call,
-            runtime_types::{
-                pallet_contracts_primitives::{ContractResult, ExecReturnValue},
-                sp_runtime::DispatchError,
-                sp_weights::weight_v2::Weight,
-            },
+            runtime_types::{sp_runtime::DispatchError, sp_weights::weight_v2::Weight},
         },
+        runtime_types::pallet_contracts::primitives::{ContractResult, ExecReturnValue},
         subxt, subxt_signer, user_manager, Hash, InkMessage,
     },
     futures::{StreamExt, TryFutureExt, TryStreamExt},
@@ -218,7 +215,7 @@ impl<S: TransactionHandler> Client<S> {
     }
 
     pub async fn transfere(&self, dest: AccountId, amount: Balance, nonce: Nonce) -> Result<()> {
-        let transaction = polkadot::tx().balances().transfer(dest.into(), amount);
+        let transaction = polkadot::tx().balances().transfer_keep_alive(dest.into(), amount);
         self.signer.handle(&self.inner, transaction, nonce).await
     }
 

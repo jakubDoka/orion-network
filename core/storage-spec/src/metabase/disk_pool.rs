@@ -191,6 +191,7 @@ impl<I: SortedElement, T: Record> Db<I, T> {
                     .read(true)
                     .write(true)
                     .create(true)
+                    .truncate(false)
                     .open(root_dir.join(format!("{GROUP_FILE_NAME_PREFIX}{i}.{}", T::EXT,)))
                     .map(|fd| FileAccess { fd, lock: RwLock::new(()) })
             })

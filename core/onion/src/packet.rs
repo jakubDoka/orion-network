@@ -113,7 +113,7 @@ pub fn peel_initial(
     let (buffer, tail) = buffer.split_at_mut(buffer.len() - CS);
     let ciphertext: Serialized<Ciphertext> = (&*tail).try_into().ok()?;
     let ciphertext = crypto::enc::Ciphertext::from_bytes(ciphertext);
-    let ss = node_kp.decapsulate(ciphertext).ok()?;
+    let ss = node_kp.decapsulate(&ciphertext).ok()?;
 
     if buffer.is_empty() {
         return Some((None, ss, 0));

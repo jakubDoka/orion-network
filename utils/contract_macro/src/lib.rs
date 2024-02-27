@@ -79,6 +79,7 @@ fn generate_contract_mod(contract_name: &str, metadata: &InkProject) -> proc_mac
     });
 
     quote::quote!(
+        #[allow(clippy::all)]
         pub mod #contract_name {
             #glob
             #types_mod
